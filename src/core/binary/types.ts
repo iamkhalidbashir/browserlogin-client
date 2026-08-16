@@ -33,6 +33,7 @@ export class BinaryManagerError extends Error {
     message: string,
     public readonly code: BinaryErrorCode,
     options?: ErrorOptions,
+    public readonly retryable = false,
   ) {
     super(message, options);
     this.name = "BinaryManagerError";
@@ -78,6 +79,7 @@ export type EnsureBinaryOptions = VersionResolutionOptions & {
   progress?: (event: ProgressEvent) => void;
   diskSpace?: (path: string) => Promise<{ available: number }>;
   healthCallback?: (info: BinaryInfo) => Promise<boolean> | boolean;
+  officialSigningPublicKey?: string;
 };
 
 export type InstallOptions = {

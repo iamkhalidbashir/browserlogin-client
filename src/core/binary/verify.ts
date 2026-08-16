@@ -10,7 +10,7 @@ import {
   type BinaryPlatform,
   type BinarySource,
 } from "./types.js";
-import { archiveName, OFFICIAL_DOWNLOAD_BASE } from "./versions.js";
+import { archiveName } from "./versions.js";
 
 export const OFFICIAL_SIGNING_PUBLIC_KEY =
   "MKFKwIhUcKWq5xTuNA0Ovg99njcDEcEJvmWYYhApvaU=";
@@ -39,7 +39,11 @@ export function parseManifestVersion(text: string): string | undefined {
     .trim();
 }
 
-function verifyEd25519(manifest: Uint8Array, signatureText: string): boolean {
+function verifyEd25519(
+  manifest: Uint8Array,
+  signatureText: string,
+  publicKeyText = OFFICIAL_SIGNING_PUBLIC_KEY,
+): boolean {
   const signature = Buffer.from(signatureText.trim(), "base64");
   if (
     signature.length !== 64 ||
@@ -50,9 +54,7 @@ function verifyEd25519(manifest: Uint8Array, signatureText: string): boolean {
     key: {
       kty: "OKP",
       crv: "Ed25519",
-      x: Buffer.from(OFFICIAL_SIGNING_PUBLIC_KEY, "base64").toString(
-        "base64url",
-      ),
+      x: Buffer.from(publicKeyText, "base64").toString("base64url"),
     },
     format: "jwk",
   });
@@ -81,6 +83,7 @@ export async function verifyArchive(
   manifestBase: string,
   headers?: Record<string, string>,
   fetchImpl: BinaryFetch = fetch,
+  officialSigningPublicKey = OFFICIAL_SIGNING_PUBLIC_KEY,
 ): Promise<ManifestVerification> {
   let manifest: string;
   let signature: string | undefined;
@@ -109,7 +112,11 @@ export async function verifyArchive(
   if (source === "official") {
     if (
       !signature ||
-      !verifyEd25519(new TextEncoder().encode(manifest), signature)
+      !verifyEd25519(
+        new TextEncoder().encode(manifest),
+        signature,
+        officialSigningPublicKey,
+      )
     ) {
       throw new BinaryManagerError(
         "CloakBrowser SHA256SUMS signature verification failed",
@@ -142,8 +149,4 @@ export async function verifyArchive(
     trust: source === "official" ? "verified" : "unverified-custom",
     manifest,
   };
-}
-
-export function officialManifestBase(version: string, pro: boolean): string {
-  return `${OFFICIAL_DOWNLOAD_BASE}/${pro ? "releases/pro/" : ""}chromium-v${version}`;
 }

@@ -14,6 +14,7 @@ export const FALLBACK_VERSIONS: Readonly<Record<BinaryPlatform, string>> =
   });
 
 export const OFFICIAL_DOWNLOAD_BASE = "https://cloakbrowser.dev";
+export const OFFICIAL_VERSION_URL = `${OFFICIAL_DOWNLOAD_BASE}/api/download/version`;
 export const GITHUB_RELEASES_API =
   "https://api.github.com/repos/CloakHQ/cloakbrowser/releases";
 const HOUR_MS = 60 * 60 * 1000;
@@ -102,29 +103,17 @@ async function discoverFree(
     : undefined;
   if (marker && now - marker.checkedAt < HOUR_MS) return marker.version;
   try {
-    const response = await (options.fetchImpl ?? fetch)(
-      options.githubApiUrl ?? GITHUB_RELEASES_API,
-      {
-        headers: { Accept: "application/vnd.github+json" },
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+    const response = await (options.fetchImpl ?? fetch)(OFFICIAL_VERSION_URL, {
+      signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const releases = (await response.json()) as Array<{
-      tag_name?: string;
-      draft?: boolean;
-      prerelease?: boolean;
-      assets?: Array<{ name?: string }>;
-    }>;
-    const archive = archiveName(platform);
-    const release = releases.find(
-      (item) =>
-        !item.draft &&
-        !item.prerelease &&
-        item.assets?.some((asset) => asset.name === archive),
-    );
-    const version = versionFromTag(release?.tag_name ?? "");
-    if (!version) throw new Error("no matching release asset");
+    const payload = (await response.json()) as {
+      version?: string;
+      latest?: string;
+    };
+    const version = payload.version ?? payload.latest;
+    if (!version)
+      throw new Error("official version response did not contain a version");
     if (markerDirectory)
       await writeMarker(markerPath(markerDirectory, platform, false), {
         version,
@@ -132,7 +121,39 @@ async function discoverFree(
       });
     return version;
   } catch {
-    return marker?.version ?? fallbackVersion(platform);
+    try {
+      const response = await (options.fetchImpl ?? fetch)(
+        options.githubApiUrl ?? GITHUB_RELEASES_API,
+        {
+          headers: { Accept: "application/vnd.github+json" },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const releases = (await response.json()) as Array<{
+        tag_name?: string;
+        draft?: boolean;
+        prerelease?: boolean;
+        assets?: Array<{ name?: string }>;
+      }>;
+      const archive = archiveName(platform);
+      const release = releases.find(
+        (item) =>
+          !item.draft &&
+          !item.prerelease &&
+          item.assets?.some((asset) => asset.name === archive),
+      );
+      const version = versionFromTag(release?.tag_name ?? "");
+      if (!version) throw new Error("no matching release asset");
+      if (markerDirectory)
+        await writeMarker(markerPath(markerDirectory, platform, false), {
+          version,
+          checkedAt: now,
+        });
+      return version;
+    } catch {
+      return marker?.version ?? fallbackVersion(platform);
+    }
   }
 }
 
@@ -194,6 +215,12 @@ export async function resolveVersion(
       pro,
     };
   }
+  if (!pro && options.requestedVersion)
+    return {
+      platform,
+      version: validateVersion(options.requestedVersion),
+      pro: false,
+    };
   if (pro)
     return {
       platform,
@@ -220,4 +247,19 @@ export function officialArchiveUrl(
   version: string,
 ): string {
   return `${OFFICIAL_DOWNLOAD_BASE}/chromium-v${version}/${archiveName(platform)}`;
+}
+
+export function githubArchiveUrl(
+  platform: BinaryPlatform,
+  version: string,
+): string {
+  return `https://github.com/CloakHQ/cloakbrowser/releases/download/v${version}/${archiveName(platform)}`;
+}
+
+export function officialManifestBase(version: string, pro: boolean): string {
+  return `${OFFICIAL_DOWNLOAD_BASE}/${pro ? "releases/pro/" : ""}chromium-v${version}`;
+}
+
+export function githubManifestBase(version: string): string {
+  return `https://github.com/CloakHQ/cloakbrowser/releases/download/v${version}`;
 }
