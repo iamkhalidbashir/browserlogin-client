@@ -70,6 +70,7 @@ type Operation = {
   client: Client;
   id: number | string;
   acked: boolean;
+  cancelReason?: "lifecycle" | "timeout";
 };
 
 type Client = {
@@ -199,12 +200,19 @@ const removeMapping = (client: Client, sessionId: string): void => {
 };
 
 const cancel = (operation: Operation): void => {
-  if (!operation.acked) operation.controller.abort();
+  if (!operation.acked) {
+    operation.cancelReason = "lifecycle";
+    operation.controller.abort();
+  }
+};
+
+const cancelSessionOperations = (client: Client, sessionId: string): void => {
+  for (const operation of client.operations)
+    if (operation.sessionId === sessionId) cancel(operation);
 };
 
 const cancelSession = (client: Client, sessionId: string): void => {
-  for (const operation of client.operations)
-    if (operation.sessionId === sessionId) cancel(operation);
+  cancelSessionOperations(client, sessionId);
   removeMapping(client, sessionId);
 };
 
@@ -253,7 +261,7 @@ const updateMappings = (client: Client, message: Message): void => {
     return;
   }
   if (message.method === "Page.frameNavigated" && message.sessionId)
-    cancelSession(client, message.sessionId);
+    cancelSessionOperations(client, message.sessionId);
 };
 
 const closeClient = (client: Client, code = 1000): void => {
@@ -346,6 +354,7 @@ const runInput = async (
   timeoutMs: number,
 ): Promise<void> => {
   if (
+    client.closed ||
     message.id === undefined ||
     !message.method ||
     !INTERCEPTED_INPUT_METHODS.has(message.method)
@@ -362,6 +371,7 @@ const runInput = async (
     acked: false,
   };
   client.operations.add(operation);
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     await Promise.race([
       Promise.resolve(
@@ -385,16 +395,23 @@ const runInput = async (
           { once: true },
         );
       }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("CDP input timed out")), timeoutMs),
-      ),
+      new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          operation.cancelReason = "timeout";
+          operation.controller.abort();
+          reject(new Error("CDP input timed out"));
+        }, timeoutMs);
+      }),
     ]);
     if (!operation.acked) {
       operation.acked = true;
       send(client.socket, response(message.id, message.sessionId));
     }
   } catch {
-    if (operation.controller.signal.aborted) {
+    if (
+      operation.controller.signal.aborted &&
+      operation.cancelReason === "lifecycle"
+    ) {
       operation.acked = true;
       send(client.socket, response(message.id, message.sessionId));
     } else if (fallbackAllowed(message.method, options.directFallback ?? {})) {
@@ -421,6 +438,7 @@ const runInput = async (
       send(client.socket, errorResponse(message.id, message.sessionId));
     }
   } finally {
+    if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
     client.operations.delete(operation);
   }
 };

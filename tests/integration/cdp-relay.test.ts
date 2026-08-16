@@ -338,7 +338,7 @@ describe("CDP input relay", () => {
     await stopUpstream(upstream);
   });
 
-  test("uses bounded keyboard fallback after worker failure and waits for upstream", async () => {
+  test("uses bounded keyboard fallback after worker timeout and waits for upstream", async () => {
     const upstream = await startUpstream((socket, message) => {
       if (message.method === "Target.setAutoAttach")
         socket.send(JSON.stringify({ id: message.id, result: {} }));
@@ -351,12 +351,20 @@ describe("CDP input relay", () => {
           25,
         );
     });
+    let aborted = false;
     const relay = await startCdpRelay({
       upstreamUrl: upstream.url,
-      timeoutMs: 100,
+      timeoutMs: 30,
       worker: {
-        execute: () => {
-          throw new Error("worker failed");
+        execute: (_event, signal) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+            },
+            { once: true },
+          );
+          return new Promise<void>(() => undefined);
         },
       },
     });
@@ -369,6 +377,7 @@ describe("CDP input relay", () => {
     });
     expect(await receive(client)).toEqual({ id: 8, result: {} });
     expect(Date.now() - start).toBeGreaterThanOrEqual(20);
+    expect(aborted).toBe(true);
     expect(
       upstream.messages.find((message) => message.method === "Input.insertText")
         ?.method,
