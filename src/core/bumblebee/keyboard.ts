@@ -1,3 +1,4 @@
+import { sleepWithSignal, throwIfAborted } from "./types";
 import type { CdpSender, Clock } from "./types";
 
 const SHIFTED: Record<string, string> = {
@@ -55,6 +56,7 @@ export type KeyboardOptions = {
 
 export class HumanKeyboard {
   private modifiers = 0;
+  private readonly swallowed = new Set<string>();
   private readonly clock: Clock;
   constructor(
     private readonly sender: CdpSender,
@@ -71,7 +73,9 @@ export class HumanKeyboard {
   async dispatch(
     params: Record<string, unknown>,
     sessionId = this.sessionId,
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfAborted(signal);
     await this.sender.send(
       "Input.dispatchKeyEvent",
       {
@@ -83,8 +87,9 @@ export class HumanKeyboard {
       },
       sessionId,
     );
+    throwIfAborted(signal);
     if (params.type === "rawKeyDown" || params.type === "keyDown")
-      await this.clock.sleep(this.keyHoldMs);
+      await sleepWithSignal(this.clock, this.keyHoldMs, signal);
     if (params.type === "keyUp")
       this.modifiers =
         typeof params.modifiers === "number"
@@ -92,11 +97,38 @@ export class HumanKeyboard {
           : this.modifiers;
   }
 
-  async typeText(text: string, sessionId = this.sessionId): Promise<void> {
+  async typeText(
+    text: string,
+    sessionId = this.sessionId,
+    signal?: AbortSignal,
+  ): Promise<void> {
     for (const char of [...text]) {
+      throwIfAborted(signal);
       await this.sender.send("Input.insertText", { text: char }, sessionId);
-      await this.clock.sleep(this.interCharMs);
+      throwIfAborted(signal);
+      await sleepWithSignal(this.clock, this.interCharMs, signal);
     }
+  }
+
+  async typeCharacter(
+    params: Record<string, unknown>,
+    sessionId = this.sessionId,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const keyDown: Record<string, unknown> = { ...params, type: "keyDown" };
+    const keyUp: Record<string, unknown> = { ...params, type: "keyUp" };
+    delete keyUp.text;
+    await this.dispatch(keyDown, sessionId, signal);
+    await this.dispatch(keyUp, sessionId, signal);
+  }
+
+  swallowKeyUp(key: string): void {
+    this.swallowed.add(key);
+  }
+  consumeSwallowedKeyUp(key: string): boolean {
+    if (!this.swallowed.has(key)) return false;
+    this.swallowed.delete(key);
+    return true;
   }
 
   async press(key: string): Promise<void> {

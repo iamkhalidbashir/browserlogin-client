@@ -1,6 +1,13 @@
 import { classicalPath } from "./profiles";
 import { SCREEN, OnnxMousePolicy } from "./policy";
-import type { CdpSender, FallbackMetrics, Point, ProfileName } from "./types";
+import {
+  CancellationError,
+  throwIfAborted,
+  type CdpSender,
+  type FallbackMetrics,
+  type Point,
+  type ProfileName,
+} from "./types";
 
 export type MouseOptions = {
   policy?: OnnxMousePolicy;
@@ -42,15 +49,21 @@ export class HumanMouse {
     return { ...this.position };
   }
 
+  get actualViewport(): { width: number; height: number } {
+    return { ...this.viewport };
+  }
+
   async move(
     target: Point,
     params: Record<string, unknown> = {},
     sessionId = this.sessionId,
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfAborted(signal);
     const destination = clamp(target, this.viewport);
     const start = this.position;
     if (Math.hypot(destination.x - start.x, destination.y - start.y) <= 1) {
-      await this.dispatch("mouseMoved", destination, params, sessionId);
+      await this.dispatch("mouseMoved", destination, params, sessionId, signal);
       return;
     }
     let points: Point[];
@@ -68,15 +81,17 @@ export class HumanMouse {
             this.options.seed ?? 0,
           );
       points = points.map((point) => fromModel(point, this.viewport));
+      throwIfAborted(signal);
       if (!validPath(points, start, destination, this.maxPoints, this.viewport))
         throw new Error("invalid trajectory");
     } catch (error) {
+      if (error instanceof CancellationError) throw error;
       this.fallback(error instanceof Error ? error.message : "trajectory");
       points = [start, destination];
     }
     points[points.length - 1] = destination;
     for (const point of points)
-      await this.dispatch("mouseMoved", point, params, sessionId);
+      await this.dispatch("mouseMoved", point, params, sessionId, signal);
   }
 
   async dispatch(
@@ -84,13 +99,16 @@ export class HumanMouse {
     point: Point,
     params: Record<string, unknown> = {},
     sessionId = this.sessionId,
+    signal?: AbortSignal,
   ): Promise<void> {
+    throwIfAborted(signal);
     const safe = clamp(point, this.viewport);
     await this.sender.send(
       "Input.dispatchMouseEvent",
       { ...params, type, x: safe.x, y: safe.y },
       sessionId,
     );
+    throwIfAborted(signal);
     if (
       type === "mouseMoved" ||
       type === "mousePressed" ||
