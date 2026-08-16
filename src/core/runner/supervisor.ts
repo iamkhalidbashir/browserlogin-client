@@ -12,7 +12,11 @@ import {
   writeAuthorization,
   writeStopControl,
 } from "./protocol.js";
-import type { RunnerSupervisorOptions, SpawnedRunner } from "./types.js";
+import type {
+  ChildExit,
+  RunnerSupervisorOptions,
+  SpawnedRunner,
+} from "./types.js";
 
 const assertLicenseApi = (value: string): string => {
   if (
@@ -25,7 +29,7 @@ const assertLicenseApi = (value: string): string => {
 
 const defaultSpawn = async (
   argv: readonly string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; logPath: string },
+  options: { cwd: string; env: NodeJS.ProcessEnv },
 ): Promise<SpawnedRunner> => {
   const { spawn } = await import("node:child_process");
   const child = spawn(argv[0]!, [...argv.slice(1)], {
@@ -33,6 +37,10 @@ const defaultSpawn = async (
     env: options.env,
     detached: process.platform !== "win32",
     stdio: ["ignore", "ignore", "ignore"],
+  });
+  const completion = new Promise<ChildExit>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+    child.once("error", () => resolve({ code: null, signal: null }));
   });
   let identity: ProcessIdentity;
   try {
@@ -58,12 +66,22 @@ const defaultSpawn = async (
     child.kill("SIGKILL");
     throw error;
   }
-  return { identity, sendSignal: (signal) => child.kill(signal) };
+  return { identity, completion, sendSignal: (signal) => child.kill(signal) };
 };
 
-export async function launchRunner(
-  options: RunnerSupervisorOptions,
-): Promise<{ identity: ProcessIdentity; stop(): Promise<void> }> {
+const cleanupArtifacts = async (
+  paths: RunnerSupervisorOptions["paths"],
+): Promise<void> => {
+  await Promise.all(
+    Object.values(paths).map((path) => unlink(path).catch(() => undefined)),
+  );
+};
+
+export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
+  identity: ProcessIdentity;
+  closed: Promise<ChildExit>;
+  stop(): Promise<void>;
+}> {
   const spec = validateLaunchSpec(options.spec);
   protectedLaunchArgs(spec);
   if (options.licenseApiUrl !== undefined)
@@ -89,7 +107,10 @@ export async function launchRunner(
   });
   const spawn = options.spawn ?? defaultSpawn;
   const argv = [
-    process.env.BROWSERLOGIN_RUNNER_COMMAND ?? process.execPath,
+    process.env.BROWSERLOGIN_RUNNER_COMMAND ??
+      (process.versions.bun
+        ? process.execPath
+        : (process.env.BROWSERLOGIN_BUN_PATH ?? "bun")),
     fileURLToPath(new URL("./child.ts", import.meta.url)),
     "--profile-id",
     spec.profile_id,
@@ -107,10 +128,9 @@ export async function launchRunner(
     runner = await spawn(argv, {
       cwd: options.cwd,
       env,
-      logPath: options.logPath,
     });
   } catch (error) {
-    await unlink(options.paths.launchFile).catch(() => undefined);
+    await cleanupArtifacts(options.paths);
     throw error;
   }
   const assert = options.assertIdentity ?? assertIdentity;
@@ -119,6 +139,7 @@ export async function launchRunner(
     await writeAuthorization(options.paths.gateFile);
   } catch (error) {
     await stopRunner(runner.identity, options).catch(() => undefined);
+    await cleanupArtifacts(options.paths);
     throw error;
   }
   try {
@@ -129,12 +150,24 @@ export async function launchRunner(
     await options.onReady?.();
   } catch (error) {
     await stopRunner(runner.identity, options).catch(() => undefined);
+    await cleanupArtifacts(options.paths);
     throw error;
   }
+  let normalStopCalled = false;
+  const normalStop = async (): Promise<void> => {
+    if (normalStopCalled) return;
+    normalStopCalled = true;
+    await options.onNormalStop?.();
+  };
+  const closed = runner.completion.then(async (exit) => {
+    if (exit.code === 0 && exit.signal === null) await normalStop();
+    return exit;
+  });
   let stopping: Promise<void> | undefined;
   let completed = false;
   return {
     identity: runner.identity,
+    closed,
     stop: async () => {
       if (completed) return;
       if (stopping) return stopping;
@@ -153,7 +186,6 @@ export async function launchRunner(
                   ),
                 );
             if (!alive) {
-              await options.onNormalStop?.();
               completed = true;
               return;
             }
@@ -161,7 +193,6 @@ export async function launchRunner(
           }
           if (!(await stopRunner(runner.identity, options)))
             throw new Error("CloakBrowser runner did not stop");
-          await options.onNormalStop?.();
           completed = true;
         } catch (error) {
           await stopRunner(runner.identity, options).catch(() => undefined);

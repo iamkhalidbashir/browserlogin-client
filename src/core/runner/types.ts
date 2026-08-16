@@ -42,7 +42,13 @@ export type RunnerPaths = {
 
 export type SpawnedRunner = {
   identity: ProcessIdentity;
+  completion: Promise<ChildExit>;
   sendSignal?: (signal: NodeJS.Signals) => void;
+};
+
+export type ChildExit = {
+  code: number | null;
+  signal: NodeJS.Signals | null;
 };
 
 export type BrowserContextLike = {
@@ -81,10 +87,9 @@ export type RunnerSupervisorOptions = {
   licenseKey?: string;
   licenseApiUrl?: string;
   cwd: string;
-  logPath: string;
   spawn?: (
     argv: readonly string[],
-    options: { cwd: string; env: NodeJS.ProcessEnv; logPath: string },
+    options: { cwd: string; env: NodeJS.ProcessEnv },
   ) => Promise<SpawnedRunner> | SpawnedRunner;
   assertIdentity?: (identity: ProcessIdentity) => Promise<ProcessIdentity>;
   stopTree?: (identity: ProcessIdentity, timeoutMs: number) => Promise<boolean>;
