@@ -14,7 +14,18 @@ type Manifest = {
   artifact: { sha256: string; opset: number };
   corpus: { cases: number; sha256: string };
   observations: { size: number; ordering: string[] };
-  actions: { size: number; bounds: [number, number] };
+  actions: {
+    size: number;
+    bounds: [number, number];
+    transform: {
+      name: string;
+      formula: string;
+      epsilon: number;
+      sampling: string;
+      deterministic_action: string;
+      onnx_outputs: string;
+    };
+  };
   log_std_clip: { min: number; max: number };
 };
 
@@ -43,6 +54,14 @@ describe("SAC ONNX artifact", () => {
     expect(manifest.observations.ordering).toHaveLength(10);
     expect(manifest.actions.size).toBe(2);
     expect(manifest.actions.bounds).toEqual([-1, 1]);
+    expect(manifest.actions.transform).toEqual({
+      name: "squashed_gaussian",
+      formula: "tanh(mean + exp(log_std) * noise)",
+      epsilon: 1e-6,
+      sampling: "outside ONNX",
+      deterministic_action: "tanh(mean), evaluated outside ONNX",
+      onnx_outputs: "mean and log_std only",
+    });
     expect(manifest.log_std_clip.min).toBe(-20);
     expect(manifest.log_std_clip.max).toBe(2);
     expect(sha256(readFileSync(modelPath))).toBe(manifest.artifact.sha256);

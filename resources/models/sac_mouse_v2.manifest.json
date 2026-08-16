@@ -75,7 +75,14 @@
       -1.0,
       1.0
     ],
-    "transform": "SB3 SAC squashed action is not exported"
+    "transform": {
+      "name": "squashed_gaussian",
+      "formula": "tanh(mean + exp(log_std) * noise)",
+      "epsilon": 1e-06,
+      "sampling": "outside ONNX",
+      "deterministic_action": "tanh(mean), evaluated outside ONNX",
+      "onnx_outputs": "mean and log_std only"
+    }
   },
   "log_std_clip": {
     "min": -20.0,
@@ -87,7 +94,7 @@
     "target_radius_px": 8.0
   },
   "conversion": {
-    "date_utc": "2026-08-16T00:37:27.989159Z",
+    "date_utc": "2026-08-16T04:09:04.293030Z",
     "versions": {
       "stable_baselines3": "2.9.0",
       "torch": "2.13.0",
@@ -99,7 +106,8 @@
     },
     "metrics": {
       "max_absolute_error": 2.86102294921875e-06,
-      "mean_absolute_error": 1.4770546385989292e-07
+      "mean_absolute_error": 1.4770546385989292e-07,
+      "non_finite_count": 0
     },
     "deterministic": true,
     "random_sampling_in_onnx": false
