@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "name": "sac_mouse_v2",
+  "artifact": {
+    "path": "resources/models/sac_mouse_v2.onnx",
+    "sha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
+    "size_bytes": 1083258,
+    "opset": 17,
+    "inputs": [
+      {
+        "name": "observation",
+        "shape": [
+          "batch",
+          10
+        ],
+        "dtype": "float32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "mean",
+        "shape": [
+          "batch",
+          2
+        ],
+        "dtype": "float32"
+      },
+      {
+        "name": "log_std",
+        "shape": [
+          "batch",
+          2
+        ],
+        "dtype": "float32"
+      }
+    ]
+  },
+  "source": {
+    "path": "external Bumblebee sac_mouse_v2.zip",
+    "sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
+    "algorithm": "SAC",
+    "policy": "MlpPolicy"
+  },
+  "corpus": {
+    "path": "tests/fixtures/onnx-corpus.json",
+    "sha256": "f7b3a3e18420184ba420181c52a8612bd1af634c0b24ba32c728d6447a5c0efa",
+    "cases": 1200,
+    "seed": 20260816
+  },
+  "observations": {
+    "size": 10,
+    "ordering": [
+      "position_x / screen_width",
+      "position_y / screen_height",
+      "destination_x / screen_width",
+      "destination_y / screen_height",
+      "(destination_x - position_x) / screen_width",
+      "(destination_y - position_y) / screen_height",
+      "euclidean_distance / screen_diagonal",
+      "previous_velocity_x / max_velocity_px_s",
+      "previous_velocity_y / max_velocity_px_s",
+      "step / max_steps"
+    ],
+    "screen": {
+      "width_px": 4096,
+      "height_px": 2304,
+      "diagonal_px": 4699.53529617557
+    },
+    "max_velocity_px_s": 6500.0,
+    "max_steps": 96
+  },
+  "actions": {
+    "size": 2,
+    "bounds": [
+      -1.0,
+      1.0
+    ],
+    "transform": "SB3 SAC squashed action is not exported"
+  },
+  "log_std_clip": {
+    "min": -20.0,
+    "max": 2.0,
+    "source": "stable_baselines3.sac.policies.Actor.get_action_dist_params"
+  },
+  "environment": {
+    "dt_seconds": 0.008333333333333333,
+    "target_radius_px": 8.0
+  },
+  "conversion": {
+    "date_utc": "2026-08-16T00:37:27.989159Z",
+    "versions": {
+      "stable_baselines3": "2.9.0",
+      "torch": "2.13.0",
+      "numpy": "2.5.2",
+      "python": "3.14.3",
+      "source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
+      "onnx": "1.22.0",
+      "onnxruntime": "1.28.0"
+    },
+    "metrics": {
+      "max_absolute_error": 2.86102294921875e-06,
+      "mean_absolute_error": 1.4770546385989292e-07
+    },
+    "deterministic": true,
+    "random_sampling_in_onnx": false
+  }
+}
