@@ -73,6 +73,18 @@ const alive = (pid: number): boolean => {
   }
 };
 
+const powershellKillTree = async (rootPid: number): Promise<void> => {
+  const script =
+    "$root=[int]$env:ROOT_PID; $all=@(Get-CimInstance Win32_Process); $ids=New-Object System.Collections.Generic.List[int]; $ids.Add($root); do { $added=$false; foreach($p in $all) { if($ids.Contains([int]$p.ParentProcessId) -and -not $ids.Contains([int]$p.ProcessId)) { $ids.Add([int]$p.ProcessId); $added=$true } } } while($added); $ids | Sort-Object -Descending | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }";
+  await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    {
+      env: { ...process.env, ROOT_PID: String(rootPid) },
+    },
+  );
+};
+
 export const killProcessTree = async (
   rootPid: number,
   options: KillTreeOptions,
@@ -86,7 +98,7 @@ export const killProcessTree = async (
     try {
       await execFileAsync("taskkill", ["/PID", String(rootPid), "/T", "/F"]);
     } catch {
-      void 0;
+      await powershellKillTree(rootPid);
     }
   } else {
     for (const pid of ordered) {
