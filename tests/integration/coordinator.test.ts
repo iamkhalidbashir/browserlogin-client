@@ -60,7 +60,10 @@ afterEach(async () => {
 });
 
 async function setup(
-  options: { paid?: boolean; upload?: "ok" | "ambiguous" | "conflict" } = {},
+  options: {
+    paid?: boolean;
+    upload?: "ok" | "ambiguous" | "conflict" | "conflict-once";
+  } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "browserlogin-coordinator-"));
   roots.push(root);
@@ -68,6 +71,7 @@ async function setup(
   let uploads = 0;
   let stops = 0;
   let releases = 0;
+  let conflictAttempts = 0;
   const api: CoordinatorApi = {
     async startSession(profileId, key) {
       starts += 1;
@@ -105,7 +109,10 @@ async function setup(
     },
     async stopSession(_sessionId, _archive, key) {
       stops += 1;
-      if (options.upload === "conflict")
+      if (
+        options.upload === "conflict" ||
+        (options.upload === "conflict-once" && conflictAttempts++ === 0)
+      )
         throw new ConflictError("server rejected generation");
       expect(key).toMatch(/^stop-/);
       return {
@@ -286,6 +293,17 @@ describe("Task 18 recovery state", () => {
       ConflictError,
     );
     expect(await fixture.coordinator.store.load("profile-1")).not.toBeNull();
+  });
+
+  it("resumes a persisted post-upload stop without uploading twice", async () => {
+    const fixture = await setup({ upload: "conflict-once" });
+    await fixture.coordinator.start("profile-1");
+    await expect(fixture.coordinator.stop("profile-1")).rejects.toBeInstanceOf(
+      ConflictError,
+    );
+    await fixture.coordinator.stop("profile-1");
+    expect(fixture.counts().uploads).toBe(1);
+    expect(fixture.counts().stops).toBe(2);
   });
 
   it("force-stops without uploading or mutating the cache", async () => {

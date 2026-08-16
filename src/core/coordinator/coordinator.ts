@@ -452,6 +452,34 @@ export class LifecycleCoordinator {
       throw new BrowserLoginError("force stop is pending; retry force stop");
     if (state.status === "done")
       throw new BrowserLoginError("session is already stopped");
+    const persistedArchive = state.stop_payload?.archive;
+    if (
+      state.status === "upload-pending" &&
+      state.stop_key &&
+      persistedArchive &&
+      typeof persistedArchive === "object" &&
+      "storage_id" in persistedArchive &&
+      "size" in persistedArchive &&
+      "sha256" in persistedArchive &&
+      (persistedArchive as Record<string, unknown>).format === "zip"
+    ) {
+      const archivePayload = persistedArchive as {
+        storage_id: string;
+        size: number;
+        sha256: string;
+        format: "zip";
+      };
+      const result = await this.options.api.stopSession(
+        sessionId,
+        archivePayload,
+        state.stop_key,
+      );
+      if (result.state !== "stopped" || result.status !== "stopped")
+        throw new BrowserLoginError("stop response was not committed");
+      await this.store.save(transition(state, "done", this.now));
+      await this.cleanupLocked({ ...state, status: "done" });
+      return result;
+    }
     await this.stopRunner(state);
     state = {
       ...state,
@@ -545,7 +573,6 @@ export class LifecycleCoordinator {
       await this.options.api.sessionStatus(state.remote_session_id);
     if (state.status === "force-stop" || state.status === "upload-ambiguous")
       return;
-    if (state.status === "upload-pending") await this.stopLocked(state);
   }
   private async stopRunner(state: RecoveryState): Promise<void> {
     const handle = this.runnerHandles.get(state.profile_id);
