@@ -86,7 +86,8 @@ export type CrashPoint =
   | "after-upload-pending-save-before-stop"
   | "after-force-stop-intent-save"
   | "after-runner-stopped-before-identity-save"
-  | "after-license-released-before-state-save";
+  | "after-license-released-before-state-save"
+  | "after-stop-response-before-adopt";
 export type CrashInjector = (
   point: CrashPoint,
   state: RecoveryState,
@@ -642,14 +643,8 @@ export class LifecycleCoordinator {
         result.archive_generation < 0
       )
         throw new BrowserLoginError("stop response was not committed");
-      await this.options.adoptArchive?.(
-        state.profile_id,
-        state.archive_artifact!,
-        result.archive_generation,
-      );
-      await this.store.save(transition(state, "done", this.now));
-      await this.cleanupLocked({ ...state, status: "done" });
-      return result;
+      await this.crashInjector?.("after-stop-response-before-adopt", state);
+      return this.adoptCommittedUploadLocked(state, result);
     }
     const hadLicense = state.license_acquired;
     state = transition(state, "archive-ready", this.now);
@@ -766,14 +761,8 @@ export class LifecycleCoordinator {
       result.archive_generation < 0
     )
       throw new BrowserLoginError("stop response was not committed");
-    await this.options.adoptArchive?.(
-      state.profile_id,
-      artifact,
-      result.archive_generation,
-    );
-    await this.store.save(transition(state, "done", this.now));
-    await this.cleanupLocked({ ...state, status: "done" });
-    return result;
+    await this.crashInjector?.("after-stop-response-before-adopt", state);
+    return this.adoptCommittedUploadLocked(state, result);
   }
 
   private async reconcileLocked(
@@ -894,6 +883,8 @@ export class LifecycleCoordinator {
     state: RecoveryState,
     remote: Session,
   ): Promise<Session> {
+    if (state.status === "upload-pending")
+      return this.adoptCommittedUploadLocked(state, remote);
     const hadLicense = state.license_acquired;
     await this.options.runtimeStop?.(state.profile_id);
     await this.stopRunner(state);
@@ -918,6 +909,48 @@ export class LifecycleCoordinator {
       launch_file: null,
     });
     await this.cleanupLocked(state, true);
+    return remote;
+  }
+
+  private async adoptCommittedUploadLocked(
+    state: RecoveryState,
+    remote: Session,
+  ): Promise<Session> {
+    if (
+      !state.archive_artifact ||
+      !state.archive ||
+      !state.stop_payload ||
+      typeof state.stop_payload.archive !== "object" ||
+      state.stop_payload.archive === null
+    )
+      throw new BrowserLoginError("committed upload state is incomplete");
+    if (
+      typeof remote.archive_generation !== "number" ||
+      !Number.isInteger(remote.archive_generation) ||
+      remote.archive_generation < 0
+    )
+      throw new BrowserLoginError(
+        "committed stop response has invalid archive generation",
+      );
+    const archivePayload = state.stop_payload.archive as Record<
+      string,
+      unknown
+    >;
+    const digest = await digestFile(state.archive_artifact);
+    if (
+      digest.size !== archivePayload.size ||
+      digest.sha256 !== archivePayload.sha256
+    )
+      throw new BrowserLoginError(
+        "committed upload artifact no longer matches its archive identity",
+      );
+    await this.options.adoptArchive?.(
+      state.profile_id,
+      state.archive_artifact,
+      remote.archive_generation,
+    );
+    await this.store.save(transition(state, "done", this.now));
+    await this.cleanupLocked({ ...state, status: "done" });
     return remote;
   }
   private async stopRunner(state: RecoveryState): Promise<void> {

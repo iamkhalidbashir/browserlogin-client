@@ -25,6 +25,7 @@ const points = [
   "after-force-stop-intent-save",
   "after-runner-stopped-before-identity-save",
   "after-license-released-before-state-save",
+  "after-stop-response-before-adopt",
 ] as const;
 const profile = {
   id: "profile-1",
@@ -123,6 +124,7 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
               generation: 1,
               state: "stopped",
               status: "stopped",
+              archive_generation: 1,
             }
           : {
               id: "session-1",
@@ -145,6 +147,7 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
     } else if (path === "/sessions/stop") {
       counters.stops += 1;
       counters.stopArchives.push(JSON.parse(raw).archive);
+      counters.remoteStopped = true;
       const key = request.headers["idempotency-key"];
       counters.stopKeys.push(Array.isArray(key) ? (key[0] ?? "") : (key ?? ""));
       send(response, {
@@ -210,7 +213,8 @@ async function runChild(
           (point === "after-archive-ready-save" ||
             point === "after-upload-pending-save-before-stop" ||
             point === "after-runner-stopped-before-identity-save" ||
-            point === "after-license-released-before-state-save")
+            point === "after-license-released-before-state-save" ||
+            point === "after-stop-response-before-adopt")
             ? "1"
             : "0",
         COORDINATOR_FORCE:
@@ -283,6 +287,10 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
         expect(mock.counters.uploads, point).toBe(1);
         expect(mock.counters.uploadBytes, point).toBeGreaterThan(0);
         expect(mock.counters.stopArchives, point).toHaveLength(1);
+        expect(
+          (await readdir(root)).filter((name) => name.startsWith("adopt-")),
+          point,
+        ).toHaveLength(1);
       }
       const state = await createRecoveryStore(root).load("profile-1");
       expect(state, point).toBeNull();

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import {
   LifecycleCoordinator,
@@ -161,6 +161,9 @@ async function main(): Promise<void> {
           }
         },
       };
+    },
+    adoptArchive: async (_profileId, artifact, generation) => {
+      await copyFile(artifact, `${root}/adopt-${generation}`);
     },
   });
 

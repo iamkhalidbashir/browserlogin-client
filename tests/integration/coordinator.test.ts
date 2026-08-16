@@ -14,6 +14,7 @@ import {
   LifecycleCoordinator,
   type CoordinatorApi,
   type CoordinatorProfile,
+  type CrashPoint,
 } from "../../src/core/coordinator/index.js";
 import {
   createRecoveryStore,
@@ -71,6 +72,9 @@ async function setup(
     paid?: boolean;
     upload?: "ok" | "ambiguous" | "conflict" | "conflict-once";
     forceConflict?: boolean;
+    crashPoint?: CrashPoint;
+    mutateAfterUploadPending?: boolean;
+    stopGeneration?: number;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "browserlogin-coordinator-"));
@@ -81,6 +85,9 @@ async function setup(
   let releases = 0;
   let conflictAttempts = 0;
   let adoptedArchive: string | undefined;
+  let remoteStopped = false;
+  const stopGeneration =
+    "stopGeneration" in options ? options.stopGeneration : 1;
   const api: CoordinatorApi = {
     async startSession(profileId, key) {
       starts += 1;
@@ -130,7 +137,9 @@ async function setup(
         generation: 1,
         state: "stopped",
         status: "stopped",
-        archive_generation: 1,
+        ...(stopGeneration === undefined
+          ? {}
+          : { archive_generation: stopGeneration }),
       } as never;
     },
     async forceStopSession() {
@@ -142,6 +151,18 @@ async function setup(
         generation: 1,
         state: "stopped",
         status: "stopped",
+      } as never;
+    },
+    async sessionStatus() {
+      return {
+        id: "session-1",
+        profile_id: "profile-1",
+        generation: 1,
+        state: remoteStopped ? "stopped" : "active",
+        status: remoteStopped ? "stopped" : "active",
+        ...(remoteStopped && stopGeneration !== undefined
+          ? { archive_generation: stopGeneration }
+          : {}),
       } as never;
     },
   };
@@ -170,6 +191,13 @@ async function setup(
     adoptArchive: async (_profileId, artifact, generation) => {
       adoptedArchive = join(root, `adopted-${generation}.zip`);
       await copyFile(artifact, adoptedArchive);
+    },
+    crashInjector: async (point, state) => {
+      if (point !== options.crashPoint) return;
+      remoteStopped = true;
+      if (options.mutateAfterUploadPending && state.archive_artifact)
+        await writeFile(state.archive_artifact, "tampered");
+      throw new Error(`test crash at ${point}`);
     },
   });
   return {
@@ -358,5 +386,33 @@ describe("Task 18 recovery state", () => {
       fixture.coordinator.forceStop("profile-1"),
     ).rejects.toBeInstanceOf(ConflictError);
     expect(await fixture.coordinator.store.load("profile-1")).not.toBeNull();
+    const digestFixture = await setup({
+      crashPoint: "after-upload-pending-save-before-stop",
+      mutateAfterUploadPending: true,
+    });
+    await digestFixture.coordinator.start("profile-1");
+    await expect(digestFixture.coordinator.stop("profile-1")).rejects.toThrow(
+      "test crash",
+    );
+    await expect(
+      digestFixture.coordinator.recover("profile-1"),
+    ).rejects.toThrow("artifact");
+    expect(
+      await digestFixture.coordinator.store.load("profile-1"),
+    ).not.toBeNull();
+    const generationFixture = await setup({
+      crashPoint: "after-upload-pending-save-before-stop",
+      stopGeneration: undefined,
+    });
+    await generationFixture.coordinator.start("profile-1");
+    await expect(
+      generationFixture.coordinator.stop("profile-1"),
+    ).rejects.toThrow("test crash");
+    await expect(
+      generationFixture.coordinator.recover("profile-1"),
+    ).rejects.toThrow("archive generation");
+    expect(
+      await generationFixture.coordinator.store.load("profile-1"),
+    ).not.toBeNull();
   });
 });
