@@ -9,8 +9,11 @@ export class BrowserToolsLifecycle {
   ) {}
 
   async stop(profileId: string): Promise<unknown> {
-    await this.pool.closeProfile(profileId);
-    return this.coordinatorStop(profileId);
+    try {
+      return await this.coordinatorStop(profileId);
+    } finally {
+      await this.pool.closeProfile(profileId);
+    }
   }
 
   async shutdown(): Promise<void> {

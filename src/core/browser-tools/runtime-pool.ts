@@ -5,6 +5,7 @@ import type {
 
 type ProfileState = {
   runtime?: VendorBrowserRuntime;
+  relayCdpUrl?: string;
   startup?: Promise<VendorBrowserRuntime>;
   tail: Promise<void>;
   closing?: boolean;
@@ -29,11 +30,18 @@ export class RuntimePool {
     relayCdpUrl: string,
   ): Promise<VendorBrowserRuntime> {
     const state = this.state(profileId);
-    if (state.runtime) return state.runtime;
+    if (state.runtime && state.relayCdpUrl === relayCdpUrl)
+      return state.runtime;
+    if (state.runtime) {
+      await state.runtime.close();
+      state.runtime = undefined;
+      state.relayCdpUrl = undefined;
+    }
     if (!state.startup) {
       state.startup = this.factory(profileId, relayCdpUrl).then(
         (runtime) => {
           state.runtime = runtime;
+          state.relayCdpUrl = relayCdpUrl;
           state.startup = undefined;
           return runtime;
         },

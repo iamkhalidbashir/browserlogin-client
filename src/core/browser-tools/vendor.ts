@@ -11,6 +11,7 @@ import type {
   VendorCallResult,
   VendorTool,
 } from "./types";
+import { PRODUCT_TOOLS } from "./manifest";
 
 process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
 
@@ -55,27 +56,52 @@ function loopbackPair(): [LoopbackTransport, LoopbackTransport] {
 class McpVendorBrowserRuntime implements VendorBrowserRuntime {
   constructor(
     private readonly client: Client,
-    private readonly server: { close(): Promise<void> },
+    private readonly serverTransport: Transport,
   ) {}
 
   async listTools(): Promise<VendorTool[]> {
-    const result = await this.client.listTools();
-    return result.tools as VendorTool[];
+    await this.client.listTools();
+    return PRODUCT_TOOLS.map((tool) => ({
+      ...tool,
+      inputSchema: structuredClone(tool.inputSchema),
+    }));
   }
 
   async callTool(
     name: string,
     arguments_: JsonObject,
   ): Promise<VendorCallResult> {
+    const vendorName =
+      name === "browser_tabs"
+        ? "browser_tab_list"
+        : name === "browser_run_code_unsafe"
+          ? "browser_evaluate"
+          : name === "browser_drop"
+            ? "browser_file_upload"
+            : name === "browser_find"
+              ? "browser_snapshot"
+              : name === "browser_network_request"
+                ? "browser_network_requests"
+                : name;
+    const vendorArguments =
+      name === "browser_drop"
+        ? { paths: arguments_.paths }
+        : name === "browser_find"
+          ? {}
+          : arguments_;
     return (await this.client.callTool({
-      name,
-      arguments: arguments_,
+      name: vendorName,
+      arguments: vendorArguments,
     })) as VendorCallResult;
   }
 
   async close(): Promise<void> {
-    await this.client.close();
-    await this.server.close();
+    try {
+      await this.client.close();
+    } finally {
+      // The coordinator owns the connected browser. Close only the MCP link.
+      await this.serverTransport.close();
+    }
   }
 }
 
@@ -101,7 +127,13 @@ export async function createF2VendorRuntime(
     { name: `browserlogin-${options.profileId}`, version: "0.1.0" },
     { capabilities: {} },
   );
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  return new McpVendorBrowserRuntime(client, server);
+  try {
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    return new McpVendorBrowserRuntime(client, serverTransport);
+  } catch (error) {
+    await client.close().catch(() => undefined);
+    await server.close().catch(() => undefined);
+    throw error;
+  }
 }
