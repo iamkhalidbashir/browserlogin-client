@@ -3,13 +3,76 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
+import os
 import platform
+import shutil
+import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+BOOTSTRAP_MARKER = "BROWSERLOGIN_SAC_ONNX_BOOTSTRAPPED"
+BOOTSTRAP_PACKAGES = (
+    "numpy==2.5.2",
+    "torch==2.13.0",
+    "stable-baselines3==2.9.0",
+    "onnx==1.22.0",
+    "onnxruntime==1.28.0",
+    "onnxscript==0.7.1",
+)
+BOOTSTRAP_MODULES = (
+    "numpy",
+    "torch",
+    "stable_baselines3",
+    "onnx",
+    "onnxruntime",
+    "onnxscript",
+)
+
+
+def _missing_modules() -> list[str]:
+    missing = []
+    for module in BOOTSTRAP_MODULES:
+        try:
+            available = importlib.util.find_spec(module) is not None
+        except (ImportError, ModuleNotFoundError):
+            available = False
+        if not available:
+            missing.append(module)
+    return missing
+
+
+def _ensure_dependencies() -> None:
+    missing = _missing_modules()
+    if not missing:
+        return
+    if os.environ.get(BOOTSTRAP_MARKER) == "1":
+        raise RuntimeError(
+            "conversion dependencies remain unavailable after uv bootstrap: "
+            + ", ".join(missing)
+        )
+    uv = shutil.which("uv")
+    if uv is None:
+        raise RuntimeError(
+            "missing conversion dependencies ("
+            + ", ".join(missing)
+            + "); install uv or run with the pinned conversion environment"
+        )
+    command = [uv, "run", "--isolated", "--python", sys.executable]
+    for package in BOOTSTRAP_PACKAGES:
+        command.extend(("--with", package))
+    command.extend((str(Path(__file__).resolve()), *sys.argv[1:]))
+    environment = os.environ.copy()
+    environment[BOOTSTRAP_MARKER] = "1"
+    result = subprocess.run(command, env=environment, check=False)
+    raise SystemExit(result.returncode)
+
+
+_ensure_dependencies()
 
 import numpy as np
 import torch
@@ -180,17 +243,22 @@ def compare(
     expected_log_std: np.ndarray,
     actual_mean: np.ndarray,
     actual_log_std: np.ndarray,
-) -> dict[str, float]:
+) -> dict[str, float | int]:
     expected = np.concatenate([expected_mean, expected_log_std], axis=1)
     actual = np.concatenate([actual_mean, actual_log_std], axis=1)
-    if not np.isfinite(expected).all() or not np.isfinite(actual).all():
-        raise AssertionError("non-finite Python or ONNX output")
+    non_finite_count = int((~np.isfinite(expected)).sum() + (~np.isfinite(actual)).sum())
+    if non_finite_count:
+        raise AssertionError(f"non-finite Python or ONNX output: {non_finite_count}")
     absolute_error = np.abs(expected - actual)
     maximum = float(np.max(absolute_error))
     average = float(np.mean(absolute_error))
     if maximum > 1e-5 or average > 1e-6:
         raise AssertionError(f"equivalence thresholds exceeded: max={maximum}, mean={average}")
-    return {"max_absolute_error": maximum, "mean_absolute_error": average}
+    return {
+        "max_absolute_error": maximum,
+        "mean_absolute_error": average,
+        "non_finite_count": non_finite_count,
+    }
 
 
 def write_json(path: Path, value: object) -> None:
@@ -214,7 +282,7 @@ def manifest(
     corpus_path: Path,
     source_sha256: str,
     versions: dict[str, str],
-    metrics: dict[str, float],
+    metrics: dict[str, float | int],
 ) -> dict[str, object]:
     return {
         "schema_version": 1,
@@ -260,7 +328,18 @@ def manifest(
             "max_velocity_px_s": MAX_VELOCITY,
             "max_steps": int(MAX_STEPS),
         },
-        "actions": {"size": 2, "bounds": [-1.0, 1.0], "transform": "SB3 SAC squashed action is not exported"},
+        "actions": {
+            "size": 2,
+            "bounds": [-1.0, 1.0],
+            "transform": {
+                "name": "squashed_gaussian",
+                "formula": "tanh(mean + exp(log_std) * noise)",
+                "epsilon": 1e-6,
+                "sampling": "outside ONNX",
+                "deterministic_action": "tanh(mean), evaluated outside ONNX",
+                "onnx_outputs": "mean and log_std only",
+            },
+        },
         "log_std_clip": {"min": -20.0, "max": 2.0, "source": "stable_baselines3.sac.policies.Actor.get_action_dist_params"},
         "environment": {"dt_seconds": 1 / 120, "target_radius_px": TARGET_RADIUS},
         "conversion": {
