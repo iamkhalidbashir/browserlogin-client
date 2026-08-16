@@ -29,13 +29,21 @@ function powershellSource(
       : operation === "get"
         ? "$credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw 'PasswordVault returned a null password' }; $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine(('blv1:' + $encoded))"
         : "$credential = $vault.Retrieve($resource, $account); $vault.Remove($credential)";
-  return `$payload = [Console]::In.ReadLine()
-Add-Type -AssemblyName System.Runtime.WindowsRuntime
+  return `Add-Type -AssemblyName System.Runtime.WindowsRuntime
 $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]
 $vault = New-Object Windows.Security.Credentials.PasswordVault
 $resource = ${resource}
 $account = ${account}
 try { ${action} } catch { $message = $_.Exception.Message; if ($message -match 'not found|element not found|does not exist') { exit 44 }; [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($message); exit 1 }`;
+}
+
+export function buildWindowsPowerShellFrame(
+  operation: "get" | "set" | "delete",
+  key: KeychainServiceAccount,
+  envelope?: string,
+): string {
+  const payload = envelope === undefined ? "$null" : JSON.stringify(envelope);
+  return `$payload = ${payload}\n${powershellSource(operation, key)}\n`;
 }
 
 export class WindowsKeychainBackend implements KeychainBackend {
@@ -50,7 +58,7 @@ export class WindowsKeychainBackend implements KeychainBackend {
     const result = await runKeychainCommand(
       "powershell.exe",
       powershellArgs,
-      `${envelope}\n${powershellSource(operation, key)}\n`,
+      buildWindowsPowerShellFrame(operation, key, envelope || undefined),
       this.options,
       envelope || undefined,
     );

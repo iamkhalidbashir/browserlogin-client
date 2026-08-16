@@ -14,6 +14,7 @@ import {
 import { LinuxKeychainBackend } from "../../src/core/keychain/linux";
 import { MacOSKeychainBackend } from "../../src/core/keychain/macos";
 import { WindowsKeychainBackend } from "../../src/core/keychain/windows";
+import { buildWindowsPowerShellFrame } from "../../src/core/keychain/windows";
 import { KeychainError } from "../../src/shared/errors";
 import {
   KEYCHAIN_API_ACCOUNT,
@@ -115,8 +116,21 @@ describe("keychain transport contract", () => {
       }
       expect(calls.some((call) => call.input.includes(envelope))).toBe(true);
       expect(calls.every((call) => call.command !== "sh")).toBe(true);
+      if (type === "windows") {
+        expect(calls[0]?.input.startsWith("$payload = ")).toBe(true);
+        expect(calls[0]?.input.startsWith(`${envelope}\n`)).toBe(false);
+      }
     },
   );
+
+  it("starts Windows stdin with valid PowerShell source, not a bare envelope", () => {
+    const envelope = encodeSecret(secret);
+    const frame = buildWindowsPowerShellFrame("set", key, envelope);
+    expect(frame.startsWith("$payload = ")).toBe(true);
+    expect(frame.startsWith(`${envelope}\n`)).toBe(false);
+    expect(frame).toContain(envelope);
+    expect(frame).not.toContain(secret);
+  });
 
   it("maps Linux missing secret-tool to actionable backend unavailability", async () => {
     const backend = new LinuxKeychainBackend({
