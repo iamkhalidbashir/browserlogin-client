@@ -34,6 +34,14 @@ const isTruthyPython = (value: unknown): boolean =>
   String(value).toLowerCase() === "yes" ||
   String(value).toLowerCase() === "on";
 
+const pythonRepr = (value: unknown): string => {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === true) return "True";
+  if (value === false) return "False";
+  if (value === null || value === undefined) return "None";
+  return String(value);
+};
+
 const extractText = (result: VendorCallResult, label: string): string => {
   const body = result.content
     .map((content) => (typeof content.text === "string" ? content.text : ""))
@@ -127,7 +135,7 @@ export class BrowserToolsRouter {
       } else if (type === "checkbox" || type === "radio") {
         if (!isTruthyPython(value)) {
           outputs.push(
-            `### ${String(label)}: skipped (value ${String(value)})`,
+            `### ${String(label)}: skipped (value ${pythonRepr(value)})`,
           );
           continue;
         }
