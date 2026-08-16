@@ -76,7 +76,7 @@ async function authenticatedUpstream(
   expectedPassword: string,
   replyCode = 0,
   rejectFirstAuth = false,
-  finalResponse?: Buffer,
+  finalResponsePrefix?: Buffer,
 ): Promise<number> {
   let authAttempts = 0;
   return listen(
@@ -101,10 +101,12 @@ async function authenticatedUpstream(
               return socket.write(
                 Buffer.from([5, replyCode, 0, 1, 127, 0, 0, 1, 0, 80]),
               );
-            if (finalResponse) {
+            if (finalResponsePrefix) {
               socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]));
+              const payload: Buffer[] = [];
+              socket.on("data", (data) => payload.push(data));
               socket.once("end", () => {
-                socket.write(finalResponse);
+                socket.write(Buffer.concat([finalResponsePrefix, ...payload]));
                 socket.end();
               });
               return;
@@ -172,7 +174,7 @@ describe("authenticated SOCKS5 relay", () => {
       "secret",
       0,
       false,
-      Buffer.from("final:request-before-eof"),
+      Buffer.from("final:"),
     );
     const relay = new Socks5Relay({
       host: "127.0.0.1",
