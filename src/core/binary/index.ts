@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { binaryVersionLock, withLock } from "../locks/index.js";
+import { binaryVersionLock, lockName, withLock } from "../locks/index.js";
 import { resolveStateRoot } from "../config/paths.js";
 import { downloadVerifiedSource } from "./download.js";
 import { installBinary, installedBinary } from "./install.js";
@@ -83,11 +83,16 @@ export async function ensureBinary(
       "INSTALL_FAILED",
     );
   await chmod(root, 0o700);
+  const sourceId = customSource ?? "official";
+  const sourceKey = customSource
+    ? `custom-${lockName(customSource)}`
+    : "official";
   const existing = await installedBinary(
     root,
     resolved.version,
     resolved.pro,
     resolved.platform,
+    sourceId,
   );
   if (
     existing &&
@@ -100,7 +105,7 @@ export async function ensureBinary(
   return withLock(
     binaryVersionLock(
       lockDirectory,
-      `${resolved.platform}-${resolved.version}-${resolved.pro ? "pro" : "free"}`,
+      `${resolved.platform}-${resolved.version}-${resolved.pro ? "pro" : "free"}-${sourceKey}`,
     ),
     async () => {
       const lockedExisting = await installedBinary(
@@ -108,6 +113,7 @@ export async function ensureBinary(
         resolved.version,
         resolved.pro,
         resolved.platform,
+        sourceId,
       );
       if (
         lockedExisting &&
@@ -137,7 +143,7 @@ export async function ensureBinary(
       const archive = join(
         root,
         "downloads",
-        `${resolved.version}-${resolved.platform}${resolved.pro ? "-pro" : ""}.${archiveName(resolved.platform).split(".").slice(1).join(".")}`,
+        `${resolved.version}-${resolved.platform}${resolved.pro ? "-pro" : ""}-${sourceKey}.${archiveName(resolved.platform).split(".").slice(1).join(".")}`,
       );
       let selectedArchiveUrl: string | undefined;
       let lastDownloadError: unknown;
@@ -179,7 +185,6 @@ export async function ensureBinary(
             manifestBase,
             headers,
             options.fetchImpl ?? fetch,
-            options.officialSigningPublicKey,
           );
           break;
         } catch (error) {
@@ -201,6 +206,7 @@ export async function ensureBinary(
         sha256: verification.sha256,
         source,
         trust: verification.trust,
+        sourceId,
         healthCallback: options.healthCallback,
       });
       return { ...info, source, trust: verification.trust };

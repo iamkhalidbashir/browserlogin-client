@@ -14,6 +14,7 @@ import { createGunzip } from "node:zlib";
 import { join, relative } from "node:path";
 import { atomicWriteJson } from "../config/store.js";
 import { SafeZipArchive } from "../archive/index.js";
+import { lockName } from "../locks/index.js";
 import {
   BinaryManagerError,
   type BinaryInfo,
@@ -167,12 +168,27 @@ async function retainVersions(root: string, current: string): Promise<void> {
     await rm(join(root, entry.name), { recursive: true, force: true });
 }
 
+function installName(
+  platform: string,
+  version: string,
+  pro: boolean,
+  sourceId = "official",
+): string {
+  const suffix = sourceId === "official" ? "" : `-custom-${lockName(sourceId)}`;
+  return `${platform}-${version}${pro ? "-pro" : ""}${suffix}`;
+}
+
 export async function installBinary(
   options: InstallOptions,
 ): Promise<BinaryInfo> {
   const runtime = join(options.root, "browser-runtime");
   const browsers = join(runtime, "browsers");
-  const name = `${options.platform}-${options.version}${options.pro ? "-pro" : ""}`;
+  const name = installName(
+    options.platform,
+    options.version,
+    options.pro,
+    options.sourceId,
+  );
   const destination = join(browsers, name);
   const staging = join(browsers, `.staging-${process.pid}-${Date.now()}`);
   await mkdir(browsers, { recursive: true, mode: 0o700 });
@@ -246,44 +262,45 @@ export async function installedBinary(
   version: string,
   pro: boolean,
   platform?: string,
+  sourceId = "official",
 ): Promise<BinaryInfo | undefined> {
+  const resolvedPlatform =
+    platform ?? (process.platform === "win32" ? "windows-x64" : "linux-x64");
   const path = join(
     root,
     "browser-runtime",
     "browsers",
-    `${platform ?? (process.platform === "win32" ? "windows-x64" : "linux-x64")}-${version}${pro ? "-pro" : ""}`,
+    installName(resolvedPlatform, version, pro, sourceId),
   );
   const binary = await findExecutable(path).catch(() => undefined);
-  if (
-    !binary ||
-    !(await executable(
-      binary,
-      platform ?? (process.platform === "win32" ? "windows-x64" : "linux-x64"),
-    ))
-  )
+  if (!binary || !(await executable(binary, resolvedPlatform)))
     return undefined;
-  let metadata: Partial<Pointer> = {};
+  let metadata: Partial<Pointer>;
   try {
     const pointer = JSON.parse(
       await readFile(join(root, "browser-runtime", "current.json"), "utf8"),
     ) as Partial<Pointer>;
     if (
-      pointer.path === binary &&
-      pointer.version === version &&
-      pointer.pro === pro
+      pointer.path !== binary ||
+      pointer.version !== version ||
+      pointer.pro !== pro ||
+      pointer.source !== (sourceId === "official" ? "official" : "custom") ||
+      (pointer.source === "official" && pointer.trust !== "verified") ||
+      (pointer.source === "custom" && pointer.trust !== "unverified-custom")
     )
-      metadata = pointer;
+      return undefined;
+    metadata = pointer;
   } catch {
-    metadata = {};
+    return undefined;
   }
   return {
     path: binary,
     version,
-    platform: undefined,
+    platform: resolvedPlatform as BinaryInfo["platform"],
     pro,
-    sha256: undefined,
-    source: metadata.source ?? "official",
-    trust: metadata.trust ?? "verified",
+    sha256: metadata.sha256,
+    source: metadata.source!,
+    trust: metadata.trust!,
     binarySha256: metadata.binary_sha256,
   };
 }
