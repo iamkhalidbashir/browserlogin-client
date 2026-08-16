@@ -1,4 +1,5 @@
 import { createServer, type Server } from "node:http";
+import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { runRunnerChild } from "../../src/core/runner/child.js";
 import { createOneShotLaunchFile } from "../../src/core/runner/launch.js";
 import { launchRunner } from "../../src/core/runner/supervisor.js";
+import { readFileSync, chmodSync } from "node:fs";
 import type { LaunchSpec } from "../../src/core/runner/types.js";
 
 const baseSpec = {
@@ -111,6 +113,74 @@ describe("fake runner lifecycle", () => {
     await expect(stat(paths.launchFile)).rejects.toThrow();
   });
 
+  test("unauthorized actual child times out and leaves no runner artifacts", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-runner-unauthorized-child-"),
+    );
+    const fakeBinary = new URL("../fixtures/fake-browser.js", import.meta.url)
+      .pathname;
+    const fakeSdk = new URL("../fixtures/fake-sdk.js", import.meta.url)
+      .pathname;
+    const argvFile = join(root, "fake-argv.json");
+    const paths = {
+      launchFile: join(root, "launch.json"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = {
+      ...baseSpec,
+      user_data_dir: join(root, "profile"),
+      browser_cache_dir: join(root, "cache"),
+    };
+    await createOneShotLaunchFile(paths.launchFile, spec);
+    const command = process.versions.bun
+      ? process.execPath
+      : (process.env.BROWSERLOGIN_BUN_PATH ?? "bun");
+    const child = spawn(
+      command,
+      [
+        new URL("../../src/core/runner/child.ts", import.meta.url).pathname,
+        "--profile-id",
+        spec.profile_id,
+        "--launch-file",
+        paths.launchFile,
+        "--gate-file",
+        paths.gateFile,
+        "--control-file",
+        paths.controlFile,
+        "--ready-file",
+        paths.readyFile,
+      ],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          BROWSERLOGIN_RUNNER_SDK_MODULE: fakeSdk,
+          BROWSERLOGIN_FAKE_EXECUTABLE: fakeBinary,
+          FAKE_BROWSER_ARGV_FILE: argvFile,
+          BROWSERLOGIN_RUNNER_GATE_TIMEOUT_MS: "50",
+        },
+        stdio: "ignore",
+      },
+    );
+    const exit = await Promise.race([
+      new Promise<{ code: number | null; signal: string | null }>((resolve) =>
+        child.once("exit", (code, signal) => resolve({ code, signal })),
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("unauthorized child did not exit")),
+          2_000,
+        ),
+      ),
+    ]);
+    expect(exit.code).toBe(1);
+    expect(() => readFileSync(argvFile, "utf8")).toThrow();
+    for (const path of Object.values(paths))
+      await expect(stat(path)).rejects.toThrow();
+  });
+
   test("publishes ready only after CDP and invokes normal stop once across close races", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-fake-"));
     const paths = {
@@ -186,7 +256,6 @@ describe("fake runner lifecycle", () => {
         paths,
         binaryPath: "/tmp/fake-browser",
         cwd: root,
-        logPath: join(root, "runner.log"),
         assertIdentity: async (actual) => actual,
         healthCallback: () => true,
         onReady: () => {
@@ -209,7 +278,7 @@ describe("fake runner lifecycle", () => {
             expect(await readFile(paths.gateFile, "utf8")).toBe("authorized\n");
             await writeFile(paths.readyFile, "browserlogin-runner-ready-v1\n");
           })();
-          return { identity };
+          return { identity, completion: new Promise(() => undefined) };
         },
       });
       expect(running.identity).toEqual(identity);
@@ -267,4 +336,101 @@ describe("fake runner lifecycle", () => {
       );
     }
   });
+
+  test.each(["context-close", "disconnect", "zero-pages"])(
+    "runs the actual child through parent supervision for %s",
+    async (lifecycle) => {
+      const root = await mkdtemp(
+        join(tmpdir(), "browserlogin-runner-real-child-"),
+      );
+      const fakeBinary = new URL("../fixtures/fake-browser.js", import.meta.url)
+        .pathname;
+      const fakeSdk = new URL("../fixtures/fake-sdk.js", import.meta.url)
+        .pathname;
+      chmodSync(fakeBinary, 0o700);
+      const argvFile = join(root, "fake-argv.json");
+      const exitFile = join(root, "fake-exit");
+      const logFile = join(root, "fake-log.jsonl");
+      const paths = {
+        launchFile: join(root, "launch.json"),
+        gateFile: join(root, "gate"),
+        controlFile: join(root, "control"),
+        readyFile: join(root, "ready"),
+      };
+      const spec = {
+        ...baseSpec,
+        seed: 424242,
+        user_data_dir: join(root, "profile"),
+        browser_cache_dir: join(root, "cache"),
+      };
+      let normalStops = 0;
+      const oldArgv = process.env.FAKE_BROWSER_ARGV_FILE;
+      const oldExit = process.env.FAKE_BROWSER_EXIT_FILE;
+      const oldAfter = process.env.FAKE_BROWSER_EXIT_AFTER_MS;
+      const oldLog = process.env.FAKE_BROWSER_LOG_FILE;
+      const errorFile = join(root, "runner-error.txt");
+      const oldErrorFile = process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
+      const oldSdkModule = process.env.BROWSERLOGIN_RUNNER_SDK_MODULE;
+      const oldExecutable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
+      process.env.FAKE_BROWSER_ARGV_FILE = argvFile;
+      process.env.FAKE_BROWSER_EXIT_FILE = exitFile;
+      process.env.FAKE_BROWSER_EXIT_AFTER_MS = "5000";
+      process.env.FAKE_BROWSER_LOG_FILE = logFile;
+      process.env.BROWSERLOGIN_RUNNER_SDK_MODULE = fakeSdk;
+      process.env.BROWSERLOGIN_FAKE_EXECUTABLE = fakeBinary;
+      const oldLifecycle = process.env.FAKE_SDK_LIFECYCLE;
+      process.env.FAKE_SDK_LIFECYCLE = lifecycle;
+      process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE = errorFile;
+      try {
+        const running = await launchRunner({
+          spec,
+          paths,
+          binaryPath: fakeBinary,
+          cwd: root,
+          readyTimeoutMs: 5_000,
+          onNormalStop: () => {
+            normalStops += 1;
+          },
+        });
+        const exit = await Promise.race([
+          running.closed,
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("fake child did not close")),
+              5_000,
+            ),
+          ),
+        ]);
+        expect(exit).toEqual({ code: 0, signal: null });
+        expect(normalStops).toBe(1);
+        const observedArgv = JSON.parse(
+          readFileSync(argvFile, "utf8"),
+        ) as string[];
+        expect(observedArgv).toContain("--fingerprint=424242");
+        expect(observedArgv).not.toContain("--fingerprint=linux");
+        expect(readFileSync(exitFile, "utf8")).toBe("0");
+      } finally {
+        if (oldArgv === undefined) delete process.env.FAKE_BROWSER_ARGV_FILE;
+        else process.env.FAKE_BROWSER_ARGV_FILE = oldArgv;
+        if (oldExit === undefined) delete process.env.FAKE_BROWSER_EXIT_FILE;
+        else process.env.FAKE_BROWSER_EXIT_FILE = oldExit;
+        if (oldAfter === undefined)
+          delete process.env.FAKE_BROWSER_EXIT_AFTER_MS;
+        else process.env.FAKE_BROWSER_EXIT_AFTER_MS = oldAfter;
+        if (oldLog === undefined) delete process.env.FAKE_BROWSER_LOG_FILE;
+        else process.env.FAKE_BROWSER_LOG_FILE = oldLog;
+        if (oldErrorFile === undefined)
+          delete process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
+        else process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE = oldErrorFile;
+        if (oldSdkModule === undefined)
+          delete process.env.BROWSERLOGIN_RUNNER_SDK_MODULE;
+        else process.env.BROWSERLOGIN_RUNNER_SDK_MODULE = oldSdkModule;
+        if (oldExecutable === undefined)
+          delete process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
+        else process.env.BROWSERLOGIN_FAKE_EXECUTABLE = oldExecutable;
+        if (oldLifecycle === undefined) delete process.env.FAKE_SDK_LIFECYCLE;
+        else process.env.FAKE_SDK_LIFECYCLE = oldLifecycle;
+      }
+    },
+  );
 });
