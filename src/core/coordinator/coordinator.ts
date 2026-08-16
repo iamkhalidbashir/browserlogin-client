@@ -84,7 +84,9 @@ export type CrashPoint =
   | "after-running-save"
   | "after-archive-ready-save"
   | "after-upload-pending-save-before-stop"
-  | "after-force-stop-intent-save";
+  | "after-force-stop-intent-save"
+  | "after-runner-stopped-before-identity-save"
+  | "after-license-released-before-state-save";
 export type CrashInjector = (
   point: CrashPoint,
   state: RecoveryState,
@@ -243,37 +245,7 @@ export class LifecycleCoordinator {
         await this.store.save(current);
         await this.crashInjector?.("after-force-stop-intent-save", current);
       }
-      await this.reconcileLocked(current);
-      const persisted = await this.store.load(profileId);
-      if (persisted === null)
-        throw new BrowserLoginError(
-          "lifecycle state disappeared during force-stop reconciliation",
-        );
-      current = persisted as RecoveryState;
-      const hadLicense = current.license_acquired;
-      await this.options.runtimeStop?.(profileId);
-      await this.stopRunner(current);
-      current = {
-        ...current,
-        license_acquired: false,
-        runner_pid: null,
-        runner_start_time: null,
-        runner_cmdline_hash: null,
-        launch_file: null,
-      };
-      await this.store.save(current);
-      if (hadLicense) {
-        await this.options.license?.release();
-        this.licenseUrls.delete(profileId);
-      }
-      const result = await this.options.api.forceStopSession(
-        current.remote_session_id!,
-        current.stop_key!,
-      );
-      if (result.state !== "stopped" || result.status !== "stopped")
-        throw new BrowserLoginError("force stop response was not committed");
-      await this.cleanupLocked(current, true);
-      return result;
+      return this.forceStopLocked(current);
     });
   }
 
@@ -282,7 +254,8 @@ export class LifecycleCoordinator {
     return this.store.withTransition(profileId, async () => {
       let state = await this.store.load(profileId);
       while (state && Date.now() < deadline) {
-        await this.reconcileLocked(state);
+        const reconciled = await this.reconcileLocked(state);
+        if (reconciled) return null;
         state = await this.store.load(profileId);
         if (
           !state ||
@@ -290,13 +263,26 @@ export class LifecycleCoordinator {
           state.status === "upload-ambiguous"
         )
           break;
+        if (state.status === "force-stop") {
+          await this.forceStopLocked(state);
+          return null;
+        }
         if (
           state.status === "upload-pending" ||
           state.status === "archive-ready"
         ) {
           await this.stopLocked(state);
-          state = await this.store.load(profileId);
-          continue;
+          return null;
+        }
+        if (
+          state.status === "start-intent" ||
+          state.status === "license" ||
+          state.status === "remote-active" ||
+          state.status === "archive_materialized" ||
+          state.status === "spawn-intent"
+        ) {
+          state = await this.startLocked(state);
+          return state;
         }
         break;
       }
@@ -671,6 +657,18 @@ export class LifecycleCoordinator {
     await this.crashInjector?.("after-archive-ready-save", state);
     await this.options.runtimeStop?.(state.profile_id);
     await this.stopRunner(state);
+    await this.crashInjector?.(
+      "after-runner-stopped-before-identity-save",
+      state,
+    );
+    if (hadLicense) {
+      await this.options.license?.release();
+      this.licenseUrls.delete(state.profile_id);
+      await this.crashInjector?.(
+        "after-license-released-before-state-save",
+        state,
+      );
+    }
     state = {
       ...state,
       runner_pid: null,
@@ -681,10 +679,6 @@ export class LifecycleCoordinator {
       launch_file: null,
     };
     await this.store.save(state);
-    if (hadLicense) {
-      await this.options.license?.release();
-      this.licenseUrls.delete(state.profile_id);
-    }
     const artifact =
       state.archive_artifact ??
       join(this.options.root, "artifacts", `${state.run_id}.zip`);
@@ -785,6 +779,23 @@ export class LifecycleCoordinator {
   private async reconcileLocked(
     state: RecoveryState,
   ): Promise<Session | undefined> {
+    const remote =
+      state.remote_session_id && this.options.api.sessionStatus
+        ? await this.options.api.sessionStatus(state.remote_session_id)
+        : undefined;
+    if (remote) {
+      if (
+        remote.id !== state.remote_session_id ||
+        remote.profile_id !== state.profile_id
+      )
+        throw new BrowserLoginError(
+          "remote session identity mismatch during reconciliation",
+        );
+      if (remote.state === "stopped" || remote.status === "stopped")
+        return this.cleanupRemoteStoppedLocked(state, remote);
+    }
+    if (state.status === "force-stop" || state.status === "upload-ambiguous")
+      return undefined;
     if (
       state.status === "running" &&
       !this.runnerHandles.has(state.profile_id) &&
@@ -806,14 +817,6 @@ export class LifecycleCoordinator {
           throw new BrowserLoginError(
             "persisted runner identity does not match the live process",
           );
-        const remote =
-          state.remote_session_id && this.options.api.sessionStatus
-            ? await this.options.api.sessionStatus(state.remote_session_id)
-            : undefined;
-        if (remote?.state === "stopped" || remote?.status === "stopped") {
-          await this.cleanupLocked(state, true);
-          return remote;
-        }
         const next = transition(
           {
             ...state,
@@ -829,10 +832,93 @@ export class LifecycleCoordinator {
         return this.stopLocked(next);
       }
     }
-    if (state.remote_session_id && this.options.api.sessionStatus)
-      await this.options.api.sessionStatus(state.remote_session_id);
-    if (state.status === "force-stop" || state.status === "upload-ambiguous")
-      return undefined;
+    return undefined;
+  }
+
+  private async forceStopLocked(input: RecoveryState): Promise<Session> {
+    const state = input;
+    const remote =
+      state.remote_session_id && this.options.api.sessionStatus
+        ? await this.options.api.sessionStatus(state.remote_session_id)
+        : undefined;
+    if (
+      remote &&
+      (remote.id !== state.remote_session_id ||
+        remote.profile_id !== state.profile_id)
+    )
+      throw new BrowserLoginError(
+        "remote session identity mismatch during force stop",
+      );
+    if (remote?.state === "stopped" || remote?.status === "stopped")
+      return this.cleanupRemoteStoppedLocked(state, remote);
+    const hadLicense = state.license_acquired;
+    await this.options.runtimeStop?.(state.profile_id);
+    await this.stopRunner(state);
+    await this.crashInjector?.(
+      "after-runner-stopped-before-identity-save",
+      state,
+    );
+    if (hadLicense) {
+      await this.options.license?.release();
+      this.licenseUrls.delete(state.profile_id);
+      await this.crashInjector?.(
+        "after-license-released-before-state-save",
+        state,
+      );
+    }
+    const cleared = {
+      ...state,
+      license_acquired: false,
+      runner_pid: null,
+      runner_start_time: null,
+      runner_cmdline_hash: null,
+      launch_file: null,
+    } as RecoveryState;
+    await this.store.save(cleared);
+    const result = await this.options.api.forceStopSession(
+      cleared.remote_session_id!,
+      cleared.stop_key!,
+    );
+    if (
+      result.id !== cleared.remote_session_id ||
+      result.profile_id !== cleared.profile_id ||
+      result.state !== "stopped" ||
+      result.status !== "stopped"
+    )
+      throw new BrowserLoginError("force stop response was not committed");
+    await this.cleanupLocked(cleared, true);
+    return result;
+  }
+
+  private async cleanupRemoteStoppedLocked(
+    state: RecoveryState,
+    remote: Session,
+  ): Promise<Session> {
+    const hadLicense = state.license_acquired;
+    await this.options.runtimeStop?.(state.profile_id);
+    await this.stopRunner(state);
+    await this.crashInjector?.(
+      "after-runner-stopped-before-identity-save",
+      state,
+    );
+    if (hadLicense) {
+      await this.options.license?.release();
+      this.licenseUrls.delete(state.profile_id);
+      await this.crashInjector?.(
+        "after-license-released-before-state-save",
+        state,
+      );
+    }
+    await this.store.save({
+      ...state,
+      license_acquired: false,
+      runner_pid: null,
+      runner_start_time: null,
+      runner_cmdline_hash: null,
+      launch_file: null,
+    });
+    await this.cleanupLocked(state, true);
+    return remote;
   }
   private async stopRunner(state: RecoveryState): Promise<void> {
     if (this.naturallyClosed.delete(state.profile_id)) {
@@ -841,7 +927,16 @@ export class LifecycleCoordinator {
     }
     const handle = this.runnerHandles.get(state.profile_id);
     if (handle) {
-      await handle.stop();
+      const actual = await readIdentity(handle.identity);
+      if (
+        actual &&
+        (actual.process_start_time !== handle.identity.process_start_time ||
+          actual.cmdline_hash !== handle.identity.cmdline_hash)
+      )
+        throw new BrowserLoginError(
+          "runner handle identity does not match the live process",
+        );
+      if (actual) await handle.stop();
       this.runnerHandles.delete(state.profile_id);
     } else if (this.options.stopRunner) {
       await this.options.stopRunner(state);
@@ -855,7 +950,15 @@ export class LifecycleCoordinator {
         process_start_time: state.runner_start_time,
         cmdline_hash: state.runner_cmdline_hash,
       };
-      await assertIdentity(identity);
+      const actual = await readIdentity(identity);
+      if (!actual) return;
+      if (
+        actual.process_start_time !== identity.process_start_time ||
+        actual.cmdline_hash !== identity.cmdline_hash
+      )
+        throw new BrowserLoginError(
+          "persisted runner identity does not match the live process",
+        );
       await killProcessTree(identity.pid, { recordedIdentity: identity });
     }
   }

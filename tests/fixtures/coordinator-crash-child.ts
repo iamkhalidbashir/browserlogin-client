@@ -132,7 +132,9 @@ async function main(): Promise<void> {
     license: {
       key: "test-license",
       acquire: async () => `http://license:4290`,
-      release: async () => undefined,
+      release: async () => {
+        await Bun.write(`${root}/release-${process.pid}`, "released\n");
+      },
     },
     crashInjector: async (name) => {
       if (name === point) {
@@ -164,23 +166,21 @@ async function main(): Promise<void> {
 
   if (recovering) {
     const state = await coordinator.recover(profileId);
-    if (state?.status === "force-stop") await coordinator.forceStop(profileId);
-    else if (
-      state?.status === "running" ||
-      state?.status === "archive_materialized" ||
-      state?.status === "archive-ready" ||
-      state?.status === "upload-pending"
+    if (state?.status === "running") await coordinator.stop(profileId);
+    if (
+      state &&
+      [
+        "start-intent",
+        "license",
+        "remote-active",
+        "archive_materialized",
+        "spawn-intent",
+        "archive-ready",
+        "upload-pending",
+        "force-stop",
+      ].includes(state.status)
     )
-      await coordinator.stop(profileId);
-    else if (
-      state?.status === "start-intent" ||
-      state?.status === "license" ||
-      state?.status === "remote-active" ||
-      state?.status === "spawn-intent"
-    ) {
-      await coordinator.start(profileId);
-      await coordinator.stop(profileId);
-    }
+      throw new Error(`recover left actionable state: ${state.status}`);
   } else {
     await coordinator.start(profileId);
     if (forcing) await coordinator.forceStop(profileId);

@@ -4,7 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,8 @@ const points = [
   "after-archive-ready-save",
   "after-upload-pending-save-before-stop",
   "after-force-stop-intent-save",
+  "after-runner-stopped-before-identity-save",
+  "after-license-released-before-state-save",
 ] as const;
 const profile = {
   id: "profile-1",
@@ -52,6 +54,7 @@ type Counters = {
   forceKeys: string[];
   uploadBytes: number;
   stopArchives: unknown[];
+  remoteStopped: boolean;
 };
 let roots: string[] = [];
 let servers: Array<ReturnType<typeof createServer>> = [];
@@ -93,6 +96,7 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
     forceKeys: [],
     uploadBytes: 0,
     stopArchives: [],
+    remoteStopped: false,
   };
   const server = createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -110,13 +114,24 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
         archive: null,
       });
     } else if (path === "/sessions/status") {
-      send(response, {
-        id: "session-1",
-        profile_id: "profile-1",
-        generation: 1,
-        state: "active",
-        status: "active",
-      });
+      send(
+        response,
+        counters.remoteStopped
+          ? {
+              id: "session-1",
+              profile_id: "profile-1",
+              generation: 1,
+              state: "stopped",
+              status: "stopped",
+            }
+          : {
+              id: "session-1",
+              profile_id: "profile-1",
+              generation: 1,
+              state: "active",
+              status: "active",
+            },
+      );
     } else if (path === "/archive-upload-url") {
       send(response, {
         upload_url: `http://127.0.0.1:${(server.address() as { port: number }).port}/upload`,
@@ -193,7 +208,9 @@ async function runChild(
         COORDINATOR_STOP:
           !recover &&
           (point === "after-archive-ready-save" ||
-            point === "after-upload-pending-save-before-stop")
+            point === "after-upload-pending-save-before-stop" ||
+            point === "after-runner-stopped-before-identity-save" ||
+            point === "after-license-released-before-state-save")
             ? "1"
             : "0",
         COORDINATOR_FORCE:
@@ -244,8 +261,14 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
               cmdline_hash: crashedState.runner_cmdline_hash,
             }
           : undefined;
-      if (runnerIdentity)
-        expect(await readIdentity(runnerIdentity), point).toBeDefined();
+      if (runnerIdentity) {
+        const runnerStoppedBeforeCrash =
+          point === "after-runner-stopped-before-identity-save" ||
+          point === "after-license-released-before-state-save";
+        expect(await readIdentity(runnerIdentity), point)[
+          runnerStoppedBeforeCrash ? "toBeUndefined" : "toBeDefined"
+        ]();
+      }
       const recovered = await runChild(root, mock.port, point, true);
       expect(recovered.code, point).toBe(0);
       expect(mock.counters.starts, point).toBe(1);
@@ -265,6 +288,12 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       expect(state, point).toBeNull();
       if (runnerIdentity)
         expect(await readIdentity(runnerIdentity), point).toBeUndefined();
+      const releases = (await readdir(root)).filter((name) =>
+        name.startsWith("release-"),
+      );
+      expect(releases.length, point).toBe(
+        point === "after-license-released-before-state-save" ? 2 : 1,
+      );
     }
   }, 180_000);
 
@@ -292,6 +321,32 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
     expect(mock.counters.starts).toBe(1);
     expect(mock.counters.uploads).toBe(1);
     expect(mock.counters.stops).toBe(1);
+    expect(await createRecoveryStore(root).load("profile-1")).toBeNull();
+  }, 30_000);
+
+  it("cleans locally when the remote session was already stopped", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-remote-stopped-"));
+    roots.push(root);
+    const mock = await startMock();
+    const crashed = await runChild(
+      root,
+      mock.port,
+      "after-running-save",
+      false,
+    );
+    expect(crashed.signal).toBe("SIGKILL");
+    mock.counters.remoteStopped = true;
+    const recovered = await runChild(
+      root,
+      mock.port,
+      "after-running-save",
+      true,
+    );
+    expect(recovered.code).toBe(0);
+    expect(mock.counters.starts).toBe(1);
+    expect(mock.counters.uploads).toBe(0);
+    expect(mock.counters.stops).toBe(0);
+    expect(mock.counters.forces).toBe(0);
     expect(await createRecoveryStore(root).load("profile-1")).toBeNull();
   }, 30_000);
 });
