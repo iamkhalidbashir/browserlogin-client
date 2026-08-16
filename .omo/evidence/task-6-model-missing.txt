@@ -1,0 +1,9 @@
+Command: bun scripts/spike-onnx-wasm.ts --model /tmp/task6-does-not-exist.onnx
+Exit status: 1
+Output:
+MODEL_ASSET_MISSING:model:/tmp/task6-does-not-exist.onnx:searched=/tmp/task6-does-not-exist.onnx:Error: ENOENT: no such file or directory, open '/tmp/task6-does-not-exist.onnx'
+
+Command: bun scripts/spike-onnx-wasm.ts --corrupt-model
+Exit status: 1
+Output:
+MODEL_HASH_MISMATCH:expected=55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b:actual=3ec45543ff5862b6f3a40dfa4d58d09ea7fb6ca2ce77e4ea173a169b9857f0de
