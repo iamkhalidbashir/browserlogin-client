@@ -1,0 +1,18 @@
+Task 4 F1 bundled evidence
+Command: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 ~/.bun/bin/bun build scripts/spike-playwright-mcp.ts --compile --outfile /tmp/playwright-mcp-spike-task4
+34 | var bidiMapper = __toESM(require("chromium-bidi/lib/cjs/bidiMapper/BidiMapper"));
+                                      ^
+error: Could not resolve: "chromium-bidi/lib/cjs/bidiMapper/BidiMapper". Maybe you need to "bun install"?
+    at /Users/bashir/Projects/OpensourceProjects/browserlogin-client/node_modules/playwright-core/lib/server/bidi/bidiOverCdp.js:34:34
+
+35 | var bidiCdpConnection = __toESM(require("chromium-bidi/lib/cjs/cdp/CdpConnection"));
+                                             ^
+error: Could not resolve: "chromium-bidi/lib/cjs/cdp/CdpConnection". Maybe you need to "bun install"?
+    at /Users/bashir/Projects/OpensourceProjects/browserlogin-client/node_modules/playwright-core/lib/server/bidi/bidiOverCdp.js:35:41
+
+2 | const { app } = require("electron");
+                            ^
+error: Could not resolve: "electron". Maybe you need to "bun install"?
+    at /Users/bashir/Projects/OpensourceProjects/browserlogin-client/node_modules/playwright-core/lib/server/electron/loader.js:2:25
+exit=1
+No external modules, system Node, or repository node_modules were used to turn this failure into a success.

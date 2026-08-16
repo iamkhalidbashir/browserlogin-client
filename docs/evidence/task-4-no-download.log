@@ -1,0 +1,5 @@
+Task 4 no-download evidence
+PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+Probe cache before: []
+Probe cache after: []
+System Chrome was launched with a temporary profile and the profile was removed after the source run.
