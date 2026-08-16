@@ -3,6 +3,7 @@ import {
   KEYCHAIN_SERVICE,
 } from "../../shared/keychain-types";
 import type { KeychainBackend } from "../../shared/keychain-types";
+import { createKeychainBackend } from "../keychain";
 import { atomicWriteJson, readJson } from "./store";
 import { posixPathSecurity } from "./paths";
 import type { PathSecurity, StatePaths } from "./paths";
@@ -16,7 +17,7 @@ type LegacyConnection = {
 
 export async function migrateLegacyConnection(
   paths: StatePaths,
-  keychain: KeychainBackend,
+  keychain: KeychainBackend = createKeychainBackend(),
   security: PathSecurity = posixPathSecurity(),
 ): Promise<boolean> {
   const legacy = await readJson<LegacyConnection>(paths.connection, security);
