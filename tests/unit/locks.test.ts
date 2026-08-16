@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { withLock } from "../../src/core/locks/locks.js";
 import { parseLinuxProcessStartTime } from "../../src/core/locks/platform.js";
 import { captureIdentity } from "../../src/core/processes/identity.js";
+import { LockTimeoutError } from "../../src/core/locks/types.js";
 
 const temp = async () => mkdtemp(join(tmpdir(), "browserlogin-task13-"));
 
@@ -77,10 +78,9 @@ describe("Task 13 locks", () => {
     },
   );
 
-  it("reclaims dead and PID-reused owners but blocks matching live owners", async () => {
+  it("reclaims stale dead-PID owners", async () => {
     const directory = await temp();
     const dead = join(directory, "dead.lock");
-    const live = join(directory, "live.lock");
     const owner = {
       pid: 999999999,
       process_start_time: "old",
@@ -90,19 +90,74 @@ describe("Task 13 locks", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(dead, JSON.stringify(owner), { mode: 0o600 });
     await withLock(dead, async () => undefined, { timeoutMs: 500, pollMs: 1 });
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("reclaims stale live-PID owners with a wrong process start time", async () => {
+    const directory = await temp();
+    const lockPath = join(directory, "reused.lock");
     const current = await captureIdentity();
     await writeFile(
-      live,
+      lockPath,
       JSON.stringify({
-        ...owner,
+        pid: current.pid,
+        process_start_time: `impossible-${current.process_start_time}`,
+        hostname: "test",
+        created_at: new Date().toISOString(),
+      }),
+      { mode: 0o600 },
+    );
+    await withLock(lockPath, async () => undefined, {
+      timeoutMs: 500,
+      pollMs: 1,
+    });
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("keeps a live owner with a matching process start time blocked", async () => {
+    const directory = await temp();
+    const lockPath = join(directory, "live.lock");
+    const current = await captureIdentity();
+    await writeFile(
+      lockPath,
+      JSON.stringify({
         pid: current.pid,
         process_start_time: current.process_start_time,
+        hostname: "test",
+        created_at: new Date().toISOString(),
       }),
       { mode: 0o600 },
     );
     await expect(
-      withLock(live, async () => undefined, { timeoutMs: 20, pollMs: 1 }),
-    ).rejects.toThrow();
+      withLock(lockPath, async () => undefined, { timeoutMs: 20, pollMs: 1 }),
+    ).rejects.toBeInstanceOf(LockTimeoutError);
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("does not reclaim a replaced live owner file", async () => {
+    const directory = await temp();
+    const lockPath = join(directory, "replaced.lock");
+    const staleOwner = {
+      pid: 999999999,
+      process_start_time: "old",
+      hostname: "test",
+      created_at: new Date().toISOString(),
+    };
+    const current = await captureIdentity();
+    const liveOwner = {
+      pid: current.pid,
+      process_start_time: current.process_start_time,
+      hostname: "test",
+      created_at: new Date().toISOString(),
+    };
+    await writeFile(lockPath, JSON.stringify(staleOwner), { mode: 0o600 });
+    await writeFile(lockPath, JSON.stringify(liveOwner), { mode: 0o600 });
+    await expect(
+      withLock(lockPath, async () => undefined, { timeoutMs: 20, pollMs: 1 }),
+    ).rejects.toBeInstanceOf(LockTimeoutError);
+    await expect(readFile(lockPath, "utf8")).resolves.toBe(
+      JSON.stringify(liveOwner),
+    );
     await rm(directory, { recursive: true, force: true });
   });
 });
