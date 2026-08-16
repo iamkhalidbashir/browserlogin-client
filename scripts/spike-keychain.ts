@@ -56,6 +56,10 @@ function stripExpectedTransport(value: string): string {
 function classifyFailure(result: RunResult): KeychainError | undefined {
   if (result.code === null && result.signal === "SIGTERM") return KeychainError.TIMEOUT;
   const text = `${result.stdout}\n${result.stderr}`.toLowerCase();
+  if (/status=-25300\b/.test(text) || result.code === 44) return KeychainError.NOT_FOUND;
+  if (/status=-25308\b/.test(text)) return KeychainError.LOCKED;
+  if (/status=-25293\b|status=51\b/.test(text)) return KeychainError.DENIED;
+  if (/status=-25294\b|status=-25291\b/.test(text)) return KeychainError.BACKEND_UNAVAILABLE;
   if (/no matching|could not be found|not found|no such item|element not found|does not exist/.test(text)) return KeychainError.NOT_FOUND;
   if (/locked|interaction is required|user interaction|authentication required/.test(text)) return KeychainError.LOCKED;
   if (/permission denied|access denied|unauthori[sz]ed|not permitted|operation not permitted|passphrase .*not correct/.test(text)) return KeychainError.DENIED;
@@ -147,7 +151,7 @@ function fail(error: KeychainError | undefined, detail: string): Cell {
 }
 
 function failureDetail(prefix: string, result: RunResult): string {
-  const diagnostic = stripExpectedTransport(`${result.stderr}\n${result.stdout}`).trim().replace(/\s+/g, " ").slice(0, 240);
+  const diagnostic = stripExpectedTransport(`${result.stderr}\n${result.stdout}`).trim().replace(/\s+/g, " ").slice(0, 1000);
   assertNoCredentialMaterial(diagnostic, "failure diagnostic");
   const shape = `stdout-length=${result.stdout.length},stdout-codes=${[...result.stdout.slice(0, 4)].map((char) => char.charCodeAt(0)).join(".")}`;
   return `${prefix} (exit=${result.code ?? result.signal ?? "unknown"}; ${shape}${diagnostic ? `: ${diagnostic}` : ""})`;
@@ -163,69 +167,142 @@ function decodeEnvelope(value: string): string | undefined {
   return Buffer.from(line.slice(5), "base64").toString("utf8");
 }
 
-function expectSource(operation: "store" | "replace", accountName: string, serviceName: string): string {
-  const accountLiteral = JSON.stringify(accountName);
-  const serviceLiteral = JSON.stringify(serviceName);
-  return `set timeout 10; set first [gets stdin]; set second [gets stdin]; spawn /usr/bin/security add-generic-password -s ${serviceLiteral} -a ${accountLiteral} ${operation === "replace" ? "-U " : ""}-w; expect "password data for new item:"; send -- "$first\\r"; expect "retype password for new item:"; send -- "$second\\r"; expect eof`;
+const macHelperSource = `import Foundation
+import Security
+
+let args = CommandLine.arguments
+guard args.count == 5 else { exit(64) }
+let operation = args[1]
+let keychainPath = args[2]
+let service = args[3]
+let account = args[4]
+let input = FileHandle.standardInput.readDataToEndOfFile()
+guard input.last == 10 else { exit(65) }
+let envelope = input.dropLast()
+
+func report(_ status: OSStatus) -> Never {
+  fputs("status=\\(status)\\n", stderr)
+  exit(status == errSecItemNotFound ? 44 : 1)
 }
 
-async function macStore(envelope: string, operation: "store" | "replace"): Promise<RunResult> {
-  return run("/usr/bin/expect", ["-c", expectSource(operation, account, resource)], [
-    { data: `${envelope}\n`, delayMs: 100 },
-    { data: `${envelope}\n`, delayMs: 100 },
-  ], true);
+var keychain: SecKeychain?
+guard SecKeychainOpen(keychainPath, &keychain) == errSecSuccess, let keychain else { report(errSecNoSuchKeychain) }
+guard SecKeychainSetUserInteractionAllowed(false) == errSecSuccess else { report(errSecInteractionRequired) }
+
+func withCString<T>(_ value: String, _ body: (UnsafePointer<CChar>, UInt32) -> T) -> T {
+  let data = Data(value.utf8)
+  return data.withUnsafeBytes { bytes in
+    body(bytes.bindMemory(to: CChar.self).baseAddress!, UInt32(data.count))
+  }
+}
+
+func findItem() -> SecKeychainItem? {
+  var passwordLength: UInt32 = 0
+  var passwordData: UnsafeMutableRawPointer?
+  var item: SecKeychainItem?
+  let status = withCString(service) { serviceBytes, serviceLength in
+    withCString(account) { accountBytes, accountLength in
+      SecKeychainFindGenericPassword(keychain, serviceLength, serviceBytes, accountLength, accountBytes, &passwordLength, &passwordData, &item)
+    }
+  }
+  if passwordData != nil { SecKeychainItemFreeContent(nil, passwordData) }
+  if status == errSecItemNotFound { return nil }
+  if status != errSecSuccess { report(status) }
+  return item
+}
+
+func removeExisting() {
+  if let item = findItem() {
+    let status = SecKeychainItemDelete(item)
+    if status != errSecSuccess && status != errSecItemNotFound { report(status) }
+  }
+}
+
+if operation == "store" || operation == "replace" {
+  if operation == "replace" { removeExisting() }
+  let status = withCString(service) { serviceBytes, serviceLength in
+    withCString(account) { accountBytes, accountLength in
+      envelope.withUnsafeBytes { passwordBytes in
+        SecKeychainAddGenericPassword(keychain, serviceLength, serviceBytes, accountLength, accountBytes, UInt32(envelope.count), passwordBytes.baseAddress!, nil)
+      }
+    }
+  }
+  if status != errSecSuccess { report(status) }
+} else if operation == "retrieve" {
+  var passwordLength: UInt32 = 0
+  var passwordData: UnsafeMutableRawPointer?
+  var item: SecKeychainItem?
+  let status = withCString(service) { serviceBytes, serviceLength in
+    withCString(account) { accountBytes, accountLength in
+      SecKeychainFindGenericPassword(keychain, serviceLength, serviceBytes, accountLength, accountBytes, &passwordLength, &passwordData, &item)
+    }
+  }
+  if status != errSecSuccess { report(status) }
+  if let passwordData {
+    let result = Data(bytes: passwordData, count: Int(passwordLength))
+    FileHandle.standardOutput.write(result)
+    FileHandle.standardOutput.write(Data([10]))
+    SecKeychainItemFreeContent(nil, passwordData)
+  } else { report(errSecItemNotFound) }
+} else if operation == "delete" {
+  removeExisting()
+} else {
+  exit(64)
+}
+`;
+
+async function macOperation(helper: string, operation: string, keychain: string, envelope?: string): Promise<RunResult> {
+  return run(helper, [operation, keychain, resource, account], [{ data: `${envelope ?? ""}\n` }], operation === "retrieve");
 }
 
 async function runMac(): Promise<{ matrix: Matrix; available: boolean; cleanup: boolean }> {
   const matrix: Matrix = {};
   if (process.platform !== "darwin") return { matrix: { platform: skip("not macOS") }, available: false, cleanup: true };
-  if (!(await exists("security")) || !(await exists("expect"))) {
-    matrix.backend_unavailable = fail(KeychainError.BACKEND_UNAVAILABLE, "security or expect is missing");
+  if (!(await exists("security")) || !(await exists("swiftc"))) {
+    matrix.backend_unavailable = fail(KeychainError.BACKEND_UNAVAILABLE, "security or swiftc is missing");
     return { matrix, available: false, cleanup: true };
   }
 
   const directory = await mkdtemp(join(tmpdir(), "bl-keychain-"));
   const keychain = join(directory, "throwaway.keychain-db");
-  let originalDefault = "";
+  const helper = join(directory, "keychain-helper");
+  const keychainPassword = "pass1234";
   let cleanup = false;
   try {
-    let result = await run("security", ["create-keychain", "-p", "", keychain]);
+    let result = await run("security", ["create-keychain", "-p", keychainPassword, keychain]);
     if (!successful(result)) return { matrix: { setup: fail(classifyFailure(result), "temporary keychain creation failed") }, available: false, cleanup };
-    result = await run("security", ["unlock-keychain", "-p", "", keychain]);
+    result = await run("security", ["unlock-keychain", "-p", keychainPassword, keychain]);
     if (!successful(result)) return { matrix: { setup: fail(classifyFailure(result), "temporary keychain unlock failed") }, available: false, cleanup };
-    result = await run("security", ["default-keychain"]);
-    originalDefault = result.stdout.trim().replace(/^"|"$/g, "");
-    result = await run("security", ["default-keychain", "-s", keychain]);
-    if (!successful(result)) return { matrix: { setup: fail(classifyFailure(result), "temporary default-keychain selection failed") }, available: false, cleanup };
+    result = await run("swiftc", ["-framework", "Security", "-o", helper, "-"], [{ data: macHelperSource }]);
+    if (!successful(result)) return { matrix: { setup: fail(classifyFailure(result), failureDetail("temporary explicit-keychain helper compilation failed", result)) }, available: false, cleanup };
 
-    result = await macStore(envelopes[0], "store");
-    matrix.store = successful(result) ? pass() : fail(classifyFailure(result), "stdin envelope store failed");
-    result = await run("security", ["find-generic-password", "-s", resource, "-a", account, "-w", keychain], [], true);
+    result = await macOperation(helper, "store", keychain, envelopes[0]);
+    matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("stdin envelope store failed", result));
+    result = await macOperation(helper, "retrieve", keychain, envelopes[0]);
     const stored = decodeEnvelope(result.stdout);
-    matrix.retrieve = successful(result) && stored === secret ? pass() : fail(classifyFailure(result), "retrieved envelope did not decode to the original bytes");
+    matrix.retrieve = successful(result) && stored === secret ? pass() : fail(classifyFailure(result), failureDetail("retrieved envelope did not decode to the original bytes", result));
 
-    result = await macStore(envelopes[1], "replace");
-    result = successful(result) ? await run("security", ["find-generic-password", "-s", resource, "-a", account, "-w", keychain], [], true) : result;
-    matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), "replacement envelope did not decode to the replacement bytes");
+    result = await macOperation(helper, "replace", keychain, envelopes[1]);
+    result = successful(result) ? await macOperation(helper, "retrieve", keychain, envelopes[1]) : result;
+    matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), failureDetail("replacement envelope did not decode to the replacement bytes", result));
 
     result = await run("security", ["lock-keychain", keychain]);
     if (successful(result)) {
-      result = await run("security", ["unlock-keychain", "-p", "wrong", keychain]);
-      const error = result.code === 51 ? KeychainError.DENIED : classifyFailure(result);
-      matrix.locked_or_denied = error === KeychainError.LOCKED || error === KeychainError.DENIED ? pass() : fail(error, "throwaway locked-keychain probe was not deterministically classified");
-      await run("security", ["unlock-keychain", "-p", "", keychain]);
+      result = await macOperation(helper, "retrieve", keychain, envelopes[1]);
+      const error = classifyFailure(result);
+      matrix.locked_or_denied = error === KeychainError.LOCKED || error === KeychainError.DENIED ? pass() : fail(error, failureDetail("throwaway locked-keychain lookup was not deterministically classified", result));
+      await run("security", ["unlock-keychain", "-p", keychainPassword, keychain]);
     } else {
       matrix.locked_or_denied = fail(classifyFailure(result), "throwaway keychain lock failed");
     }
 
-    result = await run("security", ["delete-generic-password", "-s", resource, "-a", account, keychain]);
-    matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), "explicit-keychain delete failed");
-    result = await run("security", ["find-generic-password", "-s", resource, "-a", account, "-w", keychain], [], true);
-    matrix.not_found = result.code === 44 ? pass() : fail(classifyFailure(result), "missing item did not return security status 44");
-    matrix.backend_unavailable = skip("security and expect are available");
+    result = await macOperation(helper, "delete", keychain);
+    matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("explicit-keychain delete failed", result));
+    result = await macOperation(helper, "retrieve", keychain, envelopes[1]);
+    matrix.not_found = classifyFailure(result) === KeychainError.NOT_FOUND ? pass() : fail(classifyFailure(result), failureDetail("missing item did not return NOT_FOUND", result));
+    matrix.backend_unavailable = skip("security and swiftc are available");
     return { matrix, available: Object.values(matrix).every((cell) => cell.status !== "FAIL"), cleanup };
   } finally {
-    if (originalDefault) await run("security", ["default-keychain", "-s", originalDefault]).catch(() => undefined);
     await run("security", ["delete-keychain", keychain]).catch(() => undefined);
     await rm(directory, { recursive: true, force: true });
     try {
@@ -279,7 +356,7 @@ function powershellSource(operation: "store" | "retrieve" | "remove", accountNam
       ? `Write-Output retrieve-start; $credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw "PasswordVault returned a null password" }; $encoded = "blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine($encoded)`
       : `$credential = $vault.Retrieve($resource, $account); $vault.Remove($credential)`;
   const retrieveTransport = operation === "retrieve" ? "[Console]::Error.WriteLine($encoded)" : "";
-  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)} } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
+  return `$envelope = ${JSON.stringify(envelope)}\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)} } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
 }
 
 async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {

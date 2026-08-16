@@ -1,6 +1,6 @@
 # Spike 005: OS keychain shims
 
-Status: pending native matrix dispatch.
+Status: local macOS leg passed; native matrix pending final dispatch.
 
 ## Decision
 
@@ -40,27 +40,27 @@ Run locally with the pinned runtime:
 bun scripts/spike-keychain.ts
 ```
 
-macOS setup and cleanup commands:
+macOS setup and cleanup commands (the disposable keychain password is the user-authorized test-only value `pass1234`):
 
 ```text
-security create-keychain -p "" <temporary-keychain>
-security unlock-keychain -p "" <temporary-keychain>
-security default-keychain
-security default-keychain -s <temporary-keychain>
-```
-
-The current macOS `security` CLI has an important parser constraint: prompt-only `-w` must be the final option and cannot be combined with a following keychain positional path. The adapter therefore invokes the prompt command through `/usr/bin/expect` with a non-secret `-c` script, while the throwaway keychain is temporarily selected as the default. This is not a credential fallback or a login-keychain mutation. The explicit-keychain operations are:
-
-```text
-security find-generic-password -s co.browserlogin.app -a bl_test_<random> -w <temporary-keychain>
+security create-keychain -p pass1234 <temporary-keychain>
+security unlock-keychain -p pass1234 <temporary-keychain>
 security lock-keychain <temporary-keychain>
-security unlock-keychain -p wrong <temporary-keychain>
-security unlock-keychain -p "" <temporary-keychain>
-security delete-generic-password -s co.browserlogin.app -a bl_test_<random> <temporary-keychain>
+security unlock-keychain -p pass1234 <temporary-keychain>
 security delete-keychain <temporary-keychain>
 ```
 
-`security` status 44 is treated as `NOT_FOUND`. A wrong-password unlock of the locked throwaway keychain returns status 51 on the observed macOS runner and is treated as `DENIED`. The original default keychain is restored in `finally`; the temporary keychain and directory are deleted, and the script verifies the directory is absent.
+The current macOS `security` CLI cannot combine prompt-only `-w` with a following keychain positional path. To keep every credential operation explicitly addressed without changing any default/search-list state, the spike compiles a temporary Swift Security-framework helper from stdin. The helper receives only the operation, temporary keychain path, service, and randomized account in argv; the BrowserLogin envelope is stdin-only. It calls the explicit-keychain Security APIs for add, find, replace, and delete, and disables Security-framework UI interaction in its own process.
+
+```text
+swiftc -framework Security -o <temporary-helper> -
+<temporary-helper> store <temporary-keychain> co.browserlogin.app bl_test_<random>
+<temporary-helper> retrieve <temporary-keychain> co.browserlogin.app bl_test_<random>
+<temporary-helper> replace <temporary-keychain> co.browserlogin.app bl_test_<random>
+<temporary-helper> delete <temporary-keychain> co.browserlogin.app bl_test_<random>
+```
+
+The helper uses `SecKeychainOpen` with the explicit path for every generic-password operation. `SecKeychainSetUserInteractionAllowed(false)` prevents GUI/password prompts. A locked explicit lookup returns `errSecInteractionNotAllowed` and maps to `LOCKED`; item absence maps to `NOT_FOUND`. The temporary keychain and directory are deleted in `finally`, and the script verifies the directory is absent. No default keychain or search-list command is invoked.
 
 Linux commands, with the envelope on stdin:
 
@@ -86,15 +86,15 @@ The PowerShell source is one stdin line and the envelope is a separate second st
 
 | Behavior | macos-14 | windows-2025 | ubuntu-24.04 |
 | --- | --- | --- | --- |
-| store | PENDING | PENDING | PASS or BACKEND_UNAVAILABLE |
-| retrieve hostile Unicode/newline/metacharacter bytes | PENDING | PENDING | PASS or BACKEND_UNAVAILABLE |
-| replace | PENDING | PENDING | PASS or BACKEND_UNAVAILABLE |
-| delete | PENDING | PENDING | PASS or BACKEND_UNAVAILABLE |
-| not found | PENDING | PENDING | PASS or BACKEND_UNAVAILABLE |
-| backend unavailable classification | PENDING | PENDING | PASS |
-| locked/denied | PENDING; throwaway keychain only | PENDING | SKIP; provider-specific |
-| cleanup proof | PENDING | N/A | N/A |
-| leak scan: raw and encoded values | PENDING | PENDING | PENDING |
+| store | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
+| retrieve hostile Unicode/newline/metacharacter bytes | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
+| replace | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
+| delete | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
+| not found | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
+| backend unavailable classification | PASS locally | PENDING | PASS |
+| locked/denied | PASS locally; explicit throwaway lookup | PENDING | SKIP; provider-specific |
+| cleanup proof | PASS locally | N/A | N/A |
+| leak scan: raw and encoded values | PASS locally | PENDING | PENDING |
 
 ## Native matrix evidence
 
