@@ -1,4 +1,3 @@
-import { createReadStream } from "node:fs";
 import {
   chmod,
   lstat,
@@ -9,6 +8,8 @@ import {
   rename,
   rm,
 } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 import { createGunzip } from "node:zlib";
 import { join, relative } from "node:path";
 import { atomicWriteJson } from "../config/store.js";
@@ -27,6 +28,7 @@ type Pointer = {
   sha256: string;
   source: "official" | "custom";
   trust: "verified" | "unverified-custom";
+  binary_sha256: string;
 };
 
 async function findExecutable(root: string): Promise<string | undefined> {
@@ -50,6 +52,12 @@ async function executable(path: string, platform: string): Promise<boolean> {
   return Boolean(
     info?.isFile() && (platform === "windows-x64" || (info.mode & 0o111) !== 0),
   );
+}
+
+async function sha256File(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
 }
 
 async function makeExecutable(root: string, platform: string): Promise<void> {
@@ -164,7 +172,7 @@ export async function installBinary(
 ): Promise<BinaryInfo> {
   const runtime = join(options.root, "browser-runtime");
   const browsers = join(runtime, "browsers");
-  const name = `${options.version}${options.pro ? "-pro" : ""}`;
+  const name = `${options.platform}-${options.version}${options.pro ? "-pro" : ""}`;
   const destination = join(browsers, name);
   const staging = join(browsers, `.staging-${process.pid}-${Date.now()}`);
   await mkdir(browsers, { recursive: true, mode: 0o700 });
@@ -178,9 +186,17 @@ export async function installBinary(
       throw new Error(
         "installed archive contains no executable CloakBrowser binary",
       );
-    await rm(destination, { recursive: true, force: true });
+    const backup = `${destination}.previous`;
+    const pointerPath = join(runtime, "current.json");
+    const previousPointer = await readFile(pointerPath, "utf8").catch(
+      () => undefined,
+    );
+    await rm(backup, { recursive: true, force: true });
+    const previousDestination = await lstat(destination).catch(() => undefined);
+    if (previousDestination) await rename(destination, backup);
     await rename(staging, destination);
     const installedPath = join(destination, relative(staging, binaryPath));
+    const binarySha256 = await sha256File(installedPath);
     const pointer: Pointer = {
       version: options.version,
       pro: options.pro,
@@ -189,6 +205,7 @@ export async function installBinary(
       sha256: options.sha256,
       source: options.source,
       trust: options.trust,
+      binary_sha256: binarySha256,
     };
     await atomicWriteJson(join(runtime, "current.json"), pointer);
     const info: BinaryInfo = {
@@ -199,11 +216,18 @@ export async function installBinary(
       sha256: options.sha256,
       source: options.source,
       trust: options.trust,
+      binarySha256,
     };
-    if (options.healthCallback && !(await options.healthCallback(info)))
+    if (options.healthCallback && !(await options.healthCallback(info))) {
+      await rm(destination, { recursive: true, force: true });
+      if (previousDestination) await rename(backup, destination);
+      if (previousPointer === undefined) await rm(pointerPath, { force: true });
+      else await atomicWriteJson(pointerPath, JSON.parse(previousPointer));
       throw new Error(
         "CloakBrowser health callback rejected the installed runtime",
       );
+    }
+    await rm(backup, { recursive: true, force: true });
     await retainVersions(browsers, name);
     return info;
   } catch (error) {
@@ -227,7 +251,7 @@ export async function installedBinary(
     root,
     "browser-runtime",
     "browsers",
-    `${version}${pro ? "-pro" : ""}`,
+    `${platform ?? (process.platform === "win32" ? "windows-x64" : "linux-x64")}-${version}${pro ? "-pro" : ""}`,
   );
   const binary = await findExecutable(path).catch(() => undefined);
   if (
@@ -260,5 +284,6 @@ export async function installedBinary(
     sha256: undefined,
     source: metadata.source ?? "official",
     trust: metadata.trust ?? "verified",
+    binarySha256: metadata.binary_sha256,
   };
 }

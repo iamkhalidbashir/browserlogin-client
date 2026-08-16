@@ -15,6 +15,7 @@ export type BinaryInfo = {
   platform: BinaryPlatform | undefined;
   pro: boolean;
   sha256: string | undefined;
+  binarySha256: string | undefined;
   source: BinarySource;
   trust: "verified" | "unverified-custom" | "override";
 };

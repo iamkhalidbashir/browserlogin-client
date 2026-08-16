@@ -1,4 +1,6 @@
-import { lstat, mkdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { chmod, lstat, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { binaryVersionLock, withLock } from "../locks/index.js";
 import { resolveStateRoot } from "../config/paths.js";
@@ -28,6 +30,12 @@ async function isFile(path: string): Promise<boolean> {
   return Boolean(info?.isFile());
 }
 
+async function fileHash(path: string): Promise<string> {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
 export async function ensureBinary(
   options: EnsureBinaryOptions = {},
 ): Promise<BinaryInfo> {
@@ -45,6 +53,7 @@ export async function ensureBinary(
       platform: undefined,
       pro: false,
       sha256: undefined,
+      binarySha256: undefined,
       source: "custom",
       trust: "override",
     };
@@ -63,19 +72,32 @@ export async function ensureBinary(
     options.cacheDirectory ??
     env.CLOAKBROWSER_CACHE_DIR ??
     resolveStateRoot({ env });
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const rootInfo = await lstat(root);
+  if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory())
+    throw new BinaryManagerError(
+      "CloakBrowser cache root is not a directory",
+      "INSTALL_FAILED",
+    );
+  await chmod(root, 0o700);
   const existing = await installedBinary(
     root,
     resolved.version,
     resolved.pro,
     resolved.platform,
   );
-  if (existing) return { ...existing, platform: resolved.platform };
+  if (
+    existing &&
+    existing.binarySha256 &&
+    existing.binarySha256 === (await fileHash(existing.path))
+  )
+    return { ...existing, platform: resolved.platform };
   const lockDirectory = join(root, "locks");
   await mkdir(lockDirectory, { recursive: true, mode: 0o700 });
   return withLock(
     binaryVersionLock(
       lockDirectory,
-      `${resolved.version}-${resolved.pro ? "pro" : "free"}`,
+      `${resolved.platform}-${resolved.version}-${resolved.pro ? "pro" : "free"}`,
     ),
     async () => {
       const lockedExisting = await installedBinary(
@@ -84,7 +106,11 @@ export async function ensureBinary(
         resolved.pro,
         resolved.platform,
       );
-      if (lockedExisting)
+      if (
+        lockedExisting &&
+        lockedExisting.binarySha256 &&
+        lockedExisting.binarySha256 === (await fileHash(lockedExisting.path))
+      )
         return { ...lockedExisting, platform: resolved.platform };
       const custom = customSource;
       const source = custom ? ("custom" as const) : ("official" as const);
@@ -138,5 +164,6 @@ export async function ensureBinary(
       });
       return { ...info, source, trust: verification.trust };
     },
+    { timeoutMs: 30 * 60 * 1000 },
   );
 }

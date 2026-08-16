@@ -40,6 +40,15 @@ export function fallbackVersion(platform: BinaryPlatform): string {
   return FALLBACK_VERSIONS[platform];
 }
 
+export function validateVersion(version: string): string {
+  if (!/^\d+\.\d+\.\d+\.\d+(?:\.\d+)?$/.test(version))
+    throw new BinaryManagerError(
+      `Invalid CloakBrowser version: ${version}`,
+      "VERSION_UNAVAILABLE",
+    );
+  return version;
+}
+
 function markerPath(
   directory: string,
   platform: BinaryPlatform,
@@ -179,15 +188,21 @@ export async function resolveVersion(
   if (pro && (options.requestedVersion ?? env.CLOAKBROWSER_VERSION)) {
     return {
       platform,
-      version: options.requestedVersion ?? env.CLOAKBROWSER_VERSION!,
+      version: validateVersion(
+        options.requestedVersion ?? env.CLOAKBROWSER_VERSION!,
+      ),
       pro,
     };
   }
   if (pro)
-    return { platform, version: await discoverPro(platform, options), pro };
+    return {
+      platform,
+      version: validateVersion(await discoverPro(platform, options)),
+      pro,
+    };
   return {
     platform,
-    version: await discoverFree(platform, options),
+    version: validateVersion(await discoverFree(platform, options)),
     pro: false,
   };
 }
