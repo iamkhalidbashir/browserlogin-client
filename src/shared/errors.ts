@@ -67,14 +67,39 @@ export class StateError extends BrowserLoginError {
 }
 
 export class KeychainError extends BrowserLoginError {
+  readonly category = "KEYCHAIN_ERROR" as const;
   readonly keychain_code: KeychainErrorCode;
 
   constructor(
     code: KeychainErrorCode,
-    message = `Keychain operation failed: ${code}`,
+    message?: string,
+    options?: ErrorOptions,
+  );
+  constructor(message: string, code: KeychainErrorCode, options?: ErrorOptions);
+  constructor(
+    codeOrMessage: KeychainErrorCode | string,
+    messageOrCode?: string | KeychainErrorCode,
     options?: ErrorOptions,
   ) {
-    super(message, "KEYCHAIN_ERROR", options);
+    const isCode = (value: string): value is KeychainErrorCode =>
+      [
+        "NOT_FOUND",
+        "BACKEND_UNAVAILABLE",
+        "LOCKED",
+        "DENIED",
+        "TIMEOUT",
+      ].includes(value);
+    const code: KeychainErrorCode = isCode(codeOrMessage)
+      ? codeOrMessage
+      : isCode(String(messageOrCode))
+        ? (String(messageOrCode) as KeychainErrorCode)
+        : "BACKEND_UNAVAILABLE";
+    const message = isCode(codeOrMessage)
+      ? typeof messageOrCode === "string"
+        ? messageOrCode
+        : `Keychain operation failed: ${code}`
+      : codeOrMessage;
+    super(message, code, options);
     this.keychain_code = code;
   }
 }
