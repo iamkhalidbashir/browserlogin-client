@@ -1,5 +1,7 @@
 # browserlogin-client
 
+[![Status badge placeholder](STATUS-BADGE-PLACEHOLDER)](#)
+
 BrowserLogin GUI and MCP lifecycle client for CloakBrowser sessions.
 
 > **Status:** scaffold complete; implementation begins in subsequent tasks.
