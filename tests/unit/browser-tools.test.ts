@@ -3,6 +3,7 @@ import {
   BrowserToolsRouter,
   BrowserToolsLifecycle,
   createBrowserTools,
+  attachCoordinatorRuntimeStop,
   ProfileResolver,
   RuntimePool,
   SOURCE_MANIFEST_TOOL_COUNT,
@@ -322,5 +323,10 @@ describe("runtime pool cleanup", () => {
     expect(events.has("SIGTERM")).toBe(true);
     expect(runtime.calls.at(-1)?.name).toBe("__close__");
     expect(composed.runtimeStop).toBeTypeOf("function");
+    const coordinatorOptions = attachCoordinatorRuntimeStop(
+      { marker: true },
+      composed.runtimeStop,
+    );
+    expect(coordinatorOptions.runtimeStop).toBe(composed.runtimeStop);
   });
 });

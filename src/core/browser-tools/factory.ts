@@ -31,3 +31,14 @@ export function createBrowserTools(options: BrowserToolsFactoryOptions) {
     runtimeStop: coordinatorRuntimeStopHook(pool),
   };
 }
+
+export function attachCoordinatorRuntimeStop<
+  T extends Record<string, unknown> & {
+    runtimeStop?: (profileId: string) => Promise<void>;
+  },
+>(
+  options: T,
+  runtimeStop: (profileId: string) => Promise<void>,
+): T & { runtimeStop: (profileId: string) => Promise<void> } {
+  return { ...options, runtimeStop };
+}
