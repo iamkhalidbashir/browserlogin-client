@@ -420,7 +420,7 @@ describe("Task 14 binary manager", () => {
       )
         return new Response("not found", { status: 404 });
       return originalFetch(input, init);
-    }) as typeof fetch;
+    }) as unknown as typeof fetch;
     await expect(
       ensureBinary({
         cacheDirectory: root,
@@ -535,9 +535,106 @@ describe("Task 14 binary manager", () => {
 
   it("uses the hourly Pro marker and only honors the version pin for a paid key", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-version-"));
-    let calls = 0;
-    const fetchImpl = (async () => {
-      calls += 1;
+    const freeCalls: Array<{ url: string; headers: Headers }> = [];
+    const freeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      freeCalls.push({
+        url: input.toString(),
+        headers: new Headers(init?.headers),
+      });
+      return new Response(
+        JSON.stringify([
+          {
+            tag_name: "v8.8.8.0",
+            draft: true,
+            assets: [{ name: "cloakbrowser-windows-x64.zip" }],
+          },
+          {
+            tag_name: "v7.7.7.0",
+            prerelease: true,
+            assets: [{ name: "cloakbrowser-windows-x64.zip" }],
+          },
+          {
+            tag_name: "v6.6.6.0",
+            assets: [{ name: "cloakbrowser-linux-x64.tar.gz" }],
+          },
+          {
+            tag_name: "v5.5.5.0",
+            assets: [{ name: "cloakbrowser-windows-x64.zip" }],
+          },
+        ]),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof fetch;
+    await expect(
+      resolveVersion({
+        platform: "win32",
+        arch: "x64",
+        githubApiUrl:
+          "https://api.github.test/repos/CloakHQ/cloakbrowser/releases",
+        fetchImpl: freeFetch,
+        markerDirectory: root,
+        now: () => 10_000,
+      }),
+    ).resolves.toMatchObject({ version: "5.5.5.0", pro: false });
+    expect(freeCalls).toHaveLength(1);
+    expect(freeCalls[0]?.url).toBe(
+      "https://api.github.test/repos/CloakHQ/cloakbrowser/releases",
+    );
+    expect(freeCalls[0]?.headers.get("accept")).toBe(
+      "application/vnd.github+json",
+    );
+    expect(freeCalls[0]?.headers.has("authorization")).toBe(false);
+    expect(freeCalls[0]?.headers.has("x-platform")).toBe(false);
+    expect(freeCalls[0]?.url).not.toContain(
+      "cloakbrowser.dev/api/download/version",
+    );
+
+    await writeFile(
+      join(root, "latest-windows-x64.json"),
+      JSON.stringify({ version: "4.4.4.0", checkedAt: 9_500 }),
+    );
+    const markerOnly = (async () => {
+      throw new Error("fresh marker must suppress GitHub discovery");
+    }) as unknown as typeof fetch;
+    await expect(
+      resolveVersion({
+        platform: "win32",
+        arch: "x64",
+        fetchImpl: markerOnly,
+        markerDirectory: root,
+        now: () => 10_000,
+      }),
+    ).resolves.toMatchObject({ version: "4.4.4.0", pro: false });
+
+    await writeFile(
+      join(root, "latest-windows-x64.json"),
+      JSON.stringify({ version: "3.3.3.0", checkedAt: 0 }),
+    );
+    const failedGithub = (async () =>
+      new Response("unavailable", { status: 503 })) as unknown as typeof fetch;
+    await expect(
+      resolveVersion({
+        platform: "win32",
+        arch: "x64",
+        fetchImpl: failedGithub,
+        markerDirectory: root,
+        now: () => 10_000,
+      }),
+    ).resolves.toMatchObject({ version: "3.3.3.0", pro: false });
+    await rm(join(root, "latest-windows-x64.json"));
+    await expect(
+      resolveVersion({
+        platform: "win32",
+        arch: "x64",
+        fetchImpl: failedGithub,
+        markerDirectory: root,
+        now: () => 10_000,
+      }),
+    ).resolves.toMatchObject({ version: "146.0.7680.177.5", pro: false });
+
+    let proCalls = 0;
+    const proFetch = (async () => {
+      proCalls += 1;
       return new Response(JSON.stringify({ version: "9.9.9.0" }), {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -551,7 +648,7 @@ describe("Task 14 binary manager", () => {
         platform: "win32",
         arch: "x64",
         markerDirectory: root,
-        fetchImpl,
+        fetchImpl: proFetch,
       }),
     ).resolves.toMatchObject({ version: "8.8.8.0", pro: true });
     await expect(
@@ -562,10 +659,10 @@ describe("Task 14 binary manager", () => {
         platform: "win32",
         arch: "x64",
         markerDirectory: root,
-        fetchImpl,
+        fetchImpl: proFetch,
       }),
     ).resolves.toMatchObject({ version: "9.9.9.0", pro: true });
-    expect(calls).toBe(1);
+    expect(proCalls).toBe(1);
     await rm(root, { recursive: true, force: true });
   });
 
