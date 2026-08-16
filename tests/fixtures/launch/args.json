@@ -1,12 +1,51 @@
 {
-  "provenance": "launch.py:9-31; models.py:108-173; coordinator.py:167-186; processes.py:404-414",
-  "profile":{"id":"profile-1","seed":12345,"platform":"macos","geoip":true,"humanize":true,"human_preset":"careful","bumblebee_profile":"natural","headless":false,"timezone":"America/New_York","locale":"en-US","user_agent":"test-agent","viewport":{"width":1440,"height":900},"args":["--fingerprint-noise=false"],"proxy":{"protocol":"http","host":"proxy.test","port":8080,"username":"user","password":"TEST-ONLY-password"}},
-  "paths":{"userDataDir":"/tmp/browserlogin/profile-1/work","browserCacheDir":"/tmp/browserlogin/profile-1/cache","browserCacheMaxBytes":536870912},
-  "protectedArgvEntries":["--fingerprint=","--disk-cache-dir=","--disk-cache-size=","--remote-debugging-port=0","--remote-debugging-address=127.0.0.1"],
-  "profiles":[
-    {"id":"profile-1","platform":"macos","expectedArgv":["--fingerprint=macos","--disk-cache-dir=/tmp/browserlogin/profile-1/cache","--disk-cache-size=536870912","--remote-debugging-port=0","--remote-debugging-address=127.0.0.1"]},
-    {"id":"profile-2","platform":"linux","expectedArgv":["--fingerprint=linux","--disk-cache-dir=/tmp/browserlogin/profile-2/cache","--disk-cache-size=536870912","--remote-debugging-port=0","--remote-debugging-address=127.0.0.1"]},
-    {"id":"profile-3","platform":"windows","expectedArgv":["--fingerprint=windows","--fingerprint-platform=windows","--disk-cache-dir=C:/BrowserLogin/profile-3/cache","--disk-cache-size=536870912","--remote-debugging-port=0","--remote-debugging-address=127.0.0.1"]}
+  "provenance": "launch.py:9-31; runner.py:145-166; processes.py:404-414",
+  "protectedArgvEntries": [
+    "--fingerprint=",
+    "--disk-cache-dir=",
+    "--disk-cache-size=",
+    "--remote-debugging-port=0",
+    "--remote-debugging-address=127.0.0.1"
   ],
-  "expectedLaunchPayload":{"profile_id":"profile-1","seed":12345,"platform":"macos","geoip":true,"humanize":true,"human_preset":"careful","bumblebee_profile":"natural","headless":false,"timezone":"America/New_York","locale":"en-US","user_agent":"test-agent","viewport":{"width":1440,"height":900},"args":["--fingerprint-noise=false"],"user_data_dir":"/tmp/browserlogin/profile-1/work","browser_cache_dir":"/tmp/browserlogin/profile-1/cache","browser_cache_max_bytes":536870912,"proxy":{"protocol":"http","host":"proxy.test","port":8080,"username":"user","password":"TEST-ONLY-password"}}
+  "profiles": [
+    {
+      "id": "profile-1",
+      "seed": 12345,
+      "platform": "macos",
+      "args": ["--fingerprint-noise=false"],
+      "expectedArgv": [
+        "--fingerprint=12345",
+        "--disk-cache-dir=/tmp/browserlogin/profile-1/cache",
+        "--disk-cache-size=536870912",
+        "--fingerprint-noise=false",
+        "--remote-debugging-port=0",
+        "--remote-debugging-address=127.0.0.1"
+      ]
+    },
+    {
+      "id": "profile-2",
+      "seed": 67890,
+      "platform": "linux",
+      "expectedArgv": [
+        "--fingerprint=67890",
+        "--disk-cache-dir=/tmp/browserlogin/profile-2/cache",
+        "--disk-cache-size=536870912",
+        "--remote-debugging-port=0",
+        "--remote-debugging-address=127.0.0.1"
+      ]
+    },
+    {
+      "id": "profile-3",
+      "seed": 24680,
+      "platform": "windows",
+      "expectedArgv": [
+        "--fingerprint=24680",
+        "--fingerprint-platform=windows",
+        "--disk-cache-dir=C:/BrowserLogin/profile-3/cache",
+        "--disk-cache-size=536870912",
+        "--remote-debugging-port=0",
+        "--remote-debugging-address=127.0.0.1"
+      ]
+    }
+  ]
 }
