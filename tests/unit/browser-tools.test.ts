@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   BrowserToolsRouter,
   BrowserToolsLifecycle,
+  createBrowserTools,
   ProfileResolver,
   RuntimePool,
   SOURCE_MANIFEST_TOOL_COUNT,
@@ -84,15 +85,16 @@ describe("browser tools manifest and router", () => {
 
   test("exposes 23 safe tools and exactly 24 with the exact unsafe flag", () => {
     const { router } = setup(new Map());
-    expect(router.listTools({})).toHaveLength(23);
-    expect(
-      router.listTools({ BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE: "0" }),
-    ).toHaveLength(23);
-    expect(
-      router
-        .listTools({ BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE: "1" })
-        .map((tool) => tool.name),
-    ).toContain(UNSAFE_TOOL_NAME);
+    expect(router.listTools()).toHaveLength(23);
+    expect(router.listTools().map((tool) => tool.name)).not.toContain(
+      UNSAFE_TOOL_NAME,
+    );
+    const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+    process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
+    expect(setup(new Map()).router.listTools()).toHaveLength(24);
+    if (previous === undefined)
+      delete process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+    else process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = previous;
   });
 
   test("returns stable PROFILE_NOT_RUNNING and generic downstream errors", async () => {
@@ -126,20 +128,19 @@ describe("browser tools manifest and router", () => {
     expect(denied).toMatchObject({ isError: true });
     expect(runtimes).toHaveLength(0);
 
-    await router.call(
-      UNSAFE_TOOL_NAME,
-      { profile: "p1", function: "x" },
-      {
-        BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE: "1",
-      },
-    );
+    const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+    process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
+    const enabled = setup(runtimes).router;
+    await enabled.call(UNSAFE_TOOL_NAME, { profile: "p1", function: "x" });
+    if (previous === undefined)
+      delete process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+    else process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = previous;
     await router.call("browser_type", {
       profile: "p1",
       text: "a",
       slowly: false,
     });
     expect(runtimes.get("p1")?.calls.map((call) => call.args.slowly)).toEqual([
-      undefined,
       true,
     ]);
   });
@@ -274,5 +275,46 @@ describe("runtime pool cleanup", () => {
     await expect(queued).rejects.toThrow("PROFILE_NOT_RUNNING");
     expect(pool.size).toBe(0);
     expect(runtime.calls.at(-1)?.name).toBe("__close__");
+  });
+
+  test("replaces a pooled runtime when the relay URL rotates", async () => {
+    const runtimes: FakeRuntime[] = [];
+    const pool = new RuntimePool(async () => {
+      const runtime = new FakeRuntime();
+      runtimes.push(runtime);
+      return runtime;
+    });
+    await pool.call("p1", "ws://relay/one", async () => ok());
+    await pool.call("p1", "ws://relay/two", async () => ok());
+    expect(runtimes).toHaveLength(2);
+    expect(runtimes[0].calls.at(-1)?.name).toBe("__close__");
+    expect(runtimes[1].calls.at(-1)?.name).not.toBe("__close__");
+  });
+
+  test("production composition installs shutdown and coordinator stop hooks", async () => {
+    const events = new Map<string, () => void>();
+    const processTarget = {
+      once: (event: string, handler: () => void) => {
+        events.set(event, handler);
+        return processTarget;
+      },
+    } as unknown as Pick<NodeJS.Process, "once">;
+    const runtime = new FakeRuntime();
+    let stops = 0;
+    const composed = createBrowserTools({
+      lookup: async () => ({ relayCdpUrl: "ws://relay/p1" }),
+      coordinatorStop: async () => {
+        stops += 1;
+        return { state: "stopped" };
+      },
+      vendorFactory: async () => runtime,
+      processTarget,
+    });
+    await composed.router.call("browser_snapshot", { profile: "p1" });
+    await composed.router.call("browser_close", { profile: "p1" });
+    expect(stops).toBe(1);
+    expect(events.has("SIGTERM")).toBe(true);
+    expect(runtime.calls.at(-1)?.name).toBe("__close__");
+    expect(composed.runtimeStop).toBeTypeOf("function");
   });
 });
