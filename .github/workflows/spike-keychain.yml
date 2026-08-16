@@ -19,6 +19,11 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.2.23
+      - name: Probe PowerShell stdin framing
+        if: matrix.os == 'windows-2025'
+        shell: bash
+        run: |
+          printf '%s\n' 'Write-Output framing-ok; [Console]::Error.WriteLine("stderr-ok")' | powershell.exe -NoProfile -NonInteractive -Command -
       - name: Run stdin-only keychain spike
         shell: bash
         run: |
