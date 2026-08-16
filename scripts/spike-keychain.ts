@@ -267,14 +267,14 @@ async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
   const invoke = (operation: "store" | "retrieve" | "remove", envelope = "") => run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: `${powershellSource(operation, account, resource, envelope)}\n` }], operation === "retrieve");
   let result = await invoke("store", envelopes[0]);
   matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault store failed", result));
-  result = await invoke("retrieve");
+  result = await invoke("retrieve", envelopes[0]);
   matrix.retrieve = successful(result) && decodeEnvelope(result.stdout) === secret ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault retrieval did not decode to original bytes", result));
   result = await invoke("store", envelopes[1]);
-  result = successful(result) ? await invoke("retrieve") : result;
+  result = successful(result) ? await invoke("retrieve", envelopes[1]) : result;
   matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault replacement did not decode to replacement bytes", result));
-  result = await invoke("remove");
+  result = await invoke("remove", envelopes[1]);
   matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault remove failed", result));
-  result = await invoke("retrieve");
+  result = await invoke("retrieve", envelopes[1]);
   matrix.not_found = classifyFailure(result) === KeychainError.NOT_FOUND ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault missing item was not NOT_FOUND", result));
   matrix.locked_or_denied = skip("PasswordVault lock state is provider-owned and not safely simulated");
   matrix.backend_unavailable = skip("PasswordVault was available");
