@@ -20,7 +20,8 @@
   "onnx": "1.22.0",
   "metrics": {
     "max_absolute_error": 2.86102294921875e-06,
-    "mean_absolute_error": 1.4770546385989292e-07
+    "mean_absolute_error": 1.4770546385989292e-07,
+    "non_finite_count": 0
   },
   "verify_only": true
 }
