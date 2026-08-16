@@ -23,4 +23,14 @@ describe("Task 2 Python parity fixtures", () => {
     expect(data.defaults).toMatchObject({ maxArchiveBytes: 512 * 1024 * 1024, maxFiles: 100000, maxCompressionRatio: 200 });
     expect(data.tamperScenario).toMatchObject({ original: "DATA", tampered: "D4TA" });
   });
+
+  it("locks CLI table fields, force prompt, and protected launch argv", () => {
+    const cli = fixture("cli/output.json");
+    expect(cli.profilesTableFields).toEqual(["profile_id", "name", "platform", "archive_generation", "cloud_session"]);
+    expect(cli.forcePrompt).toMatchObject({ phrase: "FORCE CLOSE <profile_id>", example: "FORCE CLOSE profile-1" });
+    const launch = fixture("launch/args.json");
+    expect(launch.protectedArgvEntries).toEqual(["--fingerprint=", "--disk-cache-dir=", "--disk-cache-size=", "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1"]);
+    expect(launch.profiles).toHaveLength(3);
+    expect((launch.profiles as Array<{ expectedArgv: string[] }>).at(-1)?.expectedArgv).toContain("--fingerprint-platform=windows");
+  });
 });
