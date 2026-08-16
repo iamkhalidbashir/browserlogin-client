@@ -196,6 +196,35 @@ describe("browser tools manifest and router", () => {
     expect(invalid).toMatchObject({ isError: true });
   });
 
+  test("routes the complete manifest matrix through a fake runtime", async () => {
+    const runtimes = new Map<string, FakeRuntime>();
+    const { router } = setup(runtimes);
+    const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+    process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
+    try {
+      for (const name of SOURCE_MANIFEST_TOOL_NAMES) {
+        if (
+          name === "browser_close" ||
+          name === "browser_fill_form" ||
+          name === "browser_select_option"
+        )
+          continue;
+        const result = await router.call(name, {
+          profile: "matrix",
+          code: "() => 1",
+          function: "() => 1",
+          action: "list",
+        });
+        expect(result.isError, name).not.toBe(true);
+      }
+    } finally {
+      if (previous === undefined)
+        delete process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
+      else process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = previous;
+    }
+    expect(runtimes.get("matrix")?.calls.length).toBe(21);
+  });
+
   test("serializes calls per profile but not across profiles", async () => {
     const runtimes = new Map<string, FakeRuntime>();
     const { router } = setup(runtimes);
