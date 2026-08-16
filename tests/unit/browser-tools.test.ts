@@ -49,7 +49,7 @@ function setup(
   lookup: (
     profile: string,
   ) => Promise<{ relayCdpUrl: string } | undefined> = async (profile) => ({
-    relayCdpUrl: `ws://relay/${profile}`,
+    relayCdpUrl: `ws://127.0.0.1/${profile}`,
   }),
 ) {
   const pool = new RuntimePool(async (profile) => {
@@ -212,7 +212,7 @@ describe("browser tools manifest and router", () => {
       return runtime;
     });
     const router = new BrowserToolsRouter(
-      new ProfileResolver(async () => ({ relayCdpUrl: "ws://relay/p1" })),
+      new ProfileResolver(async () => ({ relayCdpUrl: "ws://127.0.0.1/p1" })),
       pool,
       new BrowserToolsLifecycle(pool, async () => {
         stops += 1;
@@ -234,7 +234,7 @@ describe("runtime pool cleanup", () => {
       throw new Error("startup detail");
     });
     await expect(
-      pool.call("p1", "ws://relay/p1", async () => ok()),
+      pool.call("p1", "ws://127.0.0.1/p1", async () => ok()),
     ).rejects.toThrow();
     expect(pool.size).toBe(0);
     expect(attempts).toBe(1);
@@ -248,7 +248,7 @@ describe("runtime pool cleanup", () => {
     } as unknown as Pick<NodeJS.Process, "once">;
     const runtime = new FakeRuntime();
     const working = new RuntimePool(async () => runtime);
-    await working.call("p1", "ws://relay/p1", async () => ok());
+    await working.call("p1", "ws://127.0.0.1/p1", async () => ok());
     working.installProcessShutdownHooks(target);
     events.get("SIGTERM")!();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -263,12 +263,12 @@ describe("runtime pool cleanup", () => {
     });
     const runtime = new FakeRuntime();
     const pool = new RuntimePool(async () => runtime);
-    const first = pool.call("p1", "ws://relay/p1", async () => {
+    const first = pool.call("p1", "ws://127.0.0.1/p1", async () => {
       await gate;
       return "first";
     });
     const closing = pool.closeProfile("p1");
-    const queued = pool.call("p1", "ws://relay/p1", async () => "queued");
+    const queued = pool.call("p1", "ws://127.0.0.1/p1", async () => "queued");
     release();
     await expect(first).resolves.toBe("first");
     await closing;
@@ -284,8 +284,8 @@ describe("runtime pool cleanup", () => {
       runtimes.push(runtime);
       return runtime;
     });
-    await pool.call("p1", "ws://relay/one", async () => ok());
-    await pool.call("p1", "ws://relay/two", async () => ok());
+    await pool.call("p1", "ws://127.0.0.1/one", async () => ok());
+    await pool.call("p1", "ws://127.0.0.1/two", async () => ok());
     expect(runtimes).toHaveLength(2);
     expect(runtimes[0].calls.at(-1)?.name).toBe("__close__");
     expect(runtimes[1].calls.at(-1)?.name).not.toBe("__close__");
@@ -302,7 +302,7 @@ describe("runtime pool cleanup", () => {
     const runtime = new FakeRuntime();
     let stops = 0;
     const composed = createBrowserTools({
-      lookup: async () => ({ relayCdpUrl: "ws://relay/p1" }),
+      lookup: async () => ({ relayCdpUrl: "ws://127.0.0.1/p1" }),
       coordinatorStop: async () => {
         stops += 1;
         return { state: "stopped" };
