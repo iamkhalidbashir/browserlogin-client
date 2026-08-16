@@ -5,7 +5,10 @@ import { posixPathSecurity, statePaths } from "./paths";
 import type { PathSecurity } from "./paths";
 
 export class ConfigCorruptError extends BrowserLoginError {
-  constructor(message = "BrowserLogin configuration is corrupt", options?: ErrorOptions) {
+  constructor(
+    message = "BrowserLogin configuration is corrupt",
+    options?: ErrorOptions,
+  ) {
     super(message, "CONFIG_CORRUPT", options);
   }
 }
@@ -20,11 +23,15 @@ async function syncDirectory(path: string): Promise<void> {
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EINVAL" && code !== "EISDIR" && code !== "ENOTSUP") throw error;
+    if (code !== "EINVAL" && code !== "EISDIR" && code !== "ENOTSUP")
+      throw error;
   }
 }
 
-async function privateFile(security: PathSecurity, path: string): Promise<void> {
+async function privateFile(
+  security: PathSecurity,
+  path: string,
+): Promise<void> {
   await security.rejectReparse?.(path);
   await security.verify(path, false);
 }
@@ -52,7 +59,10 @@ export async function atomicWriteJson(
 ): Promise<void> {
   const parent = dirname(path);
   await security.rejectReparse?.(parent);
-  const temporary = join(parent, `.${basename(path)}.${process.pid}.${Date.now()}.tmp`);
+  const temporary = join(
+    parent,
+    `.${basename(path)}.${process.pid}.${Date.now()}.tmp`,
+  );
   const text = `${JSON.stringify(value, null, 2)}\n`;
   const handle = await open(temporary, "wx", 0o600);
   try {
@@ -107,7 +117,10 @@ export async function readJson<T>(
   }
 }
 
-export function configStore(root: string, security: PathSecurity = posixPathSecurity()) {
+export function configStore(
+  root: string,
+  security: PathSecurity = posixPathSecurity(),
+) {
   const paths = statePaths(root);
   return {
     paths,
