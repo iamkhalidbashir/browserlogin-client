@@ -1,0 +1,18 @@
+{
+  "provenance": "api.py:20-26,32-40,41-77,78-103,104-126,127-147,148-168; docs/browserlogin.md:21-715",
+  "baseUrl": "https://browserlogin.test/api/v1",
+  "apiKey": "bl_test_key_secret",
+  "profileId": "profile-1",
+  "sessionId": "session-1",
+  "requests": [
+    {"name":"listProfiles","method":"GET","path":"/profiles","headers":{"Authorization":"Bearer bl_test_key_secret","Accept":"application/json"}},
+    {"name":"startSession","method":"POST","path":"/profiles/profile-1/sessions","headers":{"Content-Type":"application/json","Idempotency-Key":"start-1"},"body":{}},
+    {"name":"changeProxyIp","method":"POST","path":"/proxies/proxy-1/change-ip","headers":{"Content-Type":"application/json"},"body":{}},
+    {"name":"sessionStatus","method":"GET","path":"/sessions/session-1/status","headers":{"Accept":"application/json"}},
+    {"name":"downloadArchive","method":"GET","path":"/profiles/profile-1/archive/download?generation=4","headers":{"Accept":"application/octet-stream","If-Match":"\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""}},
+    {"name":"requestUploadUrl","method":"POST","path":"/profiles/profile-1/archive-upload-url","headers":{"Content-Type":"application/json"},"body":{}},
+    {"name":"directUpload","method":"POST","path":"/upload/test-upload","headers":{"Content-Type":"application/zip","Content-Length":"4"},"body":"DATA"},
+    {"name":"stopSession","method":"POST","path":"/sessions/session-1/stop","headers":{"Content-Type":"application/json","Idempotency-Key":"stop-1"},"body":{"archive":{"storage_id":"storage-1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","format":"zip"}}},
+    {"name":"forceStopSession","method":"POST","path":"/sessions/session-1/stop","headers":{"Content-Type":"application/json","Idempotency-Key":"force-1"},"body":{"force":true}}
+  ]
+}
