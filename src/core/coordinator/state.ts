@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { atomicWriteJson, readJson } from "../config/store.js";
 import {
@@ -121,6 +121,23 @@ export function validateRecoveryState(value: unknown): RecoveryState {
   if (state.status === "force-stop" && state.stop_payload?.["force"] !== true)
     throw new StateError("force-stop state is incomplete");
   if (
+    [
+      "remote-active",
+      "archive_materialized",
+      "spawn-intent",
+      "running",
+      "archive-ready",
+      "upload-pending",
+      "done",
+      "force-stop",
+      "upload-ambiguous",
+    ].includes(state.status) &&
+    !state.remote_session_id
+  )
+    throw new StateError(
+      "remote lifecycle state is missing its session identity",
+    );
+  if (
     state.runner_pid === null &&
     (state.runner_start_time !== null || state.runner_cmdline_hash !== null)
   )
@@ -131,6 +148,15 @@ export function validateRecoveryState(value: unknown): RecoveryState {
   )
     throw new StateError("runner identity is incomplete");
   return state;
+}
+
+export function assertStatePath(root: string, value: string): string {
+  const resolvedRoot = resolve(root);
+  const resolved = resolve(value);
+  const suffix = relative(resolvedRoot, resolved);
+  if (isAbsolute(suffix) || suffix === ".." || suffix.startsWith("../"))
+    throw new StateError("recovery path escapes the coordinator root");
+  return resolved;
 }
 
 export function profileStatePath(root: string, profileId: string): string {

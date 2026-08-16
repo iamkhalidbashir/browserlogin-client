@@ -14,8 +14,14 @@ import { ensureBinary, type BinaryInfo } from "../binary/index.js";
 import { launchRunner } from "../runner/supervisor.js";
 import type { LaunchSpec, RunnerPaths } from "../runner/types.js";
 import {
+  assertIdentity,
+  killProcessTree,
+  type ProcessIdentity,
+} from "../processes/index.js";
+import {
   createRecoveryStore,
   immutableIdempotencyKey,
+  assertStatePath,
   type RecoveryState,
   type RecoveryStatus,
 } from "./state.js";
@@ -85,6 +91,12 @@ export type CoordinatorOptions = {
   now?: () => Date;
   health?: () => Promise<boolean>;
   stopRunner?: (state: RecoveryState) => Promise<void>;
+  adoptArchive?: (
+    profileId: string,
+    artifact: string,
+    generation: number,
+  ) => Promise<void>;
+  runtimeStop?: (profileId: string) => Promise<void>;
 };
 
 async function digestFile(
@@ -116,6 +128,8 @@ export class LifecycleCoordinator {
   private readonly now;
   private readonly runner;
   private readonly runnerHandles = new Map<string, RunnerHandle>();
+  private readonly naturallyClosed = new Set<string>();
+  private readonly licenseUrls = new Map<string, string>();
   constructor(private readonly options: CoordinatorOptions) {
     this.store = createRecoveryStore(options.root);
     this.archive = options.archive ?? new SafeZipArchive();
@@ -137,16 +151,18 @@ export class LifecycleCoordinator {
       if (state && state.status !== "done") {
         await this.reconcileLocked(state);
         state = await this.store.load(profileId);
+        if (state?.status === "running") return state;
+        if (state?.status === "upload-ambiguous") return state;
         if (
           state &&
           state.status !== "done" &&
-          state.status !== "start-intent" &&
-          state.status !== "license" &&
-          state.status !== "remote-active" &&
-          state.status !== "archive_materialized" &&
-          state.status !== "spawn-intent"
+          (state.status === "start-intent" ||
+            state.status === "license" ||
+            state.status === "remote-active" ||
+            state.status === "archive_materialized" ||
+            state.status === "spawn-intent")
         )
-          return state;
+          return this.startLocked(state);
       }
       if (state?.status === "done") await this.cleanupLocked(state);
       const runId = randomUUID().replaceAll("-", "");
@@ -172,6 +188,10 @@ export class LifecycleCoordinator {
         throw new BrowserLoginError(
           "lifecycle state disappeared during reconciliation",
         );
+      if (!current.remote_session_id)
+        throw new BrowserLoginError(
+          "force stop requires a confirmed remote session",
+        );
       if (current.status === "upload-ambiguous")
         throw new BrowserLoginError(
           "archive upload outcome is unresolved; resolve it explicitly before stopping",
@@ -189,7 +209,12 @@ export class LifecycleCoordinator {
         throw new BrowserLoginError(
           "lifecycle state disappeared during reconciliation",
         );
+      if (!current.remote_session_id)
+        throw new BrowserLoginError(
+          "force stop requires a confirmed remote session",
+        );
       if (current.status !== "force-stop") {
+        const hadLicense = current.license_acquired;
         await this.stopRunner(current);
         current = transition(
           {
@@ -208,7 +233,10 @@ export class LifecycleCoordinator {
           this.now,
         );
         await this.store.save(current);
-        await this.options.license?.release();
+        if (hadLicense) {
+          await this.options.license?.release();
+          this.licenseUrls.delete(profileId);
+        }
       }
       const result = await this.options.api.forceStopSession(
         current.remote_session_id!,
@@ -216,7 +244,7 @@ export class LifecycleCoordinator {
       );
       if (result.state !== "stopped" || result.status !== "stopped")
         throw new BrowserLoginError("force stop response was not committed");
-      await this.cleanupLocked(current);
+      await this.cleanupLocked(current, true);
       return result;
     });
   }
@@ -280,6 +308,36 @@ export class LifecycleCoordinator {
     });
   }
 
+  async browserProcessClosed(
+    profileId: string,
+    runId: string,
+    runnerPid: number,
+  ): Promise<Session | undefined> {
+    return this.store.withTransition(profileId, async () => {
+      const state = await this.store.load(profileId);
+      if (
+        !state ||
+        state.run_id !== runId ||
+        state.runner_pid !== runnerPid ||
+        state.status !== "running"
+      )
+        return undefined;
+      const next = transition(
+        {
+          ...state,
+          runner_pid: null,
+          runner_start_time: null,
+          runner_cmdline_hash: null,
+          browser_launched: false,
+        },
+        "archive_materialized",
+        this.now,
+      );
+      await this.store.save(next);
+      return this.stopLocked(next);
+    });
+  }
+
   private newState(
     profileId: string,
     runId: string,
@@ -317,8 +375,12 @@ export class LifecycleCoordinator {
     let state = initial;
     const context = await this.options.profile(state.profile_id);
     const licenseApiUrl = this.options.license?.key
-      ? await this.options.license.acquire()
+      ? (this.licenseUrls.get(state.profile_id) ??
+        (await this.options.license.acquire()))
       : undefined;
+    if (this.options.license?.key && !licenseApiUrl)
+      throw new BrowserLoginError("paid start did not acquire a license relay");
+    if (licenseApiUrl) this.licenseUrls.set(state.profile_id, licenseApiUrl);
     if (!state.license_acquired) {
       state = transition(
         { ...state, license_acquired: Boolean(this.options.license?.key) },
@@ -413,6 +475,7 @@ export class LifecycleCoordinator {
         paths,
         healthCallback: this.options.health,
         onNormalStop: async () => {
+          this.naturallyClosed.add(state.profile_id);
           await this.stop(state.profile_id);
         },
       });
@@ -474,13 +537,25 @@ export class LifecycleCoordinator {
         archivePayload,
         state.stop_key,
       );
-      if (result.state !== "stopped" || result.status !== "stopped")
+      if (
+        result.state !== "stopped" ||
+        result.status !== "stopped" ||
+        typeof result.archive_generation !== "number" ||
+        !Number.isInteger(result.archive_generation) ||
+        result.archive_generation < 0
+      )
         throw new BrowserLoginError("stop response was not committed");
+      await this.options.adoptArchive?.(
+        state.profile_id,
+        state.archive_artifact!,
+        result.archive_generation,
+      );
       await this.store.save(transition(state, "done", this.now));
       await this.cleanupLocked({ ...state, status: "done" });
       return result;
     }
     await this.stopRunner(state);
+    const hadLicense = state.license_acquired;
     state = {
       ...state,
       runner_pid: null,
@@ -490,7 +565,11 @@ export class LifecycleCoordinator {
       license_acquired: false,
       launch_file: null,
     };
-    await this.options.license?.release();
+    await this.options.runtimeStop?.(state.profile_id);
+    if (hadLicense) {
+      await this.options.license?.release();
+      this.licenseUrls.delete(state.profile_id);
+    }
     state = transition(state, "archive-ready", this.now);
     const artifact =
       state.archive_artifact ??
@@ -561,8 +640,19 @@ export class LifecycleCoordinator {
       archivePayload,
       stopKey,
     );
-    if (result.state !== "stopped" || result.status !== "stopped")
+    if (
+      result.state !== "stopped" ||
+      result.status !== "stopped" ||
+      typeof result.archive_generation !== "number" ||
+      !Number.isInteger(result.archive_generation) ||
+      result.archive_generation < 0
+    )
       throw new BrowserLoginError("stop response was not committed");
+    await this.options.adoptArchive?.(
+      state.profile_id,
+      artifact,
+      result.archive_generation,
+    );
     await this.store.save(transition(state, "done", this.now));
     await this.cleanupLocked({ ...state, status: "done" });
     return result;
@@ -575,12 +665,28 @@ export class LifecycleCoordinator {
       return;
   }
   private async stopRunner(state: RecoveryState): Promise<void> {
+    if (this.naturallyClosed.delete(state.profile_id)) {
+      this.runnerHandles.delete(state.profile_id);
+      return;
+    }
     const handle = this.runnerHandles.get(state.profile_id);
     if (handle) {
       await handle.stop();
       this.runnerHandles.delete(state.profile_id);
     } else if (this.options.stopRunner) {
       await this.options.stopRunner(state);
+    } else if (
+      state.runner_pid !== null &&
+      state.runner_start_time !== null &&
+      state.runner_cmdline_hash !== null
+    ) {
+      const identity: ProcessIdentity = {
+        pid: state.runner_pid,
+        process_start_time: state.runner_start_time,
+        cmdline_hash: state.runner_cmdline_hash,
+      };
+      await assertIdentity(identity);
+      await killProcessTree(identity.pid, { recordedIdentity: identity });
     }
   }
   private async requireState(profileId: string): Promise<RecoveryState> {
@@ -591,13 +697,31 @@ export class LifecycleCoordinator {
       );
     return state;
   }
-  private async cleanupLocked(state: RecoveryState): Promise<void> {
+  private async cleanupLocked(
+    state: RecoveryState,
+    preserveCache = false,
+  ): Promise<void> {
     await Promise.all([
       state.archive_artifact
-        ? rm(state.archive_artifact, { force: true })
+        ? rm(assertStatePath(this.options.root, state.archive_artifact), {
+            force: true,
+          })
         : undefined,
-      rm(state.work_dir, { recursive: true, force: true }),
-      state.launch_file ? rm(state.launch_file, { force: true }) : undefined,
+      rm(assertStatePath(this.options.root, state.work_dir), {
+        recursive: true,
+        force: true,
+      }),
+      preserveCache
+        ? undefined
+        : rm(assertStatePath(this.options.root, state.cache_dir), {
+            recursive: true,
+            force: true,
+          }),
+      state.launch_file
+        ? rm(assertStatePath(this.options.root, state.launch_file), {
+            force: true,
+          })
+        : undefined,
     ]);
     await this.store.remove(state.profile_id);
   }

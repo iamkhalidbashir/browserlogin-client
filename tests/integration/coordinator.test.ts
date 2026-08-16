@@ -121,6 +121,7 @@ async function setup(
         generation: 1,
         state: "stopped",
         status: "stopped",
+        archive_generation: 1,
       } as never;
     },
     async forceStopSession() {
@@ -210,6 +211,7 @@ describe("Task 18 recovery state", () => {
     const { coordinator, counts } = await setup({ paid: true });
     const started = await coordinator.start("profile-1");
     expect(started.status).toBe("running");
+    await coordinator.start("profile-1");
     const stopped = await coordinator.stop("profile-1");
     expect(stopped.status).toBe("stopped");
     expect(counts()).toEqual({ starts: 1, uploads: 1, stops: 1, releases: 1 });
