@@ -129,6 +129,12 @@ function fail(error: KeychainError | undefined, detail: string): Cell {
   return { status: "FAIL", ...(error ? { error } : {}), detail };
 }
 
+function failureDetail(prefix: string, result: RunResult): string {
+  const diagnostic = `${result.stderr}\n${result.stdout}`.trim().replace(/\s+/g, " ").slice(0, 240);
+  assertNoCredentialMaterial(diagnostic, "failure diagnostic");
+  return `${prefix} (exit=${result.code ?? result.signal ?? "unknown"}${diagnostic ? `: ${diagnostic}` : ""})`;
+}
+
 function successful(result: RunResult): boolean {
   return result.code === 0;
 }
@@ -259,19 +265,19 @@ async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
   if (!powershell) return { matrix: { backend_unavailable: fail(KeychainError.BACKEND_UNAVAILABLE, "PowerShell is missing") }, available: true };
   const invoke = (operation: "store" | "retrieve" | "remove", envelope = "") => run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: `${powershellSource(operation, account, resource)}\n` }, { data: `${envelope}\n` }], operation === "retrieve");
   let result = await invoke("store", envelopes[0]);
-  matrix.store = successful(result) ? pass() : fail(classifyFailure(result), "PasswordVault store failed");
+  matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault store failed", result));
   result = await invoke("retrieve");
-  matrix.retrieve = successful(result) && decodeEnvelope(result.stdout) === secret ? pass() : fail(classifyFailure(result), "PasswordVault retrieval did not decode to original bytes");
+  matrix.retrieve = successful(result) && decodeEnvelope(result.stdout) === secret ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault retrieval did not decode to original bytes", result));
   result = await invoke("store", envelopes[1]);
   result = successful(result) ? await invoke("retrieve") : result;
-  matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), "PasswordVault replacement did not decode to replacement bytes");
+  matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault replacement did not decode to replacement bytes", result));
   result = await invoke("remove");
-  matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), "PasswordVault remove failed");
+  matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault remove failed", result));
   result = await invoke("retrieve");
-  matrix.not_found = classifyFailure(result) === KeychainError.NOT_FOUND ? pass() : fail(classifyFailure(result), "PasswordVault missing item was not NOT_FOUND");
+  matrix.not_found = classifyFailure(result) === KeychainError.NOT_FOUND ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault missing item was not NOT_FOUND", result));
   matrix.locked_or_denied = skip("PasswordVault lock state is provider-owned and not safely simulated");
   matrix.backend_unavailable = skip("PasswordVault was available");
-  return { matrix, available: true };
+  return { matrix, available: Object.values(matrix).every((cell) => cell.status !== "FAIL") };
 }
 
 async function main(): Promise<void> {
