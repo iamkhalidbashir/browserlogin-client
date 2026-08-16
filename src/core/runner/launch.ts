@@ -157,7 +157,7 @@ export function protectedLaunchArgs(spec: LaunchSpec): string[] {
       );
   }
   const args = [
-    `--fingerprint=${spec.platform}`,
+    `--fingerprint=${spec.seed}`,
     ...(spec.platform === "windows" ? ["--fingerprint-platform=windows"] : []),
     `--disk-cache-dir=${spec.browser_cache_dir}`,
     `--disk-cache-size=${spec.browser_cache_max_bytes}`,
@@ -201,6 +201,10 @@ export async function readAndDeleteLaunchFile(
   try {
     const info = await fd.stat();
     if (!info.isFile()) throw new Error("launch file is not a regular file");
+    if ((info.mode & 0o077) !== 0)
+      throw new Error("launch file is not private");
+    if (typeof process.getuid === "function" && info.uid !== process.getuid())
+      throw new Error("launch file is not owned by the current user");
     contents = await fd.readFile("utf8");
   } finally {
     await fd.close();

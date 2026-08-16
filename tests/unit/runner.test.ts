@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -18,6 +19,21 @@ import {
   waitForReady,
 } from "../../src/core/runner/protocol.js";
 import type { LaunchSpec } from "../../src/core/runner/types.js";
+
+const launchFixture = JSON.parse(
+  readFileSync(
+    new URL("../fixtures/launch-args.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  profiles: Array<{
+    id: string;
+    seed: number;
+    platform: LaunchSpec["platform"];
+    args: string[];
+    expectedArgv: string[];
+  }>;
+};
 
 const spec = {
   profile_id: "profile-1",
@@ -58,14 +74,26 @@ describe("runner launch protocol", () => {
   });
 
   test("builds protected argv and rejects split or equals overrides", () => {
-    expect(protectedLaunchArgs(spec)).toEqual([
-      "--fingerprint=macos",
-      "--disk-cache-dir=/tmp/browserlogin/profile-1/cache",
-      "--disk-cache-size=536870912",
-      "--fingerprint-noise=false",
-      "--remote-debugging-port=0",
-      "--remote-debugging-address=127.0.0.1",
-    ]);
+    const expected = launchFixture.profiles.find(
+      (profile) => profile.id === "profile-1",
+    );
+    expect(expected).toBeDefined();
+    expect(protectedLaunchArgs(spec)).toEqual(expected?.expectedArgv);
+    for (const profile of launchFixture.profiles) {
+      const profileSpec: LaunchSpec = {
+        ...spec,
+        profile_id: profile.id,
+        seed: profile.seed,
+        platform: profile.platform,
+        args: profile.args,
+        browser_cache_dir:
+          profile.id === "profile-3"
+            ? "C:/BrowserLogin/profile-3/cache"
+            : `/tmp/browserlogin/${profile.id}/cache`,
+        proxy: null,
+      };
+      expect(protectedLaunchArgs(profileSpec)).toEqual(profile.expectedArgv);
+    }
     expect(() =>
       protectedLaunchArgs({
         ...spec,
