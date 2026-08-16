@@ -77,7 +77,7 @@ function run(command: string, args: string[], chunks: InputChunk[] = [], expecte
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf8");
-      assertNoCredentialMaterial(stderr, `${command} stderr`);
+      assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(stderr) : stderr, `${command} stderr`);
     });
     child.once("error", (error) => {
       clearTimeout(timer);
@@ -105,7 +105,7 @@ function run(command: string, args: string[], chunks: InputChunk[] = [], expecte
   })();
   return result.then((value) => {
     assertNoCredentialMaterial(JSON.stringify(value.argv), `${command} captured argv`);
-    assertNoCredentialMaterial(value.stderr, `${command} captured stderr`);
+    assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(value.stderr) : value.stderr, `${command} captured stderr`);
     assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(value.stdout) : value.stdout, `${command} captured stdout`);
     childRuns.push(value);
     return value;
@@ -130,7 +130,7 @@ function fail(error: KeychainError | undefined, detail: string): Cell {
 }
 
 function failureDetail(prefix: string, result: RunResult): string {
-  const diagnostic = `${result.stderr}\n${result.stdout}`.trim().replace(/\s+/g, " ").slice(0, 240);
+  const diagnostic = stripExpectedTransport(`${result.stderr}\n${result.stdout}`).trim().replace(/\s+/g, " ").slice(0, 240);
   assertNoCredentialMaterial(diagnostic, "failure diagnostic");
   const shape = `stdout-length=${result.stdout.length},stdout-codes=${[...result.stdout.slice(0, 4)].map((char) => char.charCodeAt(0)).join(".")}`;
   return `${prefix} (exit=${result.code ?? result.signal ?? "unknown"}; ${shape}${diagnostic ? `: ${diagnostic}` : ""})`;
@@ -261,7 +261,8 @@ function powershellSource(operation: "store" | "retrieve" | "remove", accountNam
     : operation === "retrieve"
       ? `$credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw "PasswordVault returned a null password" }; $encoded = "blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine($encoded)`
       : `$credential = $vault.Retrieve($resource, $account); $vault.Remove($credential)`;
-  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action}; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
+  const retrieveTransport = operation === "retrieve" ? "[Console]::Error.WriteLine($encoded)" : "";
+  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)}; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
 }
 
 async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
@@ -273,10 +274,10 @@ async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
   let result = await invoke("store", envelopes[0]);
   matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault store failed", result));
   result = await invoke("retrieve", envelopes[0]);
-  matrix.retrieve = successful(result) && decodeEnvelope(result.stdout) === secret ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault retrieval did not decode to original bytes", result));
+  matrix.retrieve = successful(result) && decodeEnvelope(result.stdout || result.stderr) === secret ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault retrieval did not decode to original bytes", result));
   result = await invoke("store", envelopes[1]);
   result = successful(result) ? await invoke("retrieve", envelopes[1]) : result;
-  matrix.replace = successful(result) && decodeEnvelope(result.stdout) === replacement ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault replacement did not decode to replacement bytes", result));
+  matrix.replace = successful(result) && decodeEnvelope(result.stdout || result.stderr) === replacement ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault replacement did not decode to replacement bytes", result));
   result = await invoke("remove", envelopes[1]);
   matrix.delete = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault remove failed", result));
   result = await invoke("retrieve", envelopes[1]);
@@ -293,6 +294,7 @@ async function main(): Promise<void> {
     assertNoCredentialMaterial(JSON.stringify(child.argv), "captured argv");
     assertNoCredentialMaterial(child.stderr, "captured stderr");
     assertNoCredentialMaterial(stripExpectedTransport(child.stdout), "captured stdout");
+    assertNoCredentialMaterial(stripExpectedTransport(child.stderr), "captured stderr");
   }
   const verdict = {
     platform: process.platform,
