@@ -7,6 +7,7 @@ type ProfileState = {
   runtime?: VendorBrowserRuntime;
   startup?: Promise<VendorBrowserRuntime>;
   tail: Promise<void>;
+  closing?: boolean;
 };
 
 export class RuntimePool {
@@ -52,6 +53,7 @@ export class RuntimePool {
     operation: (runtime: VendorBrowserRuntime) => Promise<T>,
   ): Promise<T> {
     const state = this.state(profileId);
+    if (state.closing) throw new Error("PROFILE_NOT_RUNNING");
     const previous = state.tail;
     let release!: () => void;
     state.tail = new Promise<void>((resolve) => {
@@ -68,6 +70,7 @@ export class RuntimePool {
   async closeProfile(profileId: string): Promise<void> {
     const state = this.profiles.get(profileId);
     if (!state) return;
+    state.closing = true;
     await state.tail;
     const runtime = state.runtime;
     this.profiles.delete(profileId);

@@ -254,4 +254,25 @@ describe("runtime pool cleanup", () => {
     expect(runtime.calls.at(-1)?.name).toBe("__close__");
     expect(working.size).toBe(0);
   });
+
+  test("rejects calls queued after profile shutdown begins", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runtime = new FakeRuntime();
+    const pool = new RuntimePool(async () => runtime);
+    const first = pool.call("p1", "ws://relay/p1", async () => {
+      await gate;
+      return "first";
+    });
+    const closing = pool.closeProfile("p1");
+    const queued = pool.call("p1", "ws://relay/p1", async () => "queued");
+    release();
+    await expect(first).resolves.toBe("first");
+    await closing;
+    await expect(queued).rejects.toThrow("PROFILE_NOT_RUNNING");
+    expect(pool.size).toBe(0);
+    expect(runtime.calls.at(-1)?.name).toBe("__close__");
+  });
 });
