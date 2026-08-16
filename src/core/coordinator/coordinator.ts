@@ -1,0 +1,577 @@
+import { createHash, randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { BrowserLoginError } from "../../shared/errors.js";
+import type {
+  ArchiveIdentity,
+  Profile,
+  Session,
+  StartResponse,
+} from "../../shared/api-types.js";
+import { SafeZipArchive } from "../archive/index.js";
+import { ensureBinary, type BinaryInfo } from "../binary/index.js";
+import { launchRunner } from "../runner/supervisor.js";
+import type { LaunchSpec, RunnerPaths } from "../runner/types.js";
+import {
+  createRecoveryStore,
+  immutableIdempotencyKey,
+  type RecoveryState,
+  type RecoveryStatus,
+} from "./state.js";
+
+const CACHE_LIMIT = 512 * 1024 * 1024;
+const RECOVERY_LIMIT_MS = 30_000;
+
+export type CoordinatorApi = {
+  startSession(profileId: string, key: string): Promise<StartResponse>;
+  downloadArchive(
+    identity: ArchiveIdentity,
+    destination: string,
+  ): Promise<string>;
+  requestUploadUrl(profileId: string, sessionId: string): Promise<unknown>;
+  directUpload(
+    grant: unknown,
+    path: string,
+    options: {
+      expectedSize: number;
+      expectedSha256: string;
+      expectedSessionId: string;
+    },
+  ): Promise<string>;
+  stopSession(
+    sessionId: string,
+    archive:
+      | { storage_id: string; size: number; sha256: string; format: "zip" }
+      | undefined,
+    key: string,
+  ): Promise<Session>;
+  forceStopSession(sessionId: string, key: string): Promise<Session>;
+  sessionStatus?(sessionId: string): Promise<Session>;
+};
+export type LicenseLifecycle = {
+  key?: string;
+  acquire(): Promise<string | undefined>;
+  release(): Promise<void>;
+};
+export type RunnerHandle = {
+  identity: { pid: number; process_start_time: string; cmdline_hash: string };
+  stop(): Promise<void>;
+  closed: Promise<unknown>;
+};
+export type RunnerFactory = (options: {
+  spec: LaunchSpec;
+  binary: BinaryInfo;
+  licenseApiUrl?: string;
+  paths: RunnerPaths;
+  onNormalStop: () => Promise<void>;
+  healthCallback?: () => Promise<boolean>;
+}) => Promise<RunnerHandle>;
+export type CoordinatorProfile = {
+  profile: Profile;
+  binary?: BinaryInfo;
+  launchSpec: Omit<
+    LaunchSpec,
+    "user_data_dir" | "browser_cache_dir" | "browser_cache_max_bytes"
+  >;
+};
+export type CoordinatorOptions = {
+  root: string;
+  api: CoordinatorApi;
+  profile: (profileId: string) => Promise<CoordinatorProfile>;
+  license?: LicenseLifecycle;
+  runner?: RunnerFactory;
+  archive?: SafeZipArchive;
+  now?: () => Date;
+  health?: () => Promise<boolean>;
+  stopRunner?: (state: RecoveryState) => Promise<void>;
+};
+
+async function digestFile(
+  path: string,
+): Promise<{ size: number; sha256: string }> {
+  const hash = createHash("sha256");
+  let size = 0;
+  for await (const chunk of createReadStream(path)) {
+    size += chunk.length;
+    hash.update(chunk);
+  }
+  return { size, sha256: hash.digest("hex") };
+}
+function transition(
+  state: RecoveryState,
+  next: RecoveryStatus,
+  now: () => Date,
+): RecoveryState {
+  return {
+    ...state,
+    status: next,
+    updated_at: now().toISOString(),
+  } as RecoveryState;
+}
+
+export class LifecycleCoordinator {
+  readonly store;
+  private readonly archive;
+  private readonly now;
+  private readonly runner;
+  private readonly runnerHandles = new Map<string, RunnerHandle>();
+  constructor(private readonly options: CoordinatorOptions) {
+    this.store = createRecoveryStore(options.root);
+    this.archive = options.archive ?? new SafeZipArchive();
+    this.now = options.now ?? (() => new Date());
+    this.runner =
+      options.runner ??
+      (async (input) =>
+        launchRunner({
+          ...input,
+          cwd: this.options.root,
+          binaryPath: input.binary.path,
+          licenseKey: this.options.license?.key,
+        }));
+  }
+
+  async start(profileId: string): Promise<RecoveryState> {
+    return this.store.withTransition(profileId, async () => {
+      let state = await this.store.load(profileId);
+      if (state && state.status !== "done") {
+        await this.reconcileLocked(state);
+        state = await this.store.load(profileId);
+        if (
+          state &&
+          state.status !== "done" &&
+          state.status !== "start-intent" &&
+          state.status !== "license" &&
+          state.status !== "remote-active" &&
+          state.status !== "archive_materialized" &&
+          state.status !== "spawn-intent"
+        )
+          return state;
+      }
+      if (state?.status === "done") await this.cleanupLocked(state);
+      const runId = randomUUID().replaceAll("-", "");
+      state = this.newState(
+        profileId,
+        runId,
+        immutableIdempotencyKey("start", runId, {
+          profile_id: profileId,
+          run_id: runId,
+        }),
+      );
+      await this.store.save(state);
+      return this.startLocked(state);
+    });
+  }
+
+  async stop(profileId: string): Promise<Session> {
+    return this.store.withTransition(profileId, async () => {
+      const state = await this.requireState(profileId);
+      await this.reconcileLocked(state);
+      const current = await this.store.load(profileId);
+      if (!current)
+        throw new BrowserLoginError(
+          "lifecycle state disappeared during reconciliation",
+        );
+      if (current.status === "upload-ambiguous")
+        throw new BrowserLoginError(
+          "archive upload outcome is unresolved; resolve it explicitly before stopping",
+        );
+      return this.stopLocked(current);
+    });
+  }
+
+  async forceStop(profileId: string): Promise<Session> {
+    return this.store.withTransition(profileId, async () => {
+      const state = await this.requireState(profileId);
+      await this.reconcileLocked(state);
+      let current = await this.store.load(profileId);
+      if (!current)
+        throw new BrowserLoginError(
+          "lifecycle state disappeared during reconciliation",
+        );
+      if (current.status !== "force-stop") {
+        await this.stopRunner(current);
+        current = transition(
+          {
+            ...current,
+            stop_key: immutableIdempotencyKey("force-stop", current.run_id, {
+              force: true,
+            }),
+            stop_payload: { force: true },
+            license_acquired: false,
+            launch_file: null,
+            runner_pid: null,
+            runner_start_time: null,
+            runner_cmdline_hash: null,
+          },
+          "force-stop",
+          this.now,
+        );
+        await this.store.save(current);
+        await this.options.license?.release();
+      }
+      const result = await this.options.api.forceStopSession(
+        current.remote_session_id!,
+        current.stop_key!,
+      );
+      if (result.state !== "stopped" || result.status !== "stopped")
+        throw new BrowserLoginError("force stop response was not committed");
+      await this.cleanupLocked(current);
+      return result;
+    });
+  }
+
+  async recover(profileId: string): Promise<RecoveryState | null> {
+    const deadline = Date.now() + RECOVERY_LIMIT_MS;
+    return this.store.withTransition(profileId, async () => {
+      let state = await this.store.load(profileId);
+      while (state && Date.now() < deadline) {
+        await this.reconcileLocked(state);
+        state = await this.store.load(profileId);
+        if (
+          !state ||
+          state.status === "done" ||
+          state.status === "upload-ambiguous"
+        )
+          break;
+        if (
+          state.status === "upload-pending" ||
+          state.status === "archive-ready"
+        ) {
+          await this.stopLocked(state);
+          state = await this.store.load(profileId);
+          continue;
+        }
+        break;
+      }
+      if (state && Date.now() >= deadline)
+        await this.store.save({
+          ...state,
+          retry_count: state.retry_count + 1,
+          retry_after: new Date(Date.now() + 1_000).toISOString(),
+          updated_at: this.now().toISOString(),
+        });
+      return state?.status === "done" ? null : state;
+    });
+  }
+
+  async resolveUploadAmbiguous(
+    profileId: string,
+    storageId: string,
+  ): Promise<void> {
+    return this.store.withTransition(profileId, async () => {
+      const state = await this.requireState(profileId);
+      if (state.status !== "upload-ambiguous")
+        throw new BrowserLoginError("no ambiguous upload exists");
+      const payload = {
+        ...(state.stop_payload ?? {}),
+        archive: {
+          ...((state.stop_payload?.archive as object) ?? {}),
+          storage_id: storageId,
+        },
+      };
+      await this.store.save(
+        transition(
+          { ...state, stop_payload: payload, uploaded_storage_id: storageId },
+          "upload-pending",
+          this.now,
+        ),
+      );
+    });
+  }
+
+  private newState(
+    profileId: string,
+    runId: string,
+    startKey: string,
+  ): RecoveryState {
+    const root = this.options.root;
+    return {
+      version: 1,
+      profile_id: profileId,
+      run_id: runId,
+      start_key: startKey,
+      stop_key: null,
+      remote_session_id: null,
+      archive: null,
+      archive_artifact: null,
+      work_dir: join(root, "work", runId),
+      cache_dir: join(root, "browser-cache", runId),
+      launch_file: null,
+      runner_pid: null,
+      runner_start_time: null,
+      runner_cmdline_hash: null,
+      license_acquired: false,
+      archive_materialized: false,
+      browser_launched: false,
+      uploaded_storage_id: null,
+      stop_payload: null,
+      retry_count: 0,
+      retry_after: null,
+      updated_at: this.now().toISOString(),
+      status: "start-intent",
+    };
+  }
+
+  private async startLocked(initial: RecoveryState): Promise<RecoveryState> {
+    let state = initial;
+    const context = await this.options.profile(state.profile_id);
+    const licenseApiUrl = this.options.license?.key
+      ? await this.options.license.acquire()
+      : undefined;
+    if (!state.license_acquired) {
+      state = transition(
+        { ...state, license_acquired: Boolean(this.options.license?.key) },
+        "license",
+        this.now,
+      );
+      await this.store.save(state);
+    }
+    try {
+      if (!state.remote_session_id) {
+        const started = await this.options.api.startSession(
+          state.profile_id,
+          state.start_key,
+        );
+        state = transition(
+          {
+            ...state,
+            remote_session_id: started.session.id,
+            archive: started.archive
+              ? {
+                  generation: started.archive.generation,
+                  size: started.archive.size,
+                  sha256: started.archive.sha256,
+                  format: "zip",
+                }
+              : null,
+          },
+          "remote-active",
+          this.now,
+        );
+        await this.store.save(state);
+      }
+      await mkdir(state.work_dir, { recursive: true, mode: 0o700 });
+      if (state.archive && !state.archive_materialized) {
+        const download = join(
+          this.options.root,
+          "artifacts",
+          `${state.run_id}.zip`,
+        );
+        await this.options.api.downloadArchive(
+          {
+            profile_id: state.profile_id,
+            generation: state.archive.generation,
+            size: state.archive.size,
+            sha256: state.archive.sha256,
+            format: "zip",
+          },
+          download,
+        );
+        await this.archive.extractAtomic(download, state.work_dir, {
+          size: state.archive.size,
+          sha256: state.archive.sha256,
+          format: "zip",
+        });
+      }
+      await mkdir(state.cache_dir, { recursive: true, mode: 0o700 });
+      state = transition(
+        { ...state, archive_materialized: true },
+        "archive_materialized",
+        this.now,
+      );
+      await this.store.save(state);
+      const binary =
+        context.binary ??
+        (await ensureBinary({ licenseKey: this.options.license?.key }));
+      const spec = {
+        ...context.launchSpec,
+        user_data_dir: state.work_dir,
+        browser_cache_dir: state.cache_dir,
+        browser_cache_max_bytes: CACHE_LIMIT,
+      } as LaunchSpec;
+      const paths: RunnerPaths = {
+        launchFile: join(this.options.root, "launch", `${state.run_id}.json`),
+        gateFile: join(this.options.root, "gates", `${state.run_id}.gate`),
+        controlFile: join(
+          this.options.root,
+          "controls",
+          `${state.run_id}.control`,
+        ),
+        readyFile: join(this.options.root, "ready", `${state.run_id}.ready`),
+      };
+      state = transition(
+        { ...state, launch_file: paths.launchFile },
+        "spawn-intent",
+        this.now,
+      );
+      await this.store.save(state);
+      const runner = await this.runner({
+        spec,
+        binary,
+        licenseApiUrl,
+        paths,
+        healthCallback: this.options.health,
+        onNormalStop: async () => {
+          await this.stop(state.profile_id);
+        },
+      });
+      this.runnerHandles.set(state.profile_id, runner);
+      state = transition(
+        {
+          ...state,
+          runner_pid: runner.identity.pid,
+          runner_start_time: runner.identity.process_start_time,
+          runner_cmdline_hash: runner.identity.cmdline_hash,
+          browser_launched: true,
+        },
+        "running",
+        this.now,
+      );
+      await this.store.save(state);
+      return state;
+    } catch (error) {
+      await this.store.save({
+        ...state,
+        retry_count: state.retry_count + 1,
+        retry_after: new Date(Date.now() + 1_000).toISOString(),
+        updated_at: this.now().toISOString(),
+      });
+      throw error;
+    }
+  }
+
+  private async stopLocked(input: RecoveryState): Promise<Session> {
+    let state = input;
+    if (!state.remote_session_id)
+      throw new BrowserLoginError(
+        "recovery state omitted remote session identity",
+      );
+    const sessionId = state.remote_session_id;
+    if (state.stop_payload?.["force"] === true)
+      throw new BrowserLoginError("force stop is pending; retry force stop");
+    if (state.status === "done")
+      throw new BrowserLoginError("session is already stopped");
+    await this.stopRunner(state);
+    state = {
+      ...state,
+      runner_pid: null,
+      runner_start_time: null,
+      runner_cmdline_hash: null,
+      browser_launched: false,
+      license_acquired: false,
+      launch_file: null,
+    };
+    await this.options.license?.release();
+    state = transition(state, "archive-ready", this.now);
+    const artifact =
+      state.archive_artifact ??
+      join(this.options.root, "artifacts", `${state.run_id}.zip`);
+    await mkdir(dirname(artifact), { recursive: true, mode: 0o700 });
+    if (!state.archive_artifact) {
+      const identity = await this.archive.create(state.work_dir, artifact);
+      state = {
+        ...state,
+        archive_artifact: artifact,
+        archive: {
+          generation: state.archive?.generation ?? 0,
+          size: identity.size,
+          sha256: identity.sha256,
+          format: "zip",
+        },
+      };
+      await this.store.save(state);
+    }
+    const digest = await digestFile(artifact);
+    if (
+      !state.archive ||
+      digest.size !== state.archive.size ||
+      digest.sha256 !== state.archive.sha256
+    )
+      throw new BrowserLoginError(
+        "archive bytes changed after identity was persisted",
+      );
+    const grant = await this.options.api.requestUploadUrl(
+      state.profile_id,
+      sessionId,
+    );
+    state = transition(state, "upload-pending", this.now);
+    await this.store.save(state);
+    let storageId: string;
+    try {
+      storageId = await this.options.api.directUpload(grant, artifact, {
+        expectedSize: digest.size,
+        expectedSha256: digest.sha256,
+        expectedSessionId: sessionId,
+      });
+    } catch (error) {
+      await this.store.save(transition(state, "upload-ambiguous", this.now));
+      throw error;
+    }
+    const archivePayload = {
+      storage_id: storageId,
+      size: digest.size,
+      sha256: digest.sha256,
+      format: "zip" as const,
+    };
+    const stopKey =
+      state.stop_key ??
+      immutableIdempotencyKey("stop", state.run_id, archivePayload);
+    state = transition(
+      {
+        ...state,
+        stop_key: stopKey,
+        stop_payload: { archive: archivePayload },
+        uploaded_storage_id: storageId,
+      },
+      "upload-pending",
+      this.now,
+    );
+    await this.store.save(state);
+    const result = await this.options.api.stopSession(
+      sessionId,
+      archivePayload,
+      stopKey,
+    );
+    if (result.state !== "stopped" || result.status !== "stopped")
+      throw new BrowserLoginError("stop response was not committed");
+    await this.store.save(transition(state, "done", this.now));
+    await this.cleanupLocked({ ...state, status: "done" });
+    return result;
+  }
+
+  private async reconcileLocked(state: RecoveryState): Promise<void> {
+    if (state.remote_session_id && this.options.api.sessionStatus)
+      await this.options.api.sessionStatus(state.remote_session_id);
+    if (state.status === "force-stop" || state.status === "upload-ambiguous")
+      return;
+    if (state.status === "upload-pending") await this.stopLocked(state);
+  }
+  private async stopRunner(state: RecoveryState): Promise<void> {
+    const handle = this.runnerHandles.get(state.profile_id);
+    if (handle) {
+      await handle.stop();
+      this.runnerHandles.delete(state.profile_id);
+    } else if (this.options.stopRunner) {
+      await this.options.stopRunner(state);
+    }
+  }
+  private async requireState(profileId: string): Promise<RecoveryState> {
+    const state = await this.store.load(profileId);
+    if (!state)
+      throw new BrowserLoginError(
+        "no recoverable remote session for profile identity",
+      );
+    return state;
+  }
+  private async cleanupLocked(state: RecoveryState): Promise<void> {
+    await Promise.all([
+      state.archive_artifact
+        ? rm(state.archive_artifact, { force: true })
+        : undefined,
+      rm(state.work_dir, { recursive: true, force: true }),
+      state.launch_file ? rm(state.launch_file, { force: true }) : undefined,
+    ]);
+    await this.store.remove(state.profile_id);
+  }
+}
