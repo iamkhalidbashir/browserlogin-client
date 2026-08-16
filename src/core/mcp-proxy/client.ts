@@ -46,6 +46,33 @@ function abortError(signal?: AbortSignal): unknown {
   );
 }
 
+function parseIpv6Groups(value: string): number[] | undefined {
+  const [left, right, ...extra] = value.toLowerCase().split("::");
+  if (extra.length > 0) return undefined;
+  const leftGroups = left
+    ? left.split(":").map((part) => Number.parseInt(part, 16))
+    : [];
+  const rightGroups = right
+    ? right.split(":").map((part) => Number.parseInt(part, 16))
+    : [];
+  if (
+    [...leftGroups, ...rightGroups].some(
+      (group) => !Number.isInteger(group) || group < 0 || group > 0xffff,
+    ) ||
+    leftGroups.length + rightGroups.length > 8 ||
+    (value.includes("::") && leftGroups.length + rightGroups.length === 8)
+  )
+    return undefined;
+  const zeros = value.includes("::")
+    ? 8 - leftGroups.length - rightGroups.length
+    : 0;
+  return [
+    ...leftGroups,
+    ...Array.from({ length: zeros }, () => 0),
+    ...rightGroups,
+  ];
+}
+
 function validateRemoteUrl(value: string): string {
   let url: URL;
   try {
@@ -59,23 +86,23 @@ function validateRemoteUrl(value: string): string {
   const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1";
   const host = url.hostname.replace(/^\[|\]$/g, "");
   const ipVersion = isIP(host);
-  const mappedIpv4 = host.match(
-    /^::ffff:(?:(\d+)\.(\d+)\.(\d+)\.(\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/i,
-  );
+  const ipv6Groups = ipVersion === 6 ? parseIpv6Groups(host) : undefined;
+  const mappedIpv4 =
+    ipv6Groups &&
+    ipv6Groups
+      .slice(0, 6)
+      .every((group, index) => group === (index === 5 ? 0xffff : 0))
+      ? [
+          ipv6Groups[6]! >> 8,
+          ipv6Groups[6]! & 255,
+          ipv6Groups[7]! >> 8,
+          ipv6Groups[7]! & 255,
+        ]
+      : undefined;
   const octets =
-    ipVersion === 4
-      ? host.split(".").map(Number)
-      : mappedIpv4
-        ? mappedIpv4[1]
-          ? mappedIpv4.slice(1, 5).map(Number)
-          : (() => {
-              const high = Number.parseInt(mappedIpv4[5]!, 16);
-              const low = Number.parseInt(mappedIpv4[6]!, 16);
-              return [high >> 8, high & 255, low >> 8, low & 255];
-            })()
-        : [];
+    ipVersion === 4 ? host.split(".").map(Number) : (mappedIpv4 ?? []);
   const unsafeIpv4 =
-    (ipVersion === 4 || mappedIpv4 !== null) &&
+    (ipVersion === 4 || mappedIpv4 !== undefined) &&
     (octets[0] === 0 ||
       octets[0] === 10 ||
       octets[0] === 127 ||
@@ -85,12 +112,12 @@ function validateRemoteUrl(value: string): string {
       (octets[0] === 172 && octets[1]! >= 16 && octets[1]! <= 31) ||
       octets[0]! >= 224);
   const unsafeIpv6 =
-    ipVersion === 6 &&
-    (host === "::1" ||
-      host === "::" ||
-      host.toLowerCase().startsWith("fc") ||
-      host.toLowerCase().startsWith("fd") ||
-      host.toLowerCase().startsWith("fe80:"));
+    ipv6Groups !== undefined &&
+    (ipv6Groups.every((group) => group === 0) ||
+      (ipv6Groups.slice(0, 7).every((group) => group === 0) &&
+        ipv6Groups[7] === 1) ||
+      (ipv6Groups[0]! & 0xfe00) === 0xfc00 ||
+      (ipv6Groups[0] === 0xfe80 && (ipv6Groups[1]! & 0xc000) === 0x8000));
   if (
     (url.protocol !== "https:" && !(loopback && url.protocol === "http:")) ||
     !url.hostname ||
@@ -278,7 +305,16 @@ export class RemoteMcpClient {
           response.status,
         );
       }
-      if (response.status === 202) return undefined;
+      if (response.status === 202) {
+        const length = response.headers.get("content-length");
+        await response.body?.cancel().catch(() => undefined);
+        if (length !== null && Number(length) > REMOTE_MCP_BODY_CAP)
+          throw new RemoteMcpError(
+            "REMOTE_BODY_TOO_LARGE",
+            "Remote MCP JSON body exceeds 256 KiB.",
+          );
+        return undefined;
+      }
       if (response.status === 401) {
         this.invalidCredentialFingerprint = fingerprint;
         await response.body?.cancel().catch(() => undefined);

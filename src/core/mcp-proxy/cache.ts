@@ -15,7 +15,8 @@ function abortReason(signal: AbortSignal): unknown {
 
 function waitForAbort<T>(
   promise: Promise<T>,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  onCallerAbort?: () => void,
 ): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(abortReason(signal));
@@ -23,6 +24,7 @@ function waitForAbort<T>(
     const cleanup = () => signal.removeEventListener("abort", onAbort);
     const onAbort = () => {
       cleanup();
+      onCallerAbort?.();
       reject(abortReason(signal));
     };
     signal.addEventListener("abort", onAbort, { once: true });
@@ -45,6 +47,7 @@ export class RemoteMcpDiscoveryCache {
   private inFlight: Promise<RemoteTool[]> | undefined;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
   private activeController: AbortController | undefined;
+  private activeWaiters = 0;
   private stopped = false;
   private lastAttemptAt = -Infinity;
   private attemptCount = 0;
@@ -75,7 +78,13 @@ export class RemoteMcpDiscoveryCache {
     if (this.discoveryStatus === "REMOTE_AUTH_FAILED") {
       if (!(await this.client.hasCredentialChanged())) return this.tools;
     }
-    if (this.inFlight) return waitForAbort(this.inFlight, signal);
+    if (this.inFlight) {
+      this.activeWaiters += 1;
+      return waitForAbort(this.inFlight, signal, () => {
+        this.activeWaiters -= 1;
+        if (this.activeWaiters === 0) this.activeController?.abort();
+      });
+    }
     const now = Date.now();
     if (now - this.lastAttemptAt < REMOTE_MCP_RETRY_INTERVAL_MS)
       return this.tools;
@@ -83,6 +92,7 @@ export class RemoteMcpDiscoveryCache {
     this.attemptCount += 1;
     const controller = new AbortController();
     this.activeController = controller;
+    this.activeWaiters = 1;
     const timer = setTimeout(
       () => controller.abort(),
       REMOTE_MCP_DISCOVERY_BUDGET_MS,
@@ -107,9 +117,13 @@ export class RemoteMcpDiscoveryCache {
       .finally(() => {
         clearTimeout(timer);
         this.activeController = undefined;
+        this.activeWaiters = 0;
         this.inFlight = undefined;
       });
-    return waitForAbort(this.inFlight, signal);
+    return waitForAbort(this.inFlight, signal, () => {
+      this.activeWaiters -= 1;
+      if (this.activeWaiters === 0) controller.abort();
+    });
   }
 
   private scheduleRetry(): void {
