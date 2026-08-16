@@ -23,7 +23,8 @@ const defaultSdk: CloakBrowserSdk = {
 
 const loadSdk = async (): Promise<CloakBrowserSdk> => {
   const override = process.env.BROWSERLOGIN_RUNNER_SDK_MODULE;
-  if (!override) return defaultSdk;
+  if (process.env.BROWSERLOGIN_RUNNER_TEST_MODE !== "1" || !override)
+    return defaultSdk;
   const module = await import(override);
   return (module.default ?? module) as CloakBrowserSdk;
 };
@@ -182,7 +183,7 @@ if (["child.ts", "child.js"].includes(basename(process.argv[1] ?? ""))) {
     },
   }).catch(async (error) => {
     const diagnostic = process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
-    if (diagnostic)
+    if (process.env.BROWSERLOGIN_RUNNER_TEST_MODE === "1" && diagnostic)
       await writeFile(
         diagnostic,
         error instanceof Error ? error.message : "runner child failed",

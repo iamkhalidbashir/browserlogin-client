@@ -92,6 +92,12 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
     options.pathSecurity,
   );
   const env: NodeJS.ProcessEnv = { ...process.env };
+  const testMode = process.env.BROWSERLOGIN_RUNNER_TEST_MODE === "1";
+  if (!testMode) {
+    delete env.BROWSERLOGIN_RUNNER_SDK_MODULE;
+    delete env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
+    delete env.BROWSERLOGIN_RUNNER_TEST_MODE;
+  }
   delete env.BROWSERLOGIN_API_KEY;
   delete env.CLOAKBROWSER_API_KEY;
   delete env.CLOAKBROWSER_LICENSE_KEY;
@@ -154,13 +160,15 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
     throw error;
   }
   let normalStopCalled = false;
+  let intentionalStop = false;
   const normalStop = async (): Promise<void> => {
     if (normalStopCalled) return;
     normalStopCalled = true;
     await options.onNormalStop?.();
   };
   const closed = runner.completion.then(async (exit) => {
-    if (exit.code === 0 && exit.signal === null) await normalStop();
+    if (!intentionalStop && exit.code === 0 && exit.signal === null)
+      await normalStop();
     return exit;
   });
   let stopping: Promise<void> | undefined;
@@ -173,6 +181,7 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
       if (stopping) return stopping;
       stopping = (async () => {
         try {
+          intentionalStop = true;
           await assert(runner.identity);
           await writeStopControl(options.paths.controlFile);
           const grace = options.cooperativeStopTimeoutMs ?? 5_000;

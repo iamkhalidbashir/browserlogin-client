@@ -8,7 +8,7 @@ import { runRunnerChild } from "../../src/core/runner/child.js";
 import { createOneShotLaunchFile } from "../../src/core/runner/launch.js";
 import { launchRunner } from "../../src/core/runner/supervisor.js";
 import { readFileSync, chmodSync } from "node:fs";
-import type { LaunchSpec } from "../../src/core/runner/types.js";
+import type { ChildExit, LaunchSpec } from "../../src/core/runner/types.js";
 
 const baseSpec = {
   profile_id: "fake-profile",
@@ -302,6 +302,56 @@ describe("fake runner lifecycle", () => {
     }
   });
 
+  test("explicit stop suppresses normal-stop for a clean child exit", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-supervisor-intentional-stop-"),
+    );
+    const paths = {
+      launchFile: join(root, "launch"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = { ...baseSpec, user_data_dir: root, browser_cache_dir: root };
+    let complete!: (exit: ChildExit) => void;
+    let normalStops = 0;
+    const completion = new Promise<ChildExit>((resolve) => {
+      complete = resolve;
+    });
+    const running = await launchRunner({
+      spec,
+      paths,
+      binaryPath: "/tmp/fake-browser",
+      cwd: root,
+      assertIdentity: async (identity) => identity,
+      isAlive: async () => false,
+      onNormalStop: () => {
+        normalStops += 1;
+      },
+      spawn: async () => {
+        void (async () => {
+          while (
+            !(await readFile(paths.gateFile, "utf8").catch(() => undefined))
+          )
+            await new Promise((resolve) => setTimeout(resolve, 2));
+          await writeFile(paths.readyFile, "browserlogin-runner-ready-v1\n");
+        })();
+        return {
+          identity: {
+            pid: process.pid + 1,
+            process_start_time: "fake",
+            cmdline_hash: "fake",
+          },
+          completion,
+        };
+      },
+    });
+    await running.stop();
+    complete({ code: 0, signal: null });
+    await running.closed;
+    expect(normalStops).toBe(0);
+  });
+
   test("treats zero pages at readiness as a normal stop", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-runner-zero-pages-"),
@@ -372,12 +422,14 @@ describe("fake runner lifecycle", () => {
       const oldErrorFile = process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
       const oldSdkModule = process.env.BROWSERLOGIN_RUNNER_SDK_MODULE;
       const oldExecutable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
+      const oldTestMode = process.env.BROWSERLOGIN_RUNNER_TEST_MODE;
       process.env.FAKE_BROWSER_ARGV_FILE = argvFile;
       process.env.FAKE_BROWSER_EXIT_FILE = exitFile;
       process.env.FAKE_BROWSER_EXIT_AFTER_MS = "5000";
       process.env.FAKE_BROWSER_LOG_FILE = logFile;
       process.env.BROWSERLOGIN_RUNNER_SDK_MODULE = fakeSdk;
       process.env.BROWSERLOGIN_FAKE_EXECUTABLE = fakeBinary;
+      process.env.BROWSERLOGIN_RUNNER_TEST_MODE = "1";
       const oldLifecycle = process.env.FAKE_SDK_LIFECYCLE;
       process.env.FAKE_SDK_LIFECYCLE = lifecycle;
       process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE = errorFile;
@@ -428,6 +480,9 @@ describe("fake runner lifecycle", () => {
         if (oldExecutable === undefined)
           delete process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
         else process.env.BROWSERLOGIN_FAKE_EXECUTABLE = oldExecutable;
+        if (oldTestMode === undefined)
+          delete process.env.BROWSERLOGIN_RUNNER_TEST_MODE;
+        else process.env.BROWSERLOGIN_RUNNER_TEST_MODE = oldTestMode;
         if (oldLifecycle === undefined) delete process.env.FAKE_SDK_LIFECYCLE;
         else process.env.FAKE_SDK_LIFECYCLE = oldLifecycle;
       }
