@@ -5,3 +5,4 @@ export * from "./router";
 export * from "./runtime-pool";
 export * from "./types";
 export * from "./vendor";
+export * from "./factory";
