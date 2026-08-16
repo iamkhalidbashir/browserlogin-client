@@ -1,0 +1,33 @@
+Task 16 SOCKS5 relay failure and redaction evidence
+===================================================
+
+Workspace: /Users/bashir/Projects/OpensourceProjects/browserlogin-client
+Timestamp: 2026-08-16T06:42:04Z
+
+Command:
+  ~/.bun/bin/bun run vitest run tests/integration/socks-relay.test.ts -t 'stable failures|malformed upstream|concurrent|idle'
+
+Output:
+  RUN  v3.2.7 /Users/bashir/Projects/OpensourceProjects/browserlogin-client
+  ✓ tests/integration/socks-relay.test.ts (6 tests | 2 skipped) 67ms
+  Test Files  1 passed (1)
+  Tests  4 passed | 2 skipped (6)
+
+Failure assertions exercised by the passing tests:
+  - upstream username/password authentication failure returns SOCKS5 general failure 0x01
+  - UDP ASSOCIATE returns command-not-supported 0x07
+  - malformed SOCKS greeting closes only that client
+  - invalid upstream reply version/code returns generic failure 0x01
+  - the same relay listener accepts a subsequent valid authenticated connection
+  - injected idle timeout closes the tunnel and removes the worker
+  - twenty concurrent authenticated connections complete
+  - the actual thrown SocksRelayError message is exactly generic
+  - captured console error text and the thrown error contain neither secret-user nor secret-pass
+
+Command:
+  ~/.bun/bin/bun run test
+  ~/.bun/bin/bun run test:integration
+
+Output:
+  Unit: 12 test files passed, 63 tests passed
+  Integration: 6 test files passed, 75 tests passed, 2 skipped
