@@ -12,6 +12,7 @@ import type {
   VendorTool,
 } from "./types";
 import { PRODUCT_TOOLS } from "./manifest";
+import { SOURCE_MANIFEST_TOOL_NAMES } from "./manifest";
 
 const require = createRequire(import.meta.url);
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
@@ -48,6 +49,7 @@ export type F2VendorFactoryOptions = {
   actionTimeoutMs?: number;
   navigationTimeoutMs?: number;
   onStderr?: (text: string) => void;
+  onToolsList?: (names: string[]) => void;
   extraEnv?: Record<string, string>;
 };
 
@@ -121,9 +123,10 @@ const resolveCliPath = (): string => {
 function translateToolCall(
   name: string,
   arguments_: JsonObject,
+  toolNames: Set<string>,
 ): { name: string; arguments: JsonObject } {
   const action = arguments_.action;
-  if (name === "browser_tabs") {
+  if (name === "browser_tabs" && !toolNames.has("browser_tabs")) {
     if (action === "new")
       return { name: "browser_tab_new", arguments: { url: arguments_.url } };
     if (action === "close" || action === "select")
@@ -133,7 +136,10 @@ function translateToolCall(
       };
     return { name: "browser_tab_list", arguments: {} };
   }
-  if (name === "browser_run_code_unsafe")
+  if (
+    name === "browser_run_code_unsafe" &&
+    !toolNames.has("browser_run_code_unsafe")
+  )
     return {
       name: "browser_evaluate",
       arguments: { function: arguments_.code, filename: arguments_.filename },
@@ -141,12 +147,35 @@ function translateToolCall(
   return { name, arguments: arguments_ };
 }
 
-function validateVendorTranslations(toolNames: Set<string>): void {
-  for (const names of Object.values(F2_VENDOR_TRANSLATIONS)) {
-    for (const name of names) {
-      if (!toolNames.has(name)) throw new Error("vendor capability mismatch");
-    }
+function validateVendorTranslations(toolNames: Set<string>): Set<string> {
+  const routerOwned = new Set([
+    "browser_close",
+    "browser_fill_form",
+    "browser_select_option",
+    "browser_tabs",
+    "browser_run_code_unsafe",
+  ]);
+  const required = new Set<string>(
+    SOURCE_MANIFEST_TOOL_NAMES.filter((name) => !routerOwned.has(name)),
+  );
+  for (const name of required) {
+    if (toolNames.has(name)) continue;
+    throw new Error("vendor capability mismatch");
   }
+  const hasTabsTranslation = [
+    "browser_tab_list",
+    "browser_tab_new",
+    "browser_tab_close",
+    "browser_tab_select",
+  ].every((translated) => toolNames.has(translated));
+  if (!toolNames.has("browser_tabs") && !hasTabsTranslation)
+    throw new Error("vendor capability mismatch");
+  if (
+    !toolNames.has("browser_run_code_unsafe") &&
+    !toolNames.has("browser_evaluate")
+  )
+    throw new Error("vendor capability mismatch");
+  return toolNames;
 }
 
 class StdioVendorBrowserRuntime implements VendorBrowserRuntime {
@@ -158,6 +187,8 @@ class StdioVendorBrowserRuntime implements VendorBrowserRuntime {
     private readonly transport: StdioTransport,
     private readonly callTimeoutMs: number,
     private readonly closeTimeoutMs: number,
+    private readonly onToolsList?: (names: string[]) => void,
+    private readonly toolNames = new Set<string>(),
   ) {
     transport.onclose = () => {
       this.crashed = true;
@@ -171,7 +202,11 @@ class StdioVendorBrowserRuntime implements VendorBrowserRuntime {
       DEFAULT_STARTUP_TIMEOUT_MS,
       "vendor tools/list timed out",
     );
-    validateVendorTranslations(new Set(result.tools.map((tool) => tool.name)));
+    const toolNames = result.tools.map((tool) => tool.name as string);
+    this.onToolsList?.(toolNames);
+    const validated = validateVendorTranslations(new Set(toolNames));
+    this.toolNames.clear();
+    for (const name of validated) this.toolNames.add(name);
     return PRODUCT_TOOLS.map((tool) => ({
       ...tool,
       inputSchema: structuredClone(tool.inputSchema),
@@ -183,7 +218,7 @@ class StdioVendorBrowserRuntime implements VendorBrowserRuntime {
     arguments_: JsonObject,
   ): Promise<VendorCallResult> {
     if (this.closed || this.crashed) throw new Error("vendor child stopped");
-    const translated = translateToolCall(name, arguments_);
+    const translated = translateToolCall(name, arguments_, this.toolNames);
     try {
       return (await withTimeout(
         this.client.callTool(translated),
@@ -259,6 +294,7 @@ export async function createF2VendorRuntime(
       transport,
       options.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS,
       options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS,
+      options.onToolsList,
     );
     await withTimeout(
       runtime.listTools(),

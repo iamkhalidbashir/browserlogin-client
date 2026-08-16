@@ -34,6 +34,9 @@ const tools = [
   "browser_handle_dialog",
   "browser_evaluate",
   "browser_file_upload",
+  "browser_drop",
+  "browser_find",
+  "browser_network_request",
   "browser_network_requests",
   "browser_snapshot",
   "browser_click",
@@ -45,6 +48,9 @@ const tools = [
   "browser_type",
   "browser_take_screenshot",
   "browser_wait_for",
+  "browser_close",
+  "browser_fill_form",
+  "browser_select_option",
   "browser_tab_list",
   "browser_tab_new",
   "browser_tab_close",
@@ -83,11 +89,19 @@ process.stdin.on("data", (chunk) => {
         jsonrpc: "2.0",
         id: request.id,
         result: {
-          tools: tools.map((name) => ({
-            name,
-            description: name,
-            inputSchema: { type: "object", properties: {} },
-          })),
+          tools: tools
+            .filter(
+              (name) =>
+                !(
+                  process.env.FAKE_VENDOR_MODE === "missing-find" &&
+                  name === "browser_find"
+                ),
+            )
+            .map((name) => ({
+              name,
+              description: name,
+              inputSchema: { type: "object", properties: {} },
+            })),
         },
       });
     } else if (request.method === "tools/call") {

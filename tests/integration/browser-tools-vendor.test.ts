@@ -1,8 +1,11 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
+import WebSocket, { WebSocketServer } from "ws";
+import { SOURCE_MANIFEST_TOOL_NAMES } from "../../src/core/browser-tools/manifest.js";
 import { createF2VendorRuntime } from "../../src/core/browser-tools/vendor.js";
 
 const fixture = fileURLToPath(
@@ -144,5 +147,56 @@ describe("f2 vendor stdio subprocess", () => {
         extraEnv: { CLOAKBROWSER_API_KEY: "must-reject" },
       }),
     ).rejects.toThrow("unsafe child environment key");
+  });
+
+  test("rejects startup when a required direct capability is absent", async () => {
+    await expect(
+      createF2VendorRuntime({
+        profileId: "missing-find",
+        relayCdpUrl: "ws://127.0.0.1:3000/token",
+        nodeCommand: process.execPath,
+        cliPath: fixture,
+        startupTimeoutMs: 500,
+        closeTimeoutMs: 500,
+        extraEnv: { FAKE_VENDOR_MODE: "missing-find" },
+      }),
+    ).rejects.toThrow();
+  });
+
+  test("lists capabilities from the installed 0.0.79 CLI against idle local CDP", async () => {
+    const httpServer = createServer();
+    const server = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
+    httpServer.on("upgrade", (request, socket, head) => {
+      server.handleUpgrade(request, socket, head, (client) => {
+        server.emit("connection", client, request);
+      });
+    });
+    await new Promise<void>((resolve) =>
+      httpServer.listen(0, "127.0.0.1", resolve),
+    );
+    const address = httpServer.address();
+    if (!address || typeof address === "string")
+      throw new Error("missing port");
+    server.on("connection", (socket: WebSocket) =>
+      socket.on("error", () => undefined),
+    );
+    let names: string[] = [];
+    try {
+      const runtime = await createF2VendorRuntime({
+        profileId: "installed-cli",
+        relayCdpUrl: `ws://127.0.0.1:${address.port}/idle-cdp`,
+        nodeCommand: process.execPath,
+        startupTimeoutMs: 5_000,
+        closeTimeoutMs: 1_000,
+        onToolsList: (listed) => {
+          names = listed;
+        },
+      });
+      await runtime.close();
+      expect(names).toEqual([...SOURCE_MANIFEST_TOOL_NAMES]);
+    } finally {
+      server.close();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+    }
   });
 });
