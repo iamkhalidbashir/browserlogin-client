@@ -22,9 +22,14 @@ jobs:
       - name: Run stdin-only keychain spike
         shell: bash
         run: |
+          set +e
           bun scripts/spike-keychain.ts > task5-verdict.json
+          status=$?
+          set -e
           cat task5-verdict.json
+          exit "$status"
       - name: Upload sanitized verdict
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: task5-${{ matrix.os }}
