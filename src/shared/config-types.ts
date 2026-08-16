@@ -22,7 +22,7 @@ export const LocalSettingsSchema = z
     has_license: z.boolean().default(false),
     download_source: z.enum(["official", "custom"]).default("official"),
     custom_download_url: httpsUrl.nullable().default(null),
-    browser_cache_bytes: z
+    browser_cache_max_bytes: z
       .number()
       .int()
       .min(0)
