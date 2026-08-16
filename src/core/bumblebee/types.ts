@@ -12,6 +12,10 @@ export type CdpSender = {
   close?(): Promise<void> | void;
 };
 export type Clock = { sleep(ms: number): Promise<void> };
+export const REAL_CLOCK: Clock = {
+  sleep: (ms) =>
+    new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, ms))),
+};
 export type WorkerInput = RawInput;
 export type FallbackMetrics = {
   classicalFallbacks: number;
@@ -37,6 +41,19 @@ export async function sleepWithSignal(
   signal?: AbortSignal,
 ): Promise<void> {
   throwIfAborted(signal);
-  await clock.sleep(ms);
-  throwIfAborted(signal);
+  if (!signal) {
+    await clock.sleep(ms);
+    return;
+  }
+  let onAbort: (() => void) | undefined;
+  const abort = new Promise<never>((_, reject) => {
+    onAbort = () => reject(new CancellationError());
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    await Promise.race([clock.sleep(ms), abort]);
+    throwIfAborted(signal);
+  } finally {
+    if (onAbort) signal.removeEventListener("abort", onAbort);
+  }
 }

@@ -64,6 +64,11 @@ export class DirectCdpSender implements CdpSender {
     await this.request(method, params, sessionId);
   }
 
+  setTargetId(targetId: string | undefined): void {
+    this.defaultTarget = targetId;
+    if (targetId === undefined) this.targets.clear();
+  }
+
   async request(
     method: string,
     params: Json = {},
@@ -130,7 +135,11 @@ export class DirectCdpSender implements CdpSender {
           this.socket = undefined;
           reject(new DirectCdpError());
         };
-        socket.once("open", () => resolve());
+        socket.once("open", () => {
+          socket.off("error", fail);
+          socket.on("error", () => this.invalidateConnection());
+          resolve();
+        });
         socket.once("error", fail);
         socket.on("message", (data: Buffer | ArrayBuffer | Buffer[]) =>
           this.receive(data),
@@ -211,8 +220,13 @@ export class DirectCdpSender implements CdpSender {
   }
 
   private receive(data: Buffer | ArrayBuffer | Buffer[]): void {
-    const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data as never);
+    const bytes = Buffer.isBuffer(data)
+      ? data
+      : Array.isArray(data)
+        ? Buffer.concat(data)
+        : Buffer.from(data);
     if (bytes.byteLength > this.maxMessageBytes) {
+      this.socket?.terminate();
       this.invalidateConnection();
       return;
     }
@@ -220,6 +234,8 @@ export class DirectCdpSender implements CdpSender {
     try {
       message = JSON.parse(bytes.toString("utf8")) as Json;
     } catch {
+      this.socket?.terminate();
+      this.invalidateConnection();
       return;
     }
     const id = message.id;

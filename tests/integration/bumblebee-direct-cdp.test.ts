@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { EventEmitter } from "node:events";
 import { WebSocketServer, type RawData } from "ws";
 import { describe, expect, it } from "vitest";
 import { DirectCdpSender } from "../../src/core/bumblebee/direct-cdp";
@@ -79,12 +80,113 @@ describe("Bumblebee direct CDP ownership", () => {
       {
         method: "Input.dispatchTouchEvent",
         params: { type: "touchStart", touchPoints: [] },
+        sessionId: "foreign-relay-session",
+        targetId: "target-2",
       },
       new AbortController().signal,
     );
+    expect(attachCount).toBe(3);
+    const workerAttach = messages
+      .filter((message) => message.method === "Target.attachToTarget")
+      .at(-1);
+    expect(workerAttach?.params).toMatchObject({
+      targetId: "target-2",
+      flatten: true,
+    });
+    const workerTouch = messages
+      .filter((message) => message.method === "Input.dispatchTouchEvent")
+      .at(-1);
+    expect(workerTouch?.sessionId).toBe("session-3");
+    expect(workerTouch?.sessionId).not.toBe("foreign-relay-session");
     await worker.close();
     await new Promise<void>((resolve) =>
       server.close(() => httpServer.close(() => resolve())),
     );
   }, 10_000);
+
+  it("parses fragmented frames and rejects malformed or oversized frames", async () => {
+    class FakeSocket extends EventEmitter {
+      readyState = 1;
+      terminated = false;
+      malformed = false;
+      oversized = false;
+      send(payload: string): void {
+        const request = JSON.parse(payload) as { id: number; method: string };
+        queueMicrotask(() => {
+          if (this.malformed) {
+            this.emit("message", Buffer.from("{"));
+            return;
+          }
+          if (this.oversized) {
+            this.emit("message", Buffer.alloc(1025));
+            return;
+          }
+          const response =
+            request.method === "Target.getTargets"
+              ? {
+                  id: request.id,
+                  result: {
+                    targetInfos: [
+                      {
+                        type: "page",
+                        targetId: "fake-target",
+                        url: "https://local.test",
+                      },
+                    ],
+                  },
+                }
+              : request.method === "Target.attachToTarget"
+                ? { id: request.id, result: { sessionId: "fake-session" } }
+                : { id: request.id, result: { ok: true } };
+          const encoded = Buffer.from(JSON.stringify(response));
+          this.emit("message", [encoded.subarray(0, 2), encoded.subarray(2)]);
+        });
+      }
+      close(): void {
+        this.emit("close");
+      }
+      terminate(): void {
+        this.terminated = true;
+        this.emit("close");
+      }
+    }
+    const fragmented = new FakeSocket();
+    const fragmentedSender = new DirectCdpSender("ws://fake", {
+      socketFactory: () => {
+        queueMicrotask(() => fragmented.emit("open"));
+        return fragmented as never;
+      },
+    });
+    await expect(
+      fragmentedSender.request("Runtime.evaluate", {}),
+    ).resolves.toMatchObject({ ok: true });
+    await fragmentedSender.close();
+
+    const malformed = new FakeSocket();
+    malformed.malformed = true;
+    const malformedSender = new DirectCdpSender("ws://fake", {
+      socketFactory: () => {
+        queueMicrotask(() => malformed.emit("open"));
+        return malformed as never;
+      },
+    });
+    await expect(
+      malformedSender.request("Runtime.evaluate", {}),
+    ).rejects.toThrow("direct CDP request failed");
+    expect(malformed.terminated).toBe(true);
+
+    const oversized = new FakeSocket();
+    oversized.oversized = true;
+    const oversizedSender = new DirectCdpSender("ws://fake", {
+      maxMessageBytes: 1024,
+      socketFactory: () => {
+        queueMicrotask(() => oversized.emit("open"));
+        return oversized as never;
+      },
+    });
+    await expect(
+      oversizedSender.request("Runtime.evaluate", {}),
+    ).rejects.toThrow("direct CDP request failed");
+    expect(oversized.terminated).toBe(true);
+  });
 });
