@@ -1,0 +1,26 @@
+{
+  "task": 3,
+  "source_sha256_verified_before_deserialization": true,
+  "source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
+  "model_sha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
+  "model_size_bytes": 1083258,
+  "corpus_sha256": "f7b3a3e18420184ba420181c52a8612bd1af634c0b24ba32c728d6447a5c0efa",
+  "corpus_cases": 1200,
+  "opset": 17,
+  "versions": {
+    "stable_baselines3": "2.9.0",
+    "torch": "2.13.0",
+    "numpy": "2.5.2",
+    "python": "3.14.3",
+    "source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
+    "onnx": "1.22.0",
+    "onnxruntime": "1.28.0"
+  },
+  "onnxruntime": "1.28.0",
+  "onnx": "1.22.0",
+  "metrics": {
+    "max_absolute_error": 2.86102294921875e-06,
+    "mean_absolute_error": 1.4770546385989292e-07
+  },
+  "verify_only": true
+}

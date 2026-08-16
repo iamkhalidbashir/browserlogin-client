@@ -1,0 +1,8 @@
+{
+  "task": 3,
+  "check": "source ZIP hash is verified before SB3 deserialization",
+  "expected_source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
+  "tampered_source_behavior": "conversion exits non-zero with source ZIP SHA256 mismatch before SAC.load",
+  "source_zip_policy": "external and untracked",
+  "private_key_material": "not used"
+}
