@@ -633,6 +633,14 @@ export class LifecycleCoordinator {
         sha256: string;
         format: "zip";
       };
+      const digest = await digestFile(state.archive_artifact!);
+      if (
+        digest.size !== archivePayload.size ||
+        digest.sha256 !== archivePayload.sha256
+      )
+        throw new BrowserLoginError(
+          "persisted upload artifact no longer matches its archive identity",
+        );
       const result = await this.options.api.stopSession(
         sessionId,
         archivePayload,

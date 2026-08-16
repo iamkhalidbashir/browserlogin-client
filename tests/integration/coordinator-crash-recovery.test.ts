@@ -50,6 +50,8 @@ type Counters = {
   stopKeys: string[];
   forces: number;
   forceKeys: string[];
+  uploadBytes: number;
+  stopArchives: unknown[];
 };
 let roots: string[] = [];
 let servers: Array<ReturnType<typeof createServer>> = [];
@@ -89,10 +91,12 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
     stopKeys: [],
     forces: 0,
     forceKeys: [],
+    uploadBytes: 0,
+    stopArchives: [],
   };
   const server = createServer(async (request, response) => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-    await body(request);
+    const raw = await body(request);
     if (path === "/sessions/start") {
       counters.starts += 1;
       send(response, {
@@ -121,9 +125,11 @@ async function startMock(): Promise<{ port: number; counters: Counters }> {
       });
     } else if (path === "/upload") {
       counters.uploads += 1;
+      counters.uploadBytes = Number(request.headers["content-length"] ?? 0);
       send(response, { storage_id: "storage-1" });
     } else if (path === "/sessions/stop") {
       counters.stops += 1;
+      counters.stopArchives.push(JSON.parse(raw).archive);
       const key = request.headers["idempotency-key"];
       counters.stopKeys.push(Array.isArray(key) ? (key[0] ?? "") : (key ?? ""));
       send(response, {
@@ -252,6 +258,8 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
         expect(mock.counters.stops, point).toBe(1);
         expect(new Set(mock.counters.stopKeys).size, point).toBe(1);
         expect(mock.counters.uploads, point).toBe(1);
+        expect(mock.counters.uploadBytes, point).toBeGreaterThan(0);
+        expect(mock.counters.stopArchives, point).toHaveLength(1);
       }
       const state = await createRecoveryStore(root).load("profile-1");
       expect(state, point).toBeNull();

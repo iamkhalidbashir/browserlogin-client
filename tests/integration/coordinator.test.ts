@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -63,6 +70,7 @@ async function setup(
   options: {
     paid?: boolean;
     upload?: "ok" | "ambiguous" | "conflict" | "conflict-once";
+    forceConflict?: boolean;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "browserlogin-coordinator-"));
@@ -72,6 +80,7 @@ async function setup(
   let stops = 0;
   let releases = 0;
   let conflictAttempts = 0;
+  let adoptedArchive: string | undefined;
   const api: CoordinatorApi = {
     async startSession(profileId, key) {
       starts += 1;
@@ -125,6 +134,8 @@ async function setup(
       } as never;
     },
     async forceStopSession() {
+      if (options.forceConflict)
+        throw new ConflictError("server rejected force generation");
       return {
         id: "session-1",
         profile_id: "profile-1",
@@ -156,11 +167,15 @@ async function setup(
       stop: async () => undefined,
       closed: new Promise(() => undefined),
     }),
+    adoptArchive: async (_profileId, artifact, generation) => {
+      adoptedArchive = join(root, `adopted-${generation}.zip`);
+      await copyFile(artifact, adoptedArchive);
+    },
   });
   return {
     root,
     coordinator,
-    counts: () => ({ starts, uploads, stops, releases }),
+    counts: () => ({ starts, uploads, stops, releases, adoptedArchive }),
   };
 }
 
@@ -214,7 +229,13 @@ describe("Task 18 recovery state", () => {
     await coordinator.start("profile-1");
     const stopped = await coordinator.stop("profile-1");
     expect(stopped.status).toBe("stopped");
-    expect(counts()).toEqual({ starts: 1, uploads: 1, stops: 1, releases: 1 });
+    expect(counts()).toMatchObject({
+      starts: 1,
+      uploads: 1,
+      stops: 1,
+      releases: 1,
+    });
+    expect(await stat(counts().adoptedArchive!)).toBeTruthy();
   });
 
   it("does not set paid-only license behavior for a keyless start", async () => {
@@ -328,5 +349,14 @@ describe("Task 18 recovery state", () => {
     await fixture.coordinator.forceStop("profile-1");
     expect(fixture.counts().releases).toBe(1);
     expect(fixture.counts().uploads).toBe(0);
+  });
+
+  it("surfaces force-stop generation conflicts without cleanup", async () => {
+    const fixture = await setup({ paid: true, forceConflict: true });
+    await fixture.coordinator.start("profile-1");
+    await expect(
+      fixture.coordinator.forceStop("profile-1"),
+    ).rejects.toBeInstanceOf(ConflictError);
+    expect(await fixture.coordinator.store.load("profile-1")).not.toBeNull();
   });
 });
