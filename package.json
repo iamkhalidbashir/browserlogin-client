@@ -11,14 +11,15 @@
     "format": "prettier --write .",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:onnx-fidelity": "perl -e 'alarm 180; exec @ARGV' bun run vitest run tests/unit/bumblebee-fidelity.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
     "@playwright/mcp": "^0.0.34",
     "cloakbrowser": "^0.5.7",
     "fflate": "^0.8.2",
-    "onnxruntime-web": "^1.22.0",
+    "onnxruntime-web": "1.27.0",
     "ws": "^8.21.3",
     "zod": "^4.0.0"
   },
