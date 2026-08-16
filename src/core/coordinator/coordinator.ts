@@ -16,6 +16,7 @@ import type { LaunchSpec, RunnerPaths } from "../runner/types.js";
 import {
   assertIdentity,
   killProcessTree,
+  readIdentity,
   type ProcessIdentity,
 } from "../processes/index.js";
 import {
@@ -530,7 +531,8 @@ export class LifecycleCoordinator {
           await assertIdentity(identity);
           await killProcessTree(identity.pid, { recordedIdentity: identity });
         } catch (error) {
-          void error;
+          const actual = await readIdentity(identity);
+          if (actual) throw error;
         }
         state = {
           ...state,
@@ -769,6 +771,11 @@ export class LifecycleCoordinator {
         await assertIdentity(identity);
         return;
       } catch {
+        const actual = await readIdentity(identity);
+        if (actual)
+          throw new BrowserLoginError(
+            "persisted runner identity does not match the live process",
+          );
         const remote =
           state.remote_session_id && this.options.api.sessionStatus
             ? await this.options.api.sessionStatus(state.remote_session_id)
