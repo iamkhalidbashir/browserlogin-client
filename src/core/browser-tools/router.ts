@@ -73,10 +73,7 @@ export class BrowserToolsRouter {
     if (typeof profile !== "string" || profile.length === 0)
       return textResult("missing required argument: profile", true);
     if (!isManifestTool(name)) return textResult(GENERIC_BROWSER_ERROR, true);
-    if (
-      (name === UNSAFE_TOOL_NAME || name === "browser_evaluate") &&
-      process.env[ALLOW_UNSAFE_ENV] !== "1"
-    )
+    if (name === UNSAFE_TOOL_NAME && process.env[ALLOW_UNSAFE_ENV] !== "1")
       return textResult(
         `${name} is disabled: JavaScript execution is RCE-equivalent. Set ${ALLOW_UNSAFE_ENV}=1 to allow.`,
         true,
