@@ -13,6 +13,7 @@
     {"name":"requestUploadUrl","method":"POST","path":"/profiles/profile-1/archive-upload-url","headers":{"Content-Type":"application/json"},"body":{}},
     {"name":"directUpload","method":"POST","path":"/upload/test-upload","headers":{"Content-Type":"application/zip","Content-Length":"4"},"body":"DATA"},
     {"name":"stopSession","method":"POST","path":"/sessions/session-1/stop","headers":{"Content-Type":"application/json","Idempotency-Key":"stop-1"},"body":{"archive":{"storage_id":"storage-1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","format":"zip"}}},
-    {"name":"forceStopSession","method":"POST","path":"/sessions/session-1/stop","headers":{"Content-Type":"application/json","Idempotency-Key":"force-1"},"body":{"force":true}}
+    {"name":"forceStopSession","method":"POST","path":"/sessions/session-1/stop","headers":{"Content-Type":"application/json","Idempotency-Key":"force-1"},"body":{"force":true}},
+    {"name":"normalStopWithoutArchive","provenance":"api.py:148-155,167-168; docs/browserlogin.md:535-562","method":"POST","path":"/sessions/session-1/stop","headers":{"Authorization":"Bearer bl_test_key_secret","Accept":"application/json","Content-Type":"application/json","Idempotency-Key":"rollback-1"},"body":{}}
   ]
 }

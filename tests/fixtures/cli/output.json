@@ -1,6 +1,8 @@
 {
   "provenance": "cli.py:13-15,18-28,31-41,44-89",
   "exitCodes":{"ok":0,"usage":2,"failure":3},
+  "profilesTableFields":["profile_id","name","platform","archive_generation","cloud_session"],
+  "forcePrompt":{"phrase":"FORCE CLOSE <profile_id>","example":"FORCE CLOSE profile-1","warning":"Force close discards unsaved Chrome changes, uploads no archive, and keeps only the last committed cache."},
   "commands":[
     {"argv":["profiles"],"stdout":"[{\"profile_id\":\"profile-1\",\"name\":\"Research profile\",\"platform\":\"macos\",\"archive_generation\":4,\"cloud_session\":false}]\n","exitCode":0},
     {"argv":["start","profile-1"],"stdout":"Profile started: profile-1\n","exitCode":0},
