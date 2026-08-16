@@ -11,6 +11,7 @@ import {
   type BinarySource,
 } from "./types.js";
 import { archiveName } from "./versions.js";
+import { getTestOfficialSigningPublicKey } from "./test-seam.js";
 
 export const OFFICIAL_SIGNING_PUBLIC_KEY =
   "MKFKwIhUcKWq5xTuNA0Ovg99njcDEcEJvmWYYhApvaU=";
@@ -83,7 +84,6 @@ export async function verifyArchive(
   manifestBase: string,
   headers?: Record<string, string>,
   fetchImpl: BinaryFetch = fetch,
-  officialSigningPublicKey = OFFICIAL_SIGNING_PUBLIC_KEY,
 ): Promise<ManifestVerification> {
   let manifest: string;
   let signature: string | undefined;
@@ -115,7 +115,7 @@ export async function verifyArchive(
       !verifyEd25519(
         new TextEncoder().encode(manifest),
         signature,
-        officialSigningPublicKey,
+        getTestOfficialSigningPublicKey() ?? OFFICIAL_SIGNING_PUBLIC_KEY,
       )
     ) {
       throw new BinaryManagerError(

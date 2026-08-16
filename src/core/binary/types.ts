@@ -79,7 +79,6 @@ export type EnsureBinaryOptions = VersionResolutionOptions & {
   progress?: (event: ProgressEvent) => void;
   diskSpace?: (path: string) => Promise<{ available: number }>;
   healthCallback?: (info: BinaryInfo) => Promise<boolean> | boolean;
-  officialSigningPublicKey?: string;
 };
 
 export type InstallOptions = {
@@ -91,6 +90,7 @@ export type InstallOptions = {
   sha256: string;
   source: BinarySource;
   trust: "verified" | "unverified-custom";
+  sourceId?: string;
   healthCallback?: (info: BinaryInfo) => Promise<boolean> | boolean;
 };
 
