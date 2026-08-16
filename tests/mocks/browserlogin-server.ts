@@ -47,7 +47,7 @@ export async function startBrowserLoginMock() {
       response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": archiveBytes.length, ETag: `"${archiveSha256}"`, "X-Archive-Generation": "4", Digest: `sha-256=${digest}`, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
       return response.end(archiveBytes);
     }
-    if (path === `/profiles/${profileId}/archive-upload-url` && method === "POST") return sendJson(response, 200, { upload_url: `${"https"}://upload.browserlogin.test/upload`, expires_at: "2026-08-16T01:00:00.000Z", session_id: sessionId });
+    if (path === `/profiles/${profileId}/archive-upload-url` && method === "POST") return sendJson(response, 200, { upload_url: "https://convex-storage.test/api/storage/upload/session-1", expires_at: "2026-08-16T01:00:00.000Z", session_id: sessionId });
     if (path === `/sessions/${sessionId}` && method === "GET") return sendJson(response, 200, session);
     if (path === `/sessions/${sessionId}/status` && method === "GET") return sendJson(response, 200, session);
     if (path === `/sessions/${sessionId}/stop` && method === "POST") return sendJson(response, 200, json && "force" in json ? { ...session, state: "stopped", status: "stopped", force_stopped_at: "2026-08-16T00:00:00.000Z" } : { ...session, state: "stopped", status: "stopped", archive_generation: 5 });

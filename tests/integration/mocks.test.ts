@@ -20,6 +20,15 @@ describe("Task 2 local mock servers", () => {
     const download = await fetch(`${server.url}/api/v1/profiles/profile-1/archive/download?generation=4`, { headers: { Authorization: "Bearer bl_test_key_secret", "If-Match": '"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' } });
     expect(download.status).toBe(200);
     expect(await download.text()).toBe("DATA");
+    const uploadUrl = await fetch(`${server.url}/api/v1/profiles/profile-1/archive-upload-url`, { method: "POST", headers: { Authorization: "Bearer bl_test_key_secret", "Content-Type": "application/json" }, body: "{}" });
+    expect((await uploadUrl.json() as { upload_url: string }).upload_url).toBe("https://convex-storage.test/api/storage/upload/session-1");
+  });
+
+  it("rejects missing bearer", async () => {
+    const server = await startDistributionMock(); closers.push(server.close);
+    const response = await fetch(`${server.url}/api/download/v1.0.0`, { headers: { "X-Platform": "darwin-arm64" } });
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe('Bearer realm="BrowserLogin"');
   });
 
   it("negotiates stateless MCP, returns 202 notifications, and rejects GET/DELETE", async () => {
@@ -49,5 +58,10 @@ describe("Task 2 local mock servers", () => {
     expect(createHash("sha256").update(archive).digest("hex")).toMatch(/^[0-9a-f]{64}$/);
     const pro = await fetch(`${server.url}/pro/browser-archive`, { headers: { Authorization: "Bearer bl_test_key_secret" } });
     expect(pro.status).toBe(200);
+    const download = await fetch(`${server.url}/api/download/v1.0.0`, { headers: { Authorization: "Bearer bl_test_key_secret", "X-Platform": "darwin-arm64" } });
+    expect(download.status).toBe(200);
+    expect(download.headers.get("x-platform")).toBe("darwin-arm64");
+    expect((await (await fetch(`${server.url}/api/download/v1.0.0`, { headers: { Authorization: "Bearer bl_test_key_secret" } })).json() as { error: string }).error).toContain("required");
+    expect((await (await fetch(`${server.url}/api/download/v1.0.0`, { headers: { Authorization: "Bearer bl_test_key_secret", "X-Platform": "plan9" } })).json() as { error: string }).error).toContain("unsupported");
   });
 });

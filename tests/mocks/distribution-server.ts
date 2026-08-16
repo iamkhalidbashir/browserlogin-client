@@ -18,6 +18,16 @@ export function verifyTestOnlyChecksums(bytes: Buffer, platform: keyof typeof ar
 export async function startDistributionMock() {
   return startServer(async ({ request }, response: ServerResponse) => {
     const url = new URL(request.url ?? "/", "http://localhost");
+    const download = url.pathname.match(/^\/api\/download\/([^/]+)$/);
+    if (download) {
+      if (request.headers.authorization !== "Bearer bl_test_key_secret") return sendJson(response, 401, { error: "unauthorized" }, { "WWW-Authenticate": 'Bearer realm="BrowserLogin"' });
+      const platform = request.headers["x-platform"];
+      if (typeof platform !== "string" || !platform) return sendJson(response, 400, { error: "X-Platform is required" });
+      if (!(platform in archives)) return sendJson(response, 400, { error: "unsupported platform" });
+      const bytes = archives[platform as keyof typeof archives];
+      response.writeHead(200, { "Content-Type": "application/zip", "Content-Length": bytes.length, "X-Platform": platform, "X-Test-Signing-Key": TEST_ONLY_SIGNING_LABEL });
+      return response.end(bytes);
+    }
     if (url.pathname === "/SHA256SUMS") return sendJson(response, 200, { checksums: sums, signature: signature.toString("base64"), publicKey: testOnlyPublicKey, label: TEST_ONLY_SIGNING_LABEL });
     const match = url.pathname.match(/^\/archives\/([^/]+)\.zip$/);
     if (match && match[1] in archives) {
