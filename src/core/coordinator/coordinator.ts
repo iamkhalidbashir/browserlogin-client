@@ -71,8 +71,23 @@ export type RunnerFactory = (options: {
   licenseApiUrl?: string;
   paths: RunnerPaths;
   onNormalStop: () => Promise<void>;
+  onSpawned?: (identity: ProcessIdentity) => Promise<void>;
   healthCallback?: () => Promise<boolean>;
 }) => Promise<RunnerHandle>;
+export type CrashPoint =
+  | "after-start-intent-save"
+  | "after-license-save"
+  | "after-remote-active-save"
+  | "after-archive-materialized-save"
+  | "after-spawn-identity-save-before-ready"
+  | "after-running-save"
+  | "after-archive-ready-save"
+  | "after-upload-pending-save-before-stop"
+  | "after-force-stop-intent-save";
+export type CrashInjector = (
+  point: CrashPoint,
+  state: RecoveryState,
+) => Promise<void> | void;
 export type CoordinatorProfile = {
   profile: Profile;
   binary?: BinaryInfo;
@@ -97,6 +112,7 @@ export type CoordinatorOptions = {
     generation: number,
   ) => Promise<void>;
   runtimeStop?: (profileId: string) => Promise<void>;
+  crashInjector?: CrashInjector;
 };
 
 async function digestFile(
@@ -130,10 +146,12 @@ export class LifecycleCoordinator {
   private readonly runnerHandles = new Map<string, RunnerHandle>();
   private readonly naturallyClosed = new Set<string>();
   private readonly licenseUrls = new Map<string, string>();
+  private readonly crashInjector?: CrashInjector;
   constructor(private readonly options: CoordinatorOptions) {
     this.store = createRecoveryStore(options.root);
     this.archive = options.archive ?? new SafeZipArchive();
     this.now = options.now ?? (() => new Date());
+    this.crashInjector = options.crashInjector;
     this.runner =
       options.runner ??
       (async (input) =>
@@ -175,6 +193,7 @@ export class LifecycleCoordinator {
         }),
       );
       await this.store.save(state);
+      await this.crashInjector?.("after-start-intent-save", state);
       return this.startLocked(state);
     });
   }
@@ -214,8 +233,6 @@ export class LifecycleCoordinator {
           "force stop requires a confirmed remote session",
         );
       if (current.status !== "force-stop") {
-        const hadLicense = current.license_acquired;
-        await this.stopRunner(current);
         current = transition(
           {
             ...current,
@@ -233,10 +250,23 @@ export class LifecycleCoordinator {
           this.now,
         );
         await this.store.save(current);
-        if (hadLicense) {
-          await this.options.license?.release();
-          this.licenseUrls.delete(profileId);
-        }
+        await this.crashInjector?.("after-force-stop-intent-save", current);
+      }
+      const hadLicense = current.license_acquired;
+      await this.options.runtimeStop?.(profileId);
+      await this.stopRunner(current);
+      current = {
+        ...current,
+        license_acquired: false,
+        runner_pid: null,
+        runner_start_time: null,
+        runner_cmdline_hash: null,
+        launch_file: null,
+      };
+      await this.store.save(current);
+      if (hadLicense) {
+        await this.options.license?.release();
+        this.licenseUrls.delete(profileId);
       }
       const result = await this.options.api.forceStopSession(
         current.remote_session_id!,
@@ -407,6 +437,7 @@ export class LifecycleCoordinator {
         this.now,
       );
       await this.store.save(state);
+      await this.crashInjector?.("after-license-save", state);
     }
     try {
       if (!state.remote_session_id) {
@@ -431,6 +462,7 @@ export class LifecycleCoordinator {
           this.now,
         );
         await this.store.save(state);
+        await this.crashInjector?.("after-remote-active-save", state);
       }
       await mkdir(state.work_dir, { recursive: true, mode: 0o700 });
       if (state.archive && !state.archive_materialized) {
@@ -462,6 +494,7 @@ export class LifecycleCoordinator {
         this.now,
       );
       await this.store.save(state);
+      await this.crashInjector?.("after-archive-materialized-save", state);
       const binary =
         context.binary ??
         (await ensureBinary({ licenseKey: this.options.license?.key }));
@@ -487,6 +520,26 @@ export class LifecycleCoordinator {
         this.now,
       );
       await this.store.save(state);
+      if (state.runner_pid !== null) {
+        const identity: ProcessIdentity = {
+          pid: state.runner_pid,
+          process_start_time: state.runner_start_time!,
+          cmdline_hash: state.runner_cmdline_hash!,
+        };
+        try {
+          await assertIdentity(identity);
+          await killProcessTree(identity.pid, { recordedIdentity: identity });
+        } catch (error) {
+          void error;
+        }
+        state = {
+          ...state,
+          runner_pid: null,
+          runner_start_time: null,
+          runner_cmdline_hash: null,
+        };
+        await this.store.save(state);
+      }
       const runner = await this.runner({
         spec,
         binary,
@@ -496,6 +549,19 @@ export class LifecycleCoordinator {
         onNormalStop: async () => {
           this.naturallyClosed.add(state.profile_id);
           await this.stop(state.profile_id);
+        },
+        onSpawned: async (identity) => {
+          state = {
+            ...state,
+            runner_pid: identity.pid,
+            runner_start_time: identity.process_start_time,
+            runner_cmdline_hash: identity.cmdline_hash,
+          };
+          await this.store.save(state);
+          await this.crashInjector?.(
+            "after-spawn-identity-save-before-ready",
+            state,
+          );
         },
       });
       this.runnerHandles.set(state.profile_id, runner);
@@ -511,6 +577,7 @@ export class LifecycleCoordinator {
         this.now,
       );
       await this.store.save(state);
+      await this.crashInjector?.("after-running-save", state);
       return state;
     } catch (error) {
       await this.store.save({
@@ -575,8 +642,12 @@ export class LifecycleCoordinator {
       await this.cleanupLocked({ ...state, status: "done" });
       return result;
     }
-    await this.stopRunner(state);
     const hadLicense = state.license_acquired;
+    state = transition(state, "archive-ready", this.now);
+    await this.store.save(state);
+    await this.crashInjector?.("after-archive-ready-save", state);
+    await this.options.runtimeStop?.(state.profile_id);
+    await this.stopRunner(state);
     state = {
       ...state,
       runner_pid: null,
@@ -586,12 +657,11 @@ export class LifecycleCoordinator {
       license_acquired: false,
       launch_file: null,
     };
-    await this.options.runtimeStop?.(state.profile_id);
+    await this.store.save(state);
     if (hadLicense) {
       await this.options.license?.release();
       this.licenseUrls.delete(state.profile_id);
     }
-    state = transition(state, "archive-ready", this.now);
     const artifact =
       state.archive_artifact ??
       join(this.options.root, "artifacts", `${state.run_id}.zip`);
@@ -623,7 +693,7 @@ export class LifecycleCoordinator {
       state.profile_id,
       sessionId,
     );
-    state = transition(state, "upload-pending", this.now);
+    state = transition(state, "upload-ambiguous", this.now);
     await this.store.save(state);
     let storageId: string;
     try {
@@ -656,6 +726,7 @@ export class LifecycleCoordinator {
       this.now,
     );
     await this.store.save(state);
+    await this.crashInjector?.("after-upload-pending-save-before-stop", state);
     const result = await this.options.api.stopSession(
       sessionId,
       archivePayload,
@@ -682,6 +753,46 @@ export class LifecycleCoordinator {
   }
 
   private async reconcileLocked(state: RecoveryState): Promise<void> {
+    if (
+      state.status === "running" &&
+      !this.runnerHandles.has(state.profile_id) &&
+      state.runner_pid !== null &&
+      state.runner_start_time !== null &&
+      state.runner_cmdline_hash !== null
+    ) {
+      const identity: ProcessIdentity = {
+        pid: state.runner_pid,
+        process_start_time: state.runner_start_time,
+        cmdline_hash: state.runner_cmdline_hash,
+      };
+      try {
+        await assertIdentity(identity);
+        return;
+      } catch {
+        const remote =
+          state.remote_session_id && this.options.api.sessionStatus
+            ? await this.options.api.sessionStatus(state.remote_session_id)
+            : undefined;
+        if (remote?.state === "stopped" || remote?.status === "stopped") {
+          await this.cleanupLocked(state, true);
+          return;
+        }
+        const next = transition(
+          {
+            ...state,
+            runner_pid: null,
+            runner_start_time: null,
+            runner_cmdline_hash: null,
+            browser_launched: false,
+          },
+          "archive_materialized",
+          this.now,
+        );
+        await this.store.save(next);
+        await this.stopLocked(next);
+        return;
+      }
+    }
     if (state.remote_session_id && this.options.api.sessionStatus)
       await this.options.api.sessionStatus(state.remote_session_id);
     if (state.status === "force-stop" || state.status === "upload-ambiguous")
