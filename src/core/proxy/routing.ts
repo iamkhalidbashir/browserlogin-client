@@ -28,28 +28,7 @@ function formatHost(host: string): string {
   }
   const addressType = isIP(host);
   if (addressType === 6) {
-    const parts = host.split("::");
-    const left = parts[0] ? parts[0].split(":") : [];
-    const right = parts[1] ? parts[1].split(":") : [];
-    const missing = 8 - left.length - right.length;
-    const expanded = [...left, ...Array.from({ length: Math.max(0, missing) }, () => "0"), ...right]
-      .map((part) => Number.parseInt(part || "0", 16).toString(16));
-    let bestStart = -1;
-    let bestLength = 0;
-    for (let start = 0; start < expanded.length;) {
-      if (expanded[start] !== "0") { start += 1; continue; }
-      let end = start;
-      while (end < expanded.length && expanded[end] === "0") end += 1;
-      if (end - start > bestLength) { bestStart = start; bestLength = end - start; }
-      start = end;
-    }
-    if (bestLength > 1) {
-      const compressed = [...expanded.slice(0, bestStart), "", ...expanded.slice(bestStart + bestLength)];
-      if (bestStart === 0) compressed.unshift("");
-      if (bestStart + bestLength === expanded.length) compressed.push("");
-      return `[${compressed.join(":")}]`;
-    }
-    return `[${expanded.join(":")}]`;
+    return new URL(`http://[${host}]:1`).hostname;
   }
   if (host.includes(":")) throw new Error("proxy host is invalid");
   return addressType === 4 ? host : host;
