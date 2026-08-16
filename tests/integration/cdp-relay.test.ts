@@ -1,0 +1,370 @@
+import { createServer, type Server } from "node:http";
+import { describe, expect, test } from "vitest";
+import WebSocket, { WebSocketServer, type RawData } from "ws";
+import {
+  INTERCEPTED_INPUT_METHODS,
+  MAX_CDP_MESSAGE_BYTES,
+  startCdpRelay,
+  type RawInput,
+} from "../../src/core/cdp/relay.js";
+
+type Upstream = {
+  server: Server;
+  websocketServer: WebSocketServer;
+  connections: number;
+  messages: Record<string, unknown>[];
+  sockets: Set<WebSocket>;
+  url: string;
+};
+
+const openSocket = (url: string): Promise<WebSocket> =>
+  new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    socket.once("open", () => resolve(socket));
+    socket.once("error", () => reject(new Error("websocket did not open")));
+  });
+
+const receive = (
+  socket: WebSocket,
+  timeoutMs = 1_000,
+  label = "message",
+): Promise<Record<string, unknown>> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timed out`)),
+      timeoutMs,
+    );
+    socket.once("message", (raw: RawData) => {
+      clearTimeout(timer);
+      resolve(JSON.parse(raw.toString()) as Record<string, unknown>);
+    });
+  });
+
+const receiveMatching = (
+  socket: WebSocket,
+  predicate: (message: Record<string, unknown>) => boolean,
+  timeoutMs = 1_000,
+): Promise<Record<string, unknown>> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off("message", onMessage);
+      reject(new Error("matching message timed out"));
+    }, timeoutMs);
+    const onMessage = (raw: RawData) => {
+      const message = JSON.parse(raw.toString()) as Record<string, unknown>;
+      if (!predicate(message)) return;
+      clearTimeout(timer);
+      socket.off("message", onMessage);
+      resolve(message);
+    };
+    socket.on("message", onMessage);
+  });
+
+const send = (socket: WebSocket, message: Record<string, unknown>): void =>
+  socket.send(JSON.stringify(message));
+
+const startUpstream = async (
+  onMessage: (socket: WebSocket, message: Record<string, unknown>) => void,
+): Promise<Upstream> => {
+  const server = createServer();
+  const websocketServer = new WebSocketServer({
+    noServer: true,
+    maxPayload: MAX_CDP_MESSAGE_BYTES,
+  });
+  const state: Upstream = {
+    server,
+    websocketServer,
+    connections: 0,
+    messages: [],
+    sockets: new Set(),
+    url: "",
+  };
+  websocketServer.on("connection", (socket: WebSocket) => {
+    state.connections += 1;
+    state.sockets.add(socket);
+    socket.on("error", () => undefined);
+    socket.on("message", (raw: RawData) => {
+      if (typeof raw !== "string") {
+        const message = JSON.parse(raw.toString()) as Record<string, unknown>;
+        state.messages.push(message);
+        onMessage(socket, message);
+      }
+    });
+    socket.on("close", () => state.sockets.delete(socket));
+  });
+  server.on("upgrade", (request, socket, head) => {
+    websocketServer.handleUpgrade(request, socket, head, (client) => {
+      websocketServer.emit("connection", client, request);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string")
+    throw new Error("upstream did not bind");
+  state.url = `ws://127.0.0.1:${address.port}`;
+  return state;
+};
+
+const stopUpstream = async (upstream: Upstream): Promise<void> => {
+  for (const socket of upstream.sockets) socket.close();
+  upstream.websocketServer.close();
+  await new Promise<void>((resolve) => upstream.server.close(() => resolve()));
+};
+
+describe("CDP input relay", () => {
+  test("binds loopback, authenticates one token, and connects upstream after acceptance", async () => {
+    const upstream = await startUpstream(() => undefined);
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: { execute: () => undefined },
+    });
+    expect(relay.url).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/[^/]+$/);
+    await expect(
+      openSocket(relay.url.replace(/[^/]+$/, "wrong")),
+    ).rejects.toThrow();
+    expect(upstream.connections).toBe(0);
+    const client = await openSocket(relay.url);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(upstream.connections).toBe(1);
+    client.close();
+    await expect(openSocket(relay.url)).rejects.toThrow();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("forwards non-input messages and preserves ids, sessions, and events", async () => {
+    const upstream = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(JSON.stringify({ id: message.id, result: {} }));
+      else
+        socket.send(
+          JSON.stringify({
+            id: message.id,
+            sessionId: message.sessionId,
+            result: { echoed: true },
+          }),
+        );
+    });
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: { execute: () => undefined },
+    });
+    const client = await openSocket(relay.url);
+    send(client, {
+      id: 7,
+      method: "Runtime.evaluate",
+      params: { expression: "1+1" },
+      sessionId: "s",
+    });
+    expect(await receive(client)).toEqual({
+      id: 7,
+      sessionId: "s",
+      result: { echoed: true },
+    });
+    const event = {
+      method: "Runtime.consoleAPICalled",
+      params: { type: "log" },
+      sessionId: "s",
+    };
+    [...upstream.sockets][0]?.send(JSON.stringify(event));
+    expect(await receive(client)).toEqual(event);
+    client.close();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("intercepts exactly four methods, serializes per client, and ACKs after worker completion", async () => {
+    expect([...INTERCEPTED_INPUT_METHODS].sort()).toEqual([
+      "Input.dispatchKeyEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchTouchEvent",
+      "Input.insertText",
+    ]);
+    const upstream = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(JSON.stringify({ id: message.id, result: {} }));
+    });
+    const order: number[] = [];
+    let release!: () => void;
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: {
+        execute: async (event) => {
+          order.push(Number(event.params.sequence));
+          if (event.params.sequence === 1)
+            await new Promise<void>((resolve) => {
+              release = resolve;
+            });
+        },
+      },
+    });
+    const client = await openSocket(relay.url);
+    const firstAck = receiveMatching(client, (message) => message.id === 1);
+    const secondAck = receiveMatching(client, (message) => message.id === 2);
+    send(client, {
+      id: 1,
+      method: "Input.dispatchMouseEvent",
+      params: { sequence: 1 },
+    });
+    send(client, {
+      id: 2,
+      method: "Input.dispatchKeyEvent",
+      params: { sequence: 2 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(order).toEqual([1]);
+    release();
+    expect(await firstAck).toEqual({ id: 1, result: {} });
+    expect(await secondAck).toEqual({ id: 2, result: {} });
+    expect(
+      upstream.messages.some(
+        (message) => message.method === "Input.dispatchMouseEvent",
+      ),
+    ).toBe(false);
+    client.close();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("keeps mappings for two targets and cancels on navigation with one ACK", async () => {
+    const upstream = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(JSON.stringify({ id: message.id, result: {} }));
+      if (message.method === "Target.attachToTarget") {
+        const targetId = (message.params as Record<string, unknown>).targetId;
+        socket.send(
+          JSON.stringify({
+            id: message.id,
+            result: { sessionId: `session-${targetId}` },
+          }),
+        );
+      }
+    });
+    const seen: RawInput[] = [];
+    let aborted = false;
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: {
+        execute: (event, signal) => {
+          seen.push(event);
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+            },
+            { once: true },
+          );
+          return new Promise<void>(() => undefined);
+        },
+      },
+    });
+    const client = await openSocket(relay.url);
+    send(client, {
+      id: 1,
+      method: "Target.attachToTarget",
+      params: { targetId: "popup-a", flatten: true },
+    });
+    expect(await receive(client, 1_000, "attach-a")).toMatchObject({
+      id: 1,
+      result: { sessionId: "session-popup-a" },
+    });
+    send(client, {
+      id: 2,
+      method: "Target.attachToTarget",
+      params: { targetId: "popup-b", flatten: true },
+    });
+    expect(await receive(client, 1_000, "attach-b")).toMatchObject({
+      id: 2,
+      result: { sessionId: "session-popup-b" },
+    });
+    send(client, {
+      id: 3,
+      method: "Input.insertText",
+      params: { text: "private" },
+      sessionId: "session-popup-a",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(seen[0]?.sessionId).toBe("session-popup-a");
+    const ack = receiveMatching(client, (message) => message.id === 3);
+    [...upstream.sockets][0]?.send(
+      JSON.stringify({
+        method: "Page.frameNavigated",
+        params: { frame: { id: "f" } },
+        sessionId: "session-popup-a",
+      }),
+    );
+    expect(await ack).toEqual({
+      id: 3,
+      sessionId: "session-popup-a",
+      result: {},
+    });
+    expect(aborted).toBe(true);
+    expect(relay.pendingCount()).toBe(0);
+    client.close();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("uses bounded keyboard fallback after worker failure and waits for upstream", async () => {
+    const upstream = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(JSON.stringify({ id: message.id, result: {} }));
+      if (typeof message.id === "number" && message.id < 0)
+        setTimeout(
+          () => socket.send(JSON.stringify({ id: message.id, result: {} })),
+          25,
+        );
+    });
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      timeoutMs: 100,
+      worker: {
+        execute: () => {
+          throw new Error("worker failed");
+        },
+      },
+    });
+    const client = await openSocket(relay.url);
+    const start = Date.now();
+    send(client, {
+      id: 8,
+      method: "Input.insertText",
+      params: { text: "private" },
+    });
+    expect(await receive(client)).toEqual({ id: 8, result: {} });
+    expect(Date.now() - start).toBeGreaterThanOrEqual(20);
+    expect(
+      upstream.messages.find((message) => message.method === "Input.insertText")
+        ?.method,
+    ).toBe("Input.insertText");
+    client.close();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("fails closed for oversized and binary messages, and rejects unsafe configuration", async () => {
+    const upstream = await startUpstream(() => undefined);
+    await expect(
+      startCdpRelay({
+        upstreamUrl: "http://127.0.0.1",
+        worker: { execute: () => undefined },
+      }),
+    ).rejects.toThrow("ws or wss");
+    await expect(
+      startCdpRelay({
+        upstreamUrl: upstream.url,
+        env: { BROWSERLOGIN_CDP_TIMEOUT: "nope" },
+        worker: { execute: () => undefined },
+      }),
+    ).rejects.toThrow("invalid");
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: { execute: () => undefined },
+    });
+    const client = await openSocket(relay.url);
+    client.send(new Uint8Array(MAX_CDP_MESSAGE_BYTES + 1));
+    await new Promise<void>((resolve) => client.once("close", () => resolve()));
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+});
