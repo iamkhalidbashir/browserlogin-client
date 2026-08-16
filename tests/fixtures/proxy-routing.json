@@ -1,0 +1,78 @@
+{
+  "provenance": "proxy_routing.py:8-62",
+  "cases": [
+    {
+      "name": "http credentials",
+      "input": {
+        "protocol": "http",
+        "host": "proxy.test",
+        "port": 8080,
+        "username": "u",
+        "password": "p"
+      },
+      "expected": {
+        "mode": "direct",
+        "launchProxy": {
+          "server": "http://proxy.test:8080",
+          "username": "u",
+          "password": "p"
+        }
+      }
+    },
+    {
+      "name": "https without credentials",
+      "input": { "protocol": "HTTPS", "host": "proxy.test", "port": 443 },
+      "expected": {
+        "mode": "direct",
+        "launchProxy": { "server": "https://proxy.test:443" }
+      }
+    },
+    {
+      "name": "socks4 no credentials",
+      "input": { "protocol": "socks4", "host": "proxy.test", "port": 1080 },
+      "expected": {
+        "mode": "direct",
+        "launchProxy": "socks4://proxy.test:1080"
+      }
+    },
+    {
+      "name": "socks5 credentials relayed",
+      "input": {
+        "protocol": "socks5",
+        "host": "proxy.test",
+        "port": 1080,
+        "username": "u",
+        "password": "p"
+      },
+      "expected": {
+        "mode": "relay",
+        "launchProxy": null,
+        "upstream": {
+          "protocol": "socks5",
+          "host": "proxy.test",
+          "port": 1080,
+          "username": "u",
+          "password": "p"
+        }
+      }
+    },
+    {
+      "name": "ipv6 formatting",
+      "input": { "protocol": "http", "host": "2001:db8::1", "port": 8080 },
+      "expected": {
+        "mode": "direct",
+        "launchProxy": { "server": "http://[2001:db8::1]:8080" }
+      }
+    },
+    {
+      "name": "socks4 credentials rejected",
+      "input": {
+        "protocol": "socks4",
+        "host": "proxy.test",
+        "port": 1080,
+        "username": "u"
+      },
+      "error": "SOCKS4 proxy credentials are not supported"
+    }
+  ]
+}

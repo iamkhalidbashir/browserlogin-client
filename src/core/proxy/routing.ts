@@ -10,11 +10,13 @@ export type ProxyInput = {
   password?: string;
 };
 
-export type DirectProxy = string | {
-  server: string;
-  username?: string;
-  password?: string;
-};
+export type DirectProxy =
+  | string
+  | {
+      server: string;
+      username?: string;
+      password?: string;
+    };
 
 export type ProxyRoute = {
   mode: "direct" | "relay";
@@ -23,7 +25,10 @@ export type ProxyRoute = {
 };
 
 function formatHost(host: string): string {
-  if (!host || ["/", "?", "#", "@", "[", "]"].some((character) => host.includes(character))) {
+  if (
+    !host ||
+    ["/", "?", "#", "@", "[", "]"].some((character) => host.includes(character))
+  ) {
     throw new Error("proxy host is invalid");
   }
   const addressType = isIP(host);
@@ -35,8 +40,10 @@ function formatHost(host: string): string {
 }
 
 export function routeProxy(proxy: ProxyInput): ProxyRoute {
-  const protocol = typeof proxy.protocol === "string" ? proxy.protocol.toLowerCase() : "";
-  if (!PROTOCOLS.has(protocol)) throw new Error("proxy protocol is not supported");
+  const protocol =
+    typeof proxy.protocol === "string" ? proxy.protocol.toLowerCase() : "";
+  if (!PROTOCOLS.has(protocol))
+    throw new Error("proxy protocol is not supported");
   if (typeof proxy.host !== "string") throw new Error("proxy host is invalid");
   const host = formatHost(proxy.host);
   if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535) {
@@ -50,18 +57,24 @@ export function routeProxy(proxy: ProxyInput): ProxyRoute {
   }
 
   const server = `${protocol}://${host}:${proxy.port}`;
-  const hasCredentials = proxy.username !== undefined || proxy.password !== undefined;
+  const hasCredentials =
+    proxy.username !== undefined || proxy.password !== undefined;
   if (protocol === "socks5" && hasCredentials) {
     return {
       mode: "relay",
       launchProxy: null,
-      upstream: { protocol, host: proxy.host, port: proxy.port, username: proxy.username, password: proxy.password },
+      upstream: {
+        protocol,
+        host: proxy.host,
+        port: proxy.port,
+        username: proxy.username,
+        password: proxy.password,
+      },
     };
   }
   if (protocol === "socks4" && hasCredentials) {
     throw new Error("SOCKS4 proxy credentials are not supported");
   }
-  if (protocol === "https" && !hasCredentials) return { mode: "direct", launchProxy: server };
   if (protocol === "http" || protocol === "https") {
     const launchProxy: DirectProxy = { server };
     if (proxy.username !== undefined) launchProxy.username = proxy.username;
