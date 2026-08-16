@@ -36,7 +36,12 @@ async function upstreamSocks(echo: (socket: Socket) => void, credentials = true,
         socket.once("data", (request) => {
           expect(request[0]).toBe(5);
           requests.push(request);
-          socket.write(packet([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]));
+          const reply = request[3] === 3
+            ? Buffer.concat([packet([5, 0, 0, 3, 10]), Buffer.from("reply.test"), packet([0, 80])])
+            : request[3] === 4
+              ? Buffer.concat([packet([5, 0, 0, 4]), Buffer.alloc(16, 2), packet([0, 80])])
+              : packet([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]);
+          socket.write(reply);
           echo(socket);
           socket.once("end", () => socket.end());
         });
@@ -131,6 +136,17 @@ describe("authenticated SOCKS5 relay", () => {
     const clients = await Promise.all(Array.from({ length: 20 }, () => connectThroughRelay(port, Buffer.from("echo.test"))));
     await Promise.all(clients.map(async (client) => { client.write(Buffer.from("x")); expect((await once(client, "data"))[0]).toEqual(Buffer.from("x")); client.end(); }));
     await relay.close();
+    await relay.close();
+    expect(relay.activeCount).toBe(0);
+  });
+
+  it("closes an idle tunnel after the injected timeout", async () => {
+    const upstreamPort = await upstreamSocks(() => undefined);
+    const relay = new Socks5Relay({ host: "127.0.0.1", port: upstreamPort, username: "u", password: "secret" }, { idleTimeout: 25 });
+    relays.push(relay);
+    await relay.start();
+    const client = await connectThroughRelay(Number(new URL(relay.proxyUrl).port), Buffer.from("idle.test"));
+    await once(client, "close");
     await relay.close();
     expect(relay.activeCount).toBe(0);
   });
