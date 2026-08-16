@@ -1,0 +1,35 @@
+{
+  "name": "browserlogin-client",
+  "version": "0.1.0",
+  "description": "BrowserLogin GUI and MCP lifecycle client for CloakBrowser sessions",
+  "type": "module",
+  "private": false,
+  "packageManager": "bun@1.2.23",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.5",
+    "@playwright/mcp": "^0.0.34",
+    "cloakbrowser": "^0.5.7",
+    "fflate": "^0.8.2",
+    "onnxruntime-web": "^1.22.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.32.0",
+    "@typescript-eslint/parser": "^8.32.0",
+    "eslint": "^9.25.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^3.1.2"
+  }
+}

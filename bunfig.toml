@@ -1,0 +1,6 @@
+[install]
+lockfile = "bun.lock"
+production = false
+
+[test]
+coverage = false
