@@ -81,12 +81,12 @@ export class RuntimePool {
     state.closing = true;
     await state.tail;
     const runtime = state.runtime;
-    this.profiles.delete(profileId);
     if (runtime) await runtime.close();
+    this.profiles.delete(profileId);
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all(
+    await Promise.allSettled(
       [...this.profiles.keys()].map((profileId) =>
         this.closeProfile(profileId),
       ),

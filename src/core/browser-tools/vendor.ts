@@ -71,23 +71,28 @@ class McpVendorBrowserRuntime implements VendorBrowserRuntime {
     name: string,
     arguments_: JsonObject,
   ): Promise<VendorCallResult> {
+    const action = arguments_.action;
     const vendorName =
       name === "browser_tabs"
-        ? "browser_tab_list"
+        ? action === "new"
+          ? "browser_tab_new"
+          : action === "close"
+            ? "browser_tab_close"
+            : action === "select"
+              ? "browser_tab_select"
+              : "browser_tab_list"
         : name === "browser_run_code_unsafe"
           ? "browser_evaluate"
-          : name === "browser_drop"
-            ? "browser_file_upload"
-            : name === "browser_find"
-              ? "browser_snapshot"
-              : name === "browser_network_request"
-                ? "browser_network_requests"
-                : name;
+          : name;
     const vendorArguments =
-      name === "browser_drop"
-        ? { paths: arguments_.paths }
-        : name === "browser_find"
-          ? {}
+      name === "browser_tabs"
+        ? action === "new"
+          ? { url: arguments_.url }
+          : action === "close" || action === "select"
+            ? { index: arguments_.index }
+            : {}
+        : name === "browser_run_code_unsafe"
+          ? { function: arguments_.code, filename: arguments_.filename }
           : arguments_;
     return (await this.client.callTool({
       name: vendorName,
