@@ -1,4 +1,9 @@
-import { createConnection, createServer, type Server, type Socket } from "node:net";
+import {
+  createConnection,
+  createServer,
+  type Server,
+  type Socket,
+} from "node:net";
 
 export type Socks5Upstream = {
   protocol?: string;
@@ -23,17 +28,25 @@ type RelayOptions = {
 };
 
 const INVALID = "SOCKS relay request failed";
+const SOCKS_FAILURE = Buffer.from([5, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
 
 function credential(value: string | undefined): Buffer {
   if (value === undefined) return Buffer.alloc(0);
   const encoded = Buffer.from(value, "utf8");
-  if (encoded.length > 255 || encoded.some((byte) => byte === 0 || byte < 0x20 || byte === 0x7f)) {
+  if (
+    encoded.length > 255 ||
+    encoded.some((byte) => byte === 0 || byte < 0x20 || byte === 0x7f)
+  ) {
     throw new SocksRelayError(INVALID);
   }
   return encoded;
 }
 
-async function readExact(socket: Socket, size: number, deadline: number): Promise<Buffer> {
+async function readExact(
+  socket: Socket,
+  size: number,
+  deadline: number,
+): Promise<Buffer> {
   if (size < 0 || size > 65535) throw new SocksRelayError(INVALID);
   const chunks: Buffer[] = [];
   let received = 0;
@@ -43,9 +56,21 @@ async function readExact(socket: Socket, size: number, deadline: number): Promis
         cleanup();
         resolve(data);
       };
-      const onEnd = () => { cleanup(); reject(new SocksRelayError(INVALID)); };
-      const onError = () => { cleanup(); reject(new SocksRelayError(INVALID)); };
-      const timer = setTimeout(() => { cleanup(); reject(new SocksRelayError(INVALID)); }, Math.max(1, deadline - Date.now()));
+      const onEnd = () => {
+        cleanup();
+        reject(new SocksRelayError(INVALID));
+      };
+      const onError = () => {
+        cleanup();
+        reject(new SocksRelayError(INVALID));
+      };
+      const timer = setTimeout(
+        () => {
+          cleanup();
+          reject(new SocksRelayError(INVALID));
+        },
+        Math.max(1, deadline - Date.now()),
+      );
       const cleanup = () => {
         clearTimeout(timer);
         socket.off("data", onData);
@@ -66,20 +91,38 @@ async function readExact(socket: Socket, size: number, deadline: number): Promis
   return data.subarray(0, size);
 }
 
-async function readAddress(socket: Socket, atyp: number, deadline: number): Promise<Buffer> {
+async function readAddress(
+  socket: Socket,
+  atyp: number,
+  deadline: number,
+): Promise<Buffer> {
   if (atyp === 1) return readExact(socket, 4, deadline);
   if (atyp === 4) return readExact(socket, 16, deadline);
   if (atyp === 3) {
     const length = (await readExact(socket, 1, deadline))[0];
     if (!length) throw new SocksRelayError(INVALID);
-    return Buffer.concat([Buffer.from([length]), await readExact(socket, length, deadline)]);
+    return Buffer.concat([
+      Buffer.from([length]),
+      await readExact(socket, length, deadline),
+    ]);
   }
   throw new SocksRelayError(INVALID);
 }
 
 function frameAddress(address: Buffer): Buffer {
-  if (address.length === 4 || address.length === 16) return address;
-  return Buffer.concat([Buffer.from([address.length]), address]);
+  return address;
+}
+
+async function sendFailure(socket: Socket): Promise<void> {
+  if (!socket.writable || socket.destroyed) return;
+  socket.end(SOCKS_FAILURE);
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 100);
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 export class Socks5Relay {
@@ -92,9 +135,19 @@ export class Socks5Relay {
   private port: number | null = null;
   private stopping: Promise<void> | null = null;
 
-  constructor(private readonly upstream: Socks5Upstream, options: RelayOptions = {}) {
-    if (!upstream.host || !Number.isInteger(upstream.port) || upstream.port < 1 || upstream.port > 65535) throw new SocksRelayError(INVALID);
-    if (upstream.username === undefined && upstream.password === undefined) throw new SocksRelayError(INVALID);
+  constructor(
+    private readonly upstream: Socks5Upstream,
+    options: RelayOptions = {},
+  ) {
+    if (
+      !upstream.host ||
+      !Number.isInteger(upstream.port) ||
+      upstream.port < 1 ||
+      upstream.port > 65535
+    )
+      throw new SocksRelayError(INVALID);
+    if (upstream.username === undefined && upstream.password === undefined)
+      throw new SocksRelayError(INVALID);
     this.username = credential(upstream.username);
     this.password = credential(upstream.password);
     this.options = {
@@ -103,20 +156,28 @@ export class Socks5Relay {
       idleTimeout: options.idleTimeout ?? 600_000,
       maxConnections: options.maxConnections ?? 128,
     };
-    if (this.options.maxConnections < 1) throw new RangeError("maxConnections must be positive");
+    if (this.options.maxConnections < 1)
+      throw new RangeError("maxConnections must be positive");
   }
 
   get proxyUrl(): string {
-    if (this.port === null) throw new SocksRelayError("SOCKS relay is not running");
+    if (this.port === null)
+      throw new SocksRelayError("SOCKS relay is not running");
     return `socks5://127.0.0.1:${this.port}`;
   }
 
-  get activeCount(): number { return this.workers.size; }
+  get activeCount(): number {
+    return this.workers.size;
+  }
 
   async start(): Promise<this> {
-    if (this.server) throw new SocksRelayError("SOCKS relay is already running");
+    if (this.server)
+      throw new SocksRelayError("SOCKS relay is already running");
     const server = createServer({ allowHalfOpen: true }, (client) => {
-      if (this.workers.size >= this.options.maxConnections) { client.destroy(); return; }
+      if (this.workers.size >= this.options.maxConnections) {
+        client.destroy();
+        return;
+      }
       this.sockets.add(client);
       const worker = this.handleClient(client).finally(() => {
         this.workers.delete(worker);
@@ -126,14 +187,27 @@ export class Socks5Relay {
     });
     this.server = server;
     await new Promise<void>((resolve, reject) => {
-      const onError = (error: Error) => { server.off("listening", onListening); reject(new SocksRelayError(error.message.includes("EADDR") ? INVALID : INVALID)); };
-      const onListening = () => { server.off("error", onError); resolve(); };
+      const onError = (error: Error) => {
+        server.off("listening", onListening);
+        reject(
+          new SocksRelayError(
+            error.message.includes("EADDR") ? INVALID : INVALID,
+          ),
+        );
+      };
+      const onListening = () => {
+        server.off("error", onError);
+        resolve();
+      };
       server.once("error", onError);
       server.once("listening", onListening);
       server.listen({ host: "127.0.0.1", port: 0 });
     });
     const address = server.address();
-    if (!address || typeof address === "string") { await this.close(); throw new SocksRelayError(INVALID); }
+    if (!address || typeof address === "string") {
+      await this.close();
+      throw new SocksRelayError(INVALID);
+    }
     this.port = address.port;
     return this;
   }
@@ -145,7 +219,8 @@ export class Socks5Relay {
       this.server = null;
       this.port = null;
       for (const socket of this.sockets) socket.destroy();
-      if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+      if (server)
+        await new Promise<void>((resolve) => server.close(() => resolve()));
       await Promise.allSettled([...this.workers]);
       this.stopping = null;
     })();
@@ -155,37 +230,67 @@ export class Socks5Relay {
   private async handleClient(client: Socket): Promise<void> {
     let upstream: Socket | undefined;
     const deadline = Date.now() + this.options.handshakeTimeout;
+    let protocolReady = false;
     try {
       client.setTimeout(this.options.handshakeTimeout, () => client.destroy());
       const greeting = await readExact(client, 2, deadline);
       if (greeting[0] !== 5) throw new SocksRelayError(INVALID);
       const methods = await readExact(client, greeting[1], deadline);
-      if (!methods.includes(0)) { client.end(Buffer.from([5, 255])); return; }
+      if (!methods.includes(0)) {
+        client.end(Buffer.from([5, 255]));
+        return;
+      }
       client.write(Buffer.from([5, 0]));
+      protocolReady = true;
       const request = await readExact(client, 4, deadline);
-      if (request[0] !== 5 || request[2] !== 0) throw new SocksRelayError(INVALID);
+      if (request[0] !== 5 || request[2] !== 0)
+        throw new SocksRelayError(INVALID);
       const address = await readAddress(client, request[3], deadline);
       const port = await readExact(client, 2, deadline);
-      if (request[1] !== 1) { client.end(Buffer.from([5, 7, 0, 1, 0, 0, 0, 0, 0, 0])); return; }
+      if (request[1] !== 1) {
+        client.end(Buffer.from([5, 7, 0, 1, 0, 0, 0, 0, 0, 0]));
+        return;
+      }
 
       upstream = await this.connectUpstream();
       this.sockets.add(upstream);
-      upstream.setTimeout(this.options.handshakeTimeout, () => upstream?.destroy());
+      upstream.setTimeout(this.options.handshakeTimeout, () =>
+        upstream?.destroy(),
+      );
       upstream.write(Buffer.from([5, 1, 2]));
-      if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([5, 2]))) throw new SocksRelayError(INVALID);
-      upstream.write(Buffer.concat([Buffer.from([1, this.username.length]), this.username, Buffer.from([this.password.length]), this.password]));
-      if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([1, 0]))) throw new SocksRelayError(INVALID);
+      if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([5, 2])))
+        throw new SocksRelayError(INVALID);
+      upstream.write(
+        Buffer.concat([
+          Buffer.from([1, this.username.length]),
+          this.username,
+          Buffer.from([this.password.length]),
+          this.password,
+        ]),
+      );
+      if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([1, 0])))
+        throw new SocksRelayError(INVALID);
       upstream.write(Buffer.concat([request, frameAddress(address), port]));
       const replyHead = await readExact(upstream, 4, deadline);
+      if (replyHead[0] !== 5 || replyHead[2] !== 0 || replyHead[1] > 8)
+        throw new SocksRelayError(INVALID);
       const replyAddress = await readAddress(upstream, replyHead[3], deadline);
       const replyPort = await readExact(upstream, 2, deadline);
-      client.write(Buffer.concat([replyHead, frameAddress(replyAddress), replyPort]));
+      client.write(
+        Buffer.concat([replyHead, frameAddress(replyAddress), replyPort]),
+      );
       if (replyHead[1] !== 0) return;
-      client.setTimeout(this.options.idleTimeout, () => { client.destroy(); upstream?.destroy(); });
-      upstream.setTimeout(this.options.idleTimeout, () => { client.destroy(); upstream?.destroy(); });
+      client.setTimeout(this.options.idleTimeout, () => {
+        client.destroy();
+        upstream?.destroy();
+      });
+      upstream.setTimeout(this.options.idleTimeout, () => {
+        client.destroy();
+        upstream?.destroy();
+      });
       await this.tunnel(client, upstream);
     } catch {
-      client.destroy();
+      if (protocolReady) await sendFailure(client);
     } finally {
       if (upstream) this.sockets.delete(upstream);
       upstream?.destroy();
@@ -195,19 +300,40 @@ export class Socks5Relay {
 
   private connectUpstream(): Promise<Socket> {
     return new Promise((resolve, reject) => {
-      const socket = createConnection({ host: this.upstream.host, port: this.upstream.port });
-      const timer = setTimeout(() => { socket.destroy(); reject(new SocksRelayError(INVALID)); }, this.options.connectTimeout);
-      socket.once("connect", () => { clearTimeout(timer); resolve(socket); });
-      socket.once("error", () => { clearTimeout(timer); reject(new SocksRelayError(INVALID)); });
+      const socket = createConnection({
+        host: this.upstream.host,
+        port: this.upstream.port,
+      });
+      const timer = setTimeout(() => {
+        socket.destroy();
+        reject(new SocksRelayError(INVALID));
+      }, this.options.connectTimeout);
+      socket.once("connect", () => {
+        clearTimeout(timer);
+        resolve(socket);
+      });
+      socket.once("error", () => {
+        clearTimeout(timer);
+        reject(new SocksRelayError(INVALID));
+      });
     });
   }
 
   private async tunnel(client: Socket, upstream: Socket): Promise<void> {
     await new Promise<void>((resolve) => {
       let ended = 0;
-      const complete = () => { ended += 1; if (ended === 2) resolve(); };
-      client.on("end", () => { upstream.end(); complete(); });
-      upstream.on("end", () => { client.end(); complete(); });
+      const complete = () => {
+        ended += 1;
+        if (ended === 2) resolve();
+      };
+      client.on("end", () => {
+        upstream.end();
+        complete();
+      });
+      upstream.on("end", () => {
+        client.end();
+        complete();
+      });
       client.on("close", complete);
       upstream.on("close", complete);
       client.on("error", complete);
