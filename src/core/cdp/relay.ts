@@ -75,6 +75,7 @@ type Operation = {
 type Client = {
   socket: Socket;
   upstream?: WebSocket;
+  connectAbort?: AbortController;
   ready: Promise<void>;
   closed: boolean;
   inputTail: Promise<void>;
@@ -83,7 +84,7 @@ type Client = {
   sessionTargets: Map<string, string>;
   targetSessions: Map<string, Set<string>>;
   operations: Set<Operation>;
-  nextInternalId: number;
+  internalIds: Set<string>;
 };
 
 const isId = (value: unknown): value is number | string =>
@@ -169,7 +170,12 @@ const errorResponse = (
 });
 
 const send = (socket: Socket, value: JsonRecord): void => {
-  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+  if (socket.readyState !== WebSocket.OPEN) return;
+  try {
+    socket.send(JSON.stringify(value));
+  } catch {
+    socket.close(1011, "relay send failed");
+  }
 };
 
 const addMapping = (
@@ -244,12 +250,7 @@ const updateMappings = (client: Client, message: Message): void => {
   )
     cancelTarget(client, message.params.targetId);
   if (message.method === "Target.targetInfoChanged") {
-    const info = message.params?.targetInfo;
-    const targetId =
-      info && typeof info === "object" && !Array.isArray(info)
-        ? (info as JsonRecord).targetId
-        : undefined;
-    if (typeof targetId === "string") cancelTarget(client, targetId);
+    return;
   }
   if (message.method === "Page.frameNavigated" && message.sessionId)
     cancelSession(client, message.sessionId);
@@ -264,23 +265,42 @@ const closeClient = (client: Client, code = 1000): void => {
   }
   client.pending.clear();
   for (const operation of client.operations) cancel(operation);
+  client.pendingAttach.clear();
+  client.sessionTargets.clear();
+  client.targetSessions.clear();
+  client.connectAbort?.abort();
   client.upstream?.close(code);
   client.socket.close(code);
 };
 
-const connect = (url: string, timeoutMs: number): Promise<WebSocket> =>
+const connect = (
+  url: string,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<WebSocket> =>
   new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
+    const abort = () => {
+      socket.terminate();
+      reject(new Error("CDP upstream connection cancelled"));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => {
       socket.terminate();
       reject(new Error("CDP upstream connection timed out"));
     }, timeoutMs);
     socket.once("open", () => {
       clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
       resolve(socket);
     });
     socket.once("error", () => {
       clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
       reject(new Error("CDP upstream connection failed"));
     });
   });
@@ -378,7 +398,7 @@ const runInput = async (
       operation.acked = true;
       send(client.socket, response(message.id, message.sessionId));
     } else if (fallbackAllowed(message.method, options.directFallback ?? {})) {
-      const fallbackId = client.nextInternalId--;
+      const fallbackId = internalId(client);
       const upstreamResponse = await sendAndWait(
         client,
         {
@@ -425,9 +445,9 @@ const handleClientMessage = async (
     INTERCEPTED_INPUT_METHODS.has(message.method) &&
     message.id !== undefined
   ) {
-    client.inputTail = client.inputTail.then(() =>
-      runInput(client, message, options, timeoutMs),
-    );
+    client.inputTail = client.inputTail
+      .then(() => runInput(client, message, options, timeoutMs))
+      .catch(() => closeClient(client, 1011));
     return;
   }
   if (message.method === "Target.attachToTarget" && message.id !== undefined) {
@@ -435,8 +455,13 @@ const handleClientMessage = async (
     if (typeof targetId === "string")
       client.pendingAttach.set(message.id, targetId);
   }
-  if (client.upstream.readyState === WebSocket.OPEN)
-    client.upstream.send(JSON.stringify(message));
+  if (client.upstream.readyState === WebSocket.OPEN) {
+    try {
+      client.upstream.send(JSON.stringify(message));
+    } catch {
+      closeClient(client, 1011);
+    }
+  }
 };
 
 const handleUpstreamMessage = (client: Client, frame: Frame): void => {
@@ -457,7 +482,10 @@ const handleUpstreamMessage = (client: Client, frame: Frame): void => {
     }
     return;
   }
-  if (typeof message.id === "number" && message.id < 0) return;
+  if (typeof message.id === "string" && client.internalIds.has(message.id)) {
+    client.internalIds.delete(message.id);
+    return;
+  }
   send(client.socket, message);
 };
 
@@ -478,8 +506,16 @@ const newClient = (): Client => ({
   sessionTargets: new Map(),
   targetSessions: new Map(),
   operations: new Set(),
-  nextInternalId: -1,
+  internalIds: new Set(),
 });
+
+const internalId = (client: Client): string => {
+  let id = `__browserlogin_${randomBytes(16).toString("hex")}`;
+  while (client.internalIds.has(id))
+    id = `__browserlogin_${randomBytes(16).toString("hex")}`;
+  client.internalIds.add(id);
+  return id;
+};
 
 export const startCdpRelay = async (
   options: CdpRelayOptions,
@@ -509,15 +545,21 @@ export const startCdpRelay = async (
     client.socket = socket;
     active = client;
     clients.add(client);
-    client.ready = connect(targetUrl, timeoutMs)
+    const connectAbort = new AbortController();
+    client.connectAbort = connectAbort;
+    client.ready = connect(targetUrl, timeoutMs, connectAbort.signal)
       .then(async (upstream) => {
+        if (client.closed) {
+          upstream.terminate();
+          return;
+        }
         client.upstream = upstream;
         upstream.on("message", (frame: RawData, isBinary: boolean) =>
           handleUpstreamMessage(client, isBinary ? frame : frame.toString()),
         );
         upstream.on("close", () => closeClient(client));
         upstream.on("error", () => closeClient(client, 1011));
-        const id = client.nextInternalId--;
+        const id = internalId(client);
         await sendAndWait(
           client,
           {
@@ -532,7 +574,10 @@ export const startCdpRelay = async (
           timeoutMs,
         ).catch(() => undefined);
       })
-      .catch(() => closeClient(client, 1011));
+      .catch(() => closeClient(client, 1011))
+      .finally(() => {
+        client.connectAbort = undefined;
+      });
     socket.on("message", (frame: RawData, isBinary: boolean) => {
       if (frameBytes(frame) > MAX_CDP_MESSAGE_BYTES) {
         closeClient(client, 1009);
