@@ -19,6 +19,7 @@
     "cloakbrowser": "^0.5.7",
     "fflate": "^0.8.2",
     "onnxruntime-web": "^1.22.0",
+    "ws": "^8.21.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {
