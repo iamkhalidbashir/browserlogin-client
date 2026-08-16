@@ -21,9 +21,12 @@ import {
   resolveVersion,
   BinaryManagerError,
 } from "../../src/core/binary/index.js";
+import { lockName } from "../../src/core/locks/index.js";
+import { setTestOfficialSigningPublicKey } from "../../src/core/binary/test-seam.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  setTestOfficialSigningPublicKey(undefined);
   while (cleanups.length) await cleanups.pop()?.();
 });
 
@@ -216,7 +219,7 @@ describe("Task 14 binary manager", () => {
     const archive = join(
       root,
       "downloads",
-      `${source.version}-windows-x64.zip`,
+      `${source.version}-windows-x64-custom-${lockName(source.url)}.zip`,
     );
     await mkdir(join(root, "downloads"), { recursive: true });
     const partial = Math.max(1, Math.floor(bytes.length * 0.4));
@@ -250,7 +253,7 @@ describe("Task 14 binary manager", () => {
       const archive = join(
         root,
         "downloads",
-        `${source.version}-windows-x64.zip`,
+        `${source.version}-windows-x64-custom-${lockName(source.url)}.zip`,
       );
       await mkdir(join(root, "downloads"), { recursive: true });
       const partial = Math.max(1, Math.floor(bytes.length * 0.4));
@@ -278,6 +281,7 @@ describe("Task 14 binary manager", () => {
 
   it("official free flow discovers at cloakbrowser.dev and verifies its signed manifest", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
+    setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-task14-official-free-"),
     );
@@ -286,7 +290,6 @@ describe("Task 14 binary manager", () => {
       platform: "win32",
       arch: "x64",
       fetchImpl: officialFetch(source.url),
-      officialSigningPublicKey: source.publicKey,
     });
     expect(info).toMatchObject({
       version: source.version,
@@ -308,6 +311,7 @@ describe("Task 14 binary manager", () => {
 
   it("official Pro flow sends Bearer and X-Platform and verifies the signed manifest", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
+    setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-task14-official-pro-"),
     );
@@ -317,7 +321,6 @@ describe("Task 14 binary manager", () => {
       platform: "win32",
       arch: "x64",
       fetchImpl: officialFetch(source.url),
-      officialSigningPublicKey: source.publicKey,
     });
     expect(info).toMatchObject({
       version: source.version,
@@ -335,6 +338,46 @@ describe("Task 14 binary manager", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  it("production official verification rejects an alternate signing key", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-pinned-key-"),
+    );
+    await expect(
+      ensureBinary({
+        cacheDirectory: root,
+        platform: "win32",
+        arch: "x64",
+        fetchImpl: officialFetch(source.url),
+      }),
+    ).rejects.toMatchObject({ code: "VERIFICATION_FAILED" });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps official and custom same-version installs in separate cache identities", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-source-identity-"),
+    );
+    setTestOfficialSigningPublicKey(source.publicKey);
+    const official = await ensureBinary({
+      cacheDirectory: root,
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: officialFetch(source.url),
+    });
+    const custom = await ensureBinary({
+      cacheDirectory: root,
+      downloadUrl: source.url,
+      requestedVersion: source.version,
+      platform: "win32",
+      arch: "x64",
+    });
+    expect(custom.path).not.toBe(official.path);
+    expect(custom.trust).toBe("unverified-custom");
+    await rm(root, { recursive: true, force: true });
+  });
+
   it.each([
     ["signature", { tamperSignature: true }],
     ["archive SHA", { tamperArchive: true }],
@@ -344,6 +387,7 @@ describe("Task 14 binary manager", () => {
       official: true,
       ...options,
     });
+    setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-task14-official-failure-"),
     );
@@ -353,7 +397,6 @@ describe("Task 14 binary manager", () => {
         platform: "win32",
         arch: "x64",
         fetchImpl: officialFetch(source.url),
-        officialSigningPublicKey: source.publicKey,
       }),
     ).rejects.toMatchObject({ code: "VERIFICATION_FAILED" });
     await expect(
@@ -364,6 +407,7 @@ describe("Task 14 binary manager", () => {
 
   it("falls back from the official manifest endpoint to the signed GitHub release", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
+    setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-task14-manifest-fallback-"),
     );
@@ -383,7 +427,6 @@ describe("Task 14 binary manager", () => {
         platform: "win32",
         arch: "x64",
         fetchImpl,
-        officialSigningPublicKey: source.publicKey,
       }),
     ).resolves.toMatchObject({ trust: "verified" });
     await rm(root, { recursive: true, force: true });
@@ -391,6 +434,7 @@ describe("Task 14 binary manager", () => {
 
   it("falls back from the cloakbrowser.dev archive to the GitHub release", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
+    setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-task14-archive-fallback-"),
     );
@@ -410,7 +454,6 @@ describe("Task 14 binary manager", () => {
         platform: "win32",
         arch: "x64",
         fetchImpl,
-        officialSigningPublicKey: source.publicKey,
       }),
     ).resolves.toMatchObject({ trust: "verified" });
     expect(
