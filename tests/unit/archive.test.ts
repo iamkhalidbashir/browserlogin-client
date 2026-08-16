@@ -144,7 +144,7 @@ describe("SafeZipArchive", () => {
     }
   });
 
-  it("rejects twelve malicious path, metadata, compression, and malformed cases", async () => {
+  it("adversarial: rejects twelve malicious path, metadata, compression, and malformed cases", async () => {
     const root = await temporaryRoot();
     const archive = new SafeZipArchive();
     const cases: Array<[string, Uint8Array, string]> = [
