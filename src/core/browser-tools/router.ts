@@ -50,6 +50,9 @@ const extractText = (result: VendorCallResult, label: string): string => {
   return body ? `### ${label}\n${body}` : `### ${label}: done`;
 };
 
+const safeResult = (result: VendorCallResult): BrowserToolResult =>
+  result.isError ? textResult(GENERIC_BROWSER_ERROR, true) : result;
+
 export class BrowserToolsRouter {
   constructor(
     private readonly resolver: ProfileResolver,
@@ -57,21 +60,20 @@ export class BrowserToolsRouter {
     private readonly lifecycle: BrowserLifecycle,
   ) {}
 
-  listTools(env: NodeJS.ProcessEnv = process.env): VendorTool[] {
-    return visibleTools(env[ALLOW_UNSAFE_ENV] === "1");
+  listTools(): VendorTool[] {
+    return visibleTools(process.env[ALLOW_UNSAFE_ENV] === "1");
   }
 
   async call(
     name: string,
     arguments_: JsonObject = {},
-    env: NodeJS.ProcessEnv = process.env,
   ): Promise<BrowserToolResult> {
     const args = asObject(arguments_);
     const profile = args.profile;
     if (typeof profile !== "string" || profile.length === 0)
       return textResult("missing required argument: profile", true);
     if (!isManifestTool(name)) return textResult(GENERIC_BROWSER_ERROR, true);
-    if (name === UNSAFE_TOOL_NAME && env[ALLOW_UNSAFE_ENV] !== "1")
+    if (name === UNSAFE_TOOL_NAME && process.env[ALLOW_UNSAFE_ENV] !== "1")
       return textResult(
         `${name} is disabled: JavaScript execution is RCE-equivalent. Set ${ALLOW_UNSAFE_ENV}=1 to allow.`,
         true,
@@ -98,8 +100,8 @@ export class BrowserToolsRouter {
       const forwarded = { ...args };
       delete forwarded.profile;
       if (name === "browser_type") forwarded.slowly = true;
-      return await this.pool.call(profile, relayCdpUrl, (runtime) =>
-        runtime.callTool(name, forwarded),
+      return await this.pool.call(profile, relayCdpUrl, async (runtime) =>
+        safeResult(await runtime.callTool(name, forwarded)),
       );
     } catch (error) {
       if (error instanceof ProfileNotRunningError)
@@ -156,11 +158,7 @@ export class BrowserToolsRouter {
         continue;
       }
       outputs.push(extractText(result, String(label)));
-      if (result.isError)
-        return {
-          content: [{ type: "text", text: outputs.join("\n") }],
-          isError: true,
-        };
+      if (result.isError) return textResult(GENERIC_BROWSER_ERROR, true);
     }
     return { content: [{ type: "text", text: outputs.join("\n") }] };
   }
@@ -198,14 +196,16 @@ export class BrowserToolsRouter {
       target,
       element: label,
     });
-    if (click.isError) return click;
+    if (click.isError) return textResult(GENERIC_BROWSER_ERROR, true);
     const typed = await runtime.callTool("browser_type", {
       target,
       element: label,
       text: values[0],
       slowly: true,
     });
-    if (typed.isError) return typed;
-    return runtime.callTool("browser_press_key", { key: "Enter" });
+    if (typed.isError) return textResult(GENERIC_BROWSER_ERROR, true);
+    return safeResult(
+      await runtime.callTool("browser_press_key", { key: "Enter" }),
+    );
   }
 }
