@@ -33,9 +33,14 @@ export type StatePaths = {
   [key: string]: string;
 };
 
-function requireAbsolute(value: string, name: string, platform?: string): string {
+function requireAbsolute(
+  value: string,
+  name: string,
+  platform?: string,
+): string {
   const pathApi = platform === "win32" ? win32 : { isAbsolute, resolve };
-  if (!pathApi.isAbsolute(value)) throw new TypeError(`${name} must be absolute`);
+  if (!pathApi.isAbsolute(value))
+    throw new TypeError(`${name} must be absolute`);
   return pathApi.resolve(value);
 }
 
@@ -47,21 +52,31 @@ export function resolveStateRoot(options: StatePathOptions = {}): string {
   }
 
   const platform = options.platform ?? hostPlatform();
-  const home = requireAbsolute(options.home ?? env.HOME ?? homedir(), "home", platform);
+  const home = requireAbsolute(
+    options.home ?? env.HOME ?? homedir(),
+    "home",
+    platform,
+  );
   if (platform === "darwin") {
     return join(home, "Library", "Application Support", "BrowserLogin");
   }
   if (platform === "win32") {
-    const appData = options.appData ?? env.APPDATA;
     const localAppData = options.localAppData ?? env.LOCALAPPDATA;
     return win32.join(
-      requireAbsolute(appData ?? localAppData ?? win32.join(home, "AppData", "Roaming"), "Windows app data", platform),
+      requireAbsolute(
+        localAppData ?? options.appData ?? win32.join(home, "AppData", "Local"),
+        "Windows local app data",
+        platform,
+      ),
       "BrowserLogin",
     );
   }
   const xdgState = env.XDG_STATE_HOME;
   return join(
-    requireAbsolute(xdgState ?? join(home, ".local", "state"), "XDG_STATE_HOME"),
+    requireAbsolute(
+      xdgState ?? join(home, ".local", "state"),
+      "XDG_STATE_HOME",
+    ),
     "browserlogin",
   );
 }
@@ -99,11 +114,18 @@ export function posixPathSecurity(): PathSecurity {
     },
     async verify(path, directory) {
       const info = await lstat(path);
-      if ((directory ? !info.isDirectory() : !info.isFile()) || info.isSymbolicLink()) {
+      if (
+        (directory ? !info.isDirectory() : !info.isFile()) ||
+        info.isSymbolicLink()
+      ) {
         throw new Error("private path has an invalid type");
       }
-      if ((info.mode & 0o077) !== 0) throw new Error("private path is not private");
-      if (typeof process.getuid === "function" && info.uid !== process.getuid()) {
+      if ((info.mode & 0o077) !== 0)
+        throw new Error("private path is not private");
+      if (
+        typeof process.getuid === "function" &&
+        info.uid !== process.getuid()
+      ) {
         throw new Error("private path is not owned by the current user");
       }
     },
