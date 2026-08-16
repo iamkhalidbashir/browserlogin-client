@@ -64,6 +64,18 @@ const receiveMatching = (
 const send = (socket: WebSocket, message: Record<string, unknown>): void =>
   socket.send(JSON.stringify(message));
 
+const waitForClose = (socket: WebSocket, timeoutMs = 1_000): Promise<void> =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("websocket close timed out")),
+      timeoutMs,
+    );
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+
 const startUpstream = async (
   onMessage: (socket: WebSocket, message: Record<string, unknown>) => void,
 ): Promise<Upstream> => {
@@ -129,6 +141,143 @@ describe("CDP input relay", () => {
     expect(upstream.connections).toBe(1);
     client.close();
     await expect(openSocket(relay.url)).rejects.toThrow();
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("uses process env without a seam and lets explicit timeoutMs win", async () => {
+    const upstream = await startUpstream(() => undefined);
+    const previous = process.env.BROWSERLOGIN_CDP_TIMEOUT;
+    process.env.BROWSERLOGIN_CDP_TIMEOUT = "20";
+    try {
+      const relay = await startCdpRelay({
+        upstreamUrl: upstream.url,
+        worker: { execute: () => undefined },
+      });
+      const client = await openSocket(relay.url);
+      await waitForClose(client);
+      await relay.stop();
+      const explicit = await startCdpRelay({
+        upstreamUrl: upstream.url,
+        timeoutMs: 20,
+        env: { BROWSERLOGIN_CDP_TIMEOUT: "100" },
+        worker: { execute: () => undefined },
+      });
+      const explicitClient = await openSocket(explicit.url);
+      await waitForClose(explicitClient);
+      await explicit.stop();
+    } finally {
+      if (previous === undefined) delete process.env.BROWSERLOGIN_CDP_TIMEOUT;
+      else process.env.BROWSERLOGIN_CDP_TIMEOUT = previous;
+      await stopUpstream(upstream);
+    }
+  });
+
+  test("does not process early client traffic until auto-attach succeeds", async () => {
+    let releaseAutoAttach!: () => void;
+    const upstreamMessages: string[] = [];
+    const upstream = await startUpstream((socket, message) => {
+      upstreamMessages.push(String(message.method));
+      if (message.method === "Target.setAutoAttach")
+        void new Promise<void>((resolve) => {
+          releaseAutoAttach = () => {
+            socket.send(JSON.stringify({ id: message.id, result: {} }));
+            resolve();
+          };
+        });
+      else socket.send(JSON.stringify({ id: message.id, result: {} }));
+    });
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: { execute: () => undefined },
+    });
+    const client = await openSocket(relay.url);
+    send(client, { id: 90, method: "Runtime.evaluate", params: {} });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(upstreamMessages).toEqual(["Target.setAutoAttach"]);
+    releaseAutoAttach();
+    expect(await receive(client)).toMatchObject({ id: 90 });
+    expect(relay.pendingCount()).toBe(0);
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("closes the client when auto-attach fails and bounds oversized upstream frames", async () => {
+    const failing = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(
+          JSON.stringify({
+            id: message.id,
+            error: { code: -1, message: "failed" },
+          }),
+        );
+    });
+    const failingRelay = await startCdpRelay({
+      upstreamUrl: failing.url,
+      worker: { execute: () => undefined },
+    });
+    const failingClient = await openSocket(failingRelay.url);
+    await waitForClose(failingClient);
+    expect(failingRelay.pendingCount()).toBe(0);
+    await failingRelay.stop();
+    await stopUpstream(failing);
+
+    const upstream = await startUpstream(() => undefined);
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      worker: { execute: () => undefined },
+    });
+    const client = await openSocket(relay.url);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const peer = [...upstream.sockets][0];
+    peer?.send("x".repeat(MAX_CDP_MESSAGE_BYTES + 1));
+    await waitForClose(client);
+    await relay.stop();
+    await stopUpstream(upstream);
+  });
+
+  test("cleans internal request state and stops with an uncooperative peer", async () => {
+    const upstream = await startUpstream(() => undefined);
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      timeoutMs: 20,
+      worker: { execute: () => undefined },
+    });
+    const client = await openSocket(relay.url);
+    await waitForClose(client);
+    expect(relay.pendingCount()).toBe(0);
+    const started = Date.now();
+    await relay.stop();
+    expect(Date.now() - started).toBeLessThan(500);
+    await stopUpstream(upstream);
+  });
+
+  test("expires timed-out fallback IDs and keeps pending introspection at zero", async () => {
+    const upstream = await startUpstream((socket, message) => {
+      if (message.method === "Target.setAutoAttach")
+        socket.send(JSON.stringify({ id: message.id, result: {} }));
+    });
+    const relay = await startCdpRelay({
+      upstreamUrl: upstream.url,
+      timeoutMs: 20,
+      worker: {
+        execute: () => new Promise<void>(() => undefined),
+      },
+    });
+    const client = await openSocket(relay.url);
+    send(client, {
+      id: 91,
+      method: "Input.insertText",
+      params: { text: "private" },
+    });
+    expect(await receive(client)).toEqual({
+      id: 91,
+      error: { code: -32000, message: "CDP relay operation failed" },
+    });
+    expect(relay.pendingCount()).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    expect(relay.pendingCount()).toBe(0);
+    client.close();
     await relay.stop();
     await stopUpstream(upstream);
   });

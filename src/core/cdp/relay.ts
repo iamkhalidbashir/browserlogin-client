@@ -19,6 +19,7 @@ type Socket = {
   readyState: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
+  terminate(): void;
 };
 
 export type RawInput = {
@@ -86,7 +87,11 @@ type Client = {
   targetSessions: Map<string, Set<string>>;
   operations: Set<Operation>;
   internalIds: Set<string>;
+  tombstones: Map<string, ReturnType<typeof setTimeout>>;
 };
+
+const MAX_INTERNAL_TOMBSTONES = 64;
+const INTERNAL_TOMBSTONE_MS = 1_000;
 
 const isId = (value: unknown): value is number | string =>
   (typeof value === "number" && Number.isSafeInteger(value)) ||
@@ -154,6 +159,9 @@ const parseTimeout = (
     throw new RangeError("BROWSERLOGIN_CDP_TIMEOUT is out of bounds");
   return value;
 };
+
+const isInternalId = (value: unknown): value is string =>
+  typeof value === "string" && value.startsWith("__browserlogin_");
 
 const response = (id: number | string, sessionId?: string): JsonRecord => ({
   id,
@@ -272,6 +280,9 @@ const closeClient = (client: Client, code = 1000): void => {
     pending.reject(new Error("CDP relay connection closed"));
   }
   client.pending.clear();
+  for (const timer of client.tombstones.values()) clearTimeout(timer);
+  client.tombstones.clear();
+  client.internalIds.clear();
   for (const operation of client.operations) cancel(operation);
   client.pendingAttach.clear();
   client.sessionTargets.clear();
@@ -281,13 +292,32 @@ const closeClient = (client: Client, code = 1000): void => {
   client.socket.close(code);
 };
 
+const addTombstone = (client: Client, id: string): void => {
+  const previous = client.tombstones.get(id);
+  if (previous !== undefined) clearTimeout(previous);
+  const timer = setTimeout(
+    () => client.tombstones.delete(id),
+    INTERNAL_TOMBSTONE_MS,
+  );
+  client.tombstones.set(id, timer);
+  while (client.tombstones.size > MAX_INTERNAL_TOMBSTONES) {
+    const oldest = client.tombstones.keys().next().value;
+    if (typeof oldest !== "string") break;
+    const oldestTimer = client.tombstones.get(oldest);
+    if (oldestTimer !== undefined) clearTimeout(oldestTimer);
+    client.tombstones.delete(oldest);
+  }
+};
+
 const connect = (
   url: string,
   timeoutMs: number,
   signal: AbortSignal,
 ): Promise<WebSocket> =>
   new Promise((resolve, reject) => {
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(url, {
+      maxPayload: MAX_CDP_MESSAGE_BYTES,
+    });
     const abort = () => {
       socket.terminate();
       reject(new Error("CDP upstream connection cancelled"));
@@ -324,6 +354,10 @@ const sendAndWait = (
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       client.pending.delete(id);
+      if (isInternalId(id)) {
+        client.internalIds.delete(id);
+        addTombstone(client, id);
+      }
       reject(new Error("CDP upstream response timed out"));
     }, timeoutMs);
     client.pending.set(id, { resolve, reject, timer });
@@ -449,7 +483,11 @@ const handleClientMessage = async (
   options: CdpRelayOptions,
   timeoutMs: number,
 ): Promise<void> => {
-  await client.ready.catch(() => undefined);
+  try {
+    await client.ready;
+  } catch {
+    return;
+  }
   if (client.closed || !client.upstream) return;
   let message: Message;
   try {
@@ -496,12 +534,18 @@ const handleUpstreamMessage = (client: Client, frame: Frame): void => {
     if (pending) {
       clearTimeout(pending.timer);
       client.pending.delete(message.id);
+      if (isInternalId(message.id)) client.internalIds.delete(message.id);
       pending.resolve(message);
     }
     return;
   }
-  if (typeof message.id === "string" && client.internalIds.has(message.id)) {
+  if (isInternalId(message.id)) {
     client.internalIds.delete(message.id);
+    const tombstoneTimer = client.tombstones.get(message.id);
+    if (tombstoneTimer !== undefined) {
+      clearTimeout(tombstoneTimer);
+      client.tombstones.delete(message.id);
+    }
     return;
   }
   send(client.socket, message);
@@ -525,6 +569,7 @@ const newClient = (): Client => ({
   targetSessions: new Map(),
   operations: new Set(),
   internalIds: new Set(),
+  tombstones: new Map(),
 });
 
 const internalId = (client: Client): string => {
@@ -540,7 +585,7 @@ export const startCdpRelay = async (
 ): Promise<CdpRelay> => {
   const targetUrl = upstreamUrl(options.upstreamUrl);
   const timeoutMs = parseTimeout(
-    options.env?.BROWSERLOGIN_CDP_TIMEOUT,
+    (options.env ?? process.env).BROWSERLOGIN_CDP_TIMEOUT,
     options.timeoutMs,
   );
   const token = randomBytes(24).toString("base64url");
@@ -578,7 +623,7 @@ export const startCdpRelay = async (
         upstream.on("close", () => closeClient(client));
         upstream.on("error", () => closeClient(client, 1011));
         const id = internalId(client);
-        await sendAndWait(
+        const autoAttach = await sendAndWait(
           client,
           {
             id,
@@ -590,12 +635,23 @@ export const startCdpRelay = async (
             },
           },
           timeoutMs,
-        ).catch(() => undefined);
+        );
+        if (
+          autoAttach.error ||
+          !autoAttach.result ||
+          typeof autoAttach.result !== "object" ||
+          Array.isArray(autoAttach.result)
+        )
+          throw new Error("CDP auto-attach failed");
       })
-      .catch(() => closeClient(client, 1011))
+      .catch((error) => {
+        closeClient(client, 1011);
+        throw error;
+      })
       .finally(() => {
         client.connectAbort = undefined;
       });
+    void client.ready.catch(() => undefined);
     socket.on("message", (frame: RawData, isBinary: boolean) => {
       if (frameBytes(frame) > MAX_CDP_MESSAGE_BYTES) {
         closeClient(client, 1009);
@@ -645,13 +701,35 @@ export const startCdpRelay = async (
     port: address.port,
     pendingCount: () =>
       [...clients].reduce(
-        (count, client) => count + client.operations.size + client.pending.size,
+        (count, client) =>
+          count +
+          client.operations.size +
+          client.pending.size +
+          client.internalIds.size +
+          client.tombstones.size,
         0,
       ),
     async stop() {
-      for (const client of clients) closeClient(client, 1001);
-      websocketServer.close();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      const activeClients = [...clients];
+      for (const client of activeClients) closeClient(client, 1001);
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100);
+        websocketServer.close(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      for (const client of activeClients) {
+        client.socket.terminate();
+        client.upstream?.terminate();
+      }
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, 100);
+        server.close(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
       clients.clear();
       active = undefined;
     },
