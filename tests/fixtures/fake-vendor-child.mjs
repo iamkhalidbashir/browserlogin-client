@@ -1,11 +1,30 @@
+/* global process */
 import { appendFileSync } from "node:fs";
 
 const capture = process.env.FAKE_VENDOR_CAPTURE;
 process.stderr.write("Bearer test-secret token=private-value\n");
 if (capture) {
+  const safeEnv = [
+    "PATH",
+    "HOME",
+    "USERPROFILE",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SystemRoot",
+    "WINDIR",
+    "ComSpec",
+    "PATHEXT",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LANGUAGE",
+    "TZ",
+    "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",
+  ];
   appendFileSync(
     capture,
-    `${JSON.stringify({ argv: process.argv.slice(1), env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: process.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD } })}\n`,
+    `${JSON.stringify({ argv: process.argv.slice(1), env: Object.fromEntries(safeEnv.flatMap((key) => (process.env[key] === undefined ? [] : [[key, process.env[key]]]))) })}\n`,
   );
 }
 

@@ -48,6 +48,7 @@ export type F2VendorFactoryOptions = {
   actionTimeoutMs?: number;
   navigationTimeoutMs?: number;
   onStderr?: (text: string) => void;
+  extraEnv?: Record<string, string>;
 };
 
 const withTimeout = async <T>(
@@ -68,12 +69,41 @@ const withTimeout = async <T>(
   }
 };
 
-const childEnv = (): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
+const SAFE_PARENT_ENV = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "SystemRoot",
+  "WINDIR",
+  "ComSpec",
+  "PATHEXT",
+  "LANG",
+  "LC_ALL",
+  "LC_CTYPE",
+  "LANGUAGE",
+  "TZ",
+] as const;
+
+const SENSITIVE_ENV =
+  /(api[_-]?key|license|proxy|token|secret|password|credential|auth)/i;
+
+const childEnv = (
+  extraEnv: Record<string, string> = {},
+): Record<string, string> => {
+  for (const key of Object.keys(extraEnv)) {
+    if (SENSITIVE_ENV.test(key))
+      throw new Error("unsafe child environment key");
+  }
+  const selected = Object.fromEntries(
+    SAFE_PARENT_ENV.flatMap((key) =>
+      process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
     ),
   );
+  return { ...selected, ...extraEnv, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" };
+};
 
 const redactStderr = (text: string): string =>
   text
@@ -199,7 +229,7 @@ export async function createF2VendorRuntime(
       "--timeout-navigation",
       String(options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS),
     ],
-    env: { ...childEnv(), PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" },
+    env: childEnv(options.extraEnv),
     stderr: "pipe",
     maxBufferSize: 10 * 1024 * 1024,
   };
@@ -237,7 +267,11 @@ export async function createF2VendorRuntime(
     );
     return runtime;
   } catch (error) {
-    await transport.close().catch(() => undefined);
+    await withTimeout(
+      transport.close(),
+      options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS,
+      "vendor transport close timed out",
+    ).catch(() => undefined);
     throw error;
   }
 }
