@@ -443,6 +443,7 @@ describe("CDP input relay", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(seen[0]?.sessionId).toBe("session-popup-a");
+    expect(seen[0]?.targetId).toBe("popup-a");
     peer?.send(
       JSON.stringify({
         method: "Page.frameNavigated",

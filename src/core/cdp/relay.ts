@@ -30,6 +30,7 @@ export type RawInput = {
     | "Input.dispatchTouchEvent";
   params: JsonRecord;
   sessionId?: string;
+  targetId?: string;
 };
 
 export type RawInputWorker = {
@@ -414,6 +415,7 @@ const runInput = async (
             method: message.method as RawInput["method"],
             params: message.params ?? {},
             ...(message.sessionId ? { sessionId: message.sessionId } : {}),
+            ...(operation.targetId ? { targetId: operation.targetId } : {}),
           },
           operation.controller.signal,
         ),
