@@ -142,6 +142,7 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
   const assert = options.assertIdentity ?? assertIdentity;
   try {
     await assert(runner.identity);
+    await options.onSpawned?.(runner.identity);
     await writeAuthorization(options.paths.gateFile);
   } catch (error) {
     await stopRunner(runner.identity, options).catch(() => undefined);

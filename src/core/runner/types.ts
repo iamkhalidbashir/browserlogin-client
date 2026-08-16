@@ -97,6 +97,7 @@ export type RunnerSupervisorOptions = {
   cooperativeStopTimeoutMs?: number;
   hardStopTimeoutMs?: number;
   onReady?: () => Promise<void> | void;
+  onSpawned?: (identity: ProcessIdentity) => Promise<void> | void;
   healthCallback?: () => Promise<boolean> | boolean;
   onNormalStop?: () => Promise<void> | void;
   isAlive?: (identity: ProcessIdentity) => Promise<boolean>;

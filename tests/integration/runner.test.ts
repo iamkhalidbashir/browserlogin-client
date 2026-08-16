@@ -241,6 +241,7 @@ describe("fake runner lifecycle", () => {
     };
     let childEnv: NodeJS.ProcessEnv | undefined;
     let readyCallbacks = 0;
+    const lifecycleEvents: string[] = [];
     let forcedIdentity: unknown;
     const oldKey = process.env.CLOAKBROWSER_LICENSE_KEY;
     const oldApi = process.env.CLOAKBROWSER_LICENSE_API;
@@ -258,7 +259,14 @@ describe("fake runner lifecycle", () => {
         cwd: root,
         assertIdentity: async (actual) => actual,
         healthCallback: () => true,
+        onSpawned: async () => {
+          lifecycleEvents.push("spawned");
+          expect(
+            await readFile(paths.gateFile, "utf8").catch(() => undefined),
+          ).toBeUndefined();
+        },
         onReady: () => {
+          lifecycleEvents.push("ready");
           readyCallbacks += 1;
         },
         isAlive: async () => true,
@@ -283,6 +291,7 @@ describe("fake runner lifecycle", () => {
       });
       expect(running.identity).toEqual(identity);
       expect(readyCallbacks).toBe(1);
+      expect(lifecycleEvents).toEqual(["spawned", "ready"]);
       expect(childEnv?.CLOAKBROWSER_LICENSE_KEY).toBeUndefined();
       expect(childEnv?.CLOAKBROWSER_LICENSE_API).toBeUndefined();
       expect(childEnv?.BROWSERLOGIN_API_KEY).toBeUndefined();
