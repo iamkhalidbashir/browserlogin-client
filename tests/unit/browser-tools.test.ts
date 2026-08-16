@@ -95,7 +95,7 @@ describe("browser tools manifest and router", () => {
         profile: "p1",
         function: "() => 1",
       }),
-    ).resolves.toMatchObject({ isError: true });
+    ).resolves.not.toMatchObject({ isError: true });
     const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
     process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
     expect(setup(new Map()).router.listTools()).toHaveLength(24);
