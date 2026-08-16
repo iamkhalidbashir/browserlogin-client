@@ -1,0 +1,17 @@
+{
+  "provenance": "models.py:16-24,276-461; coordinator.py:114-219,221-253,255-327,329-421",
+  "identity":{"profile_id":"profile-1","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","runner_pid":4321,"runner_create_time":1000.5,"license_acquired":true,"license_api_url":"http://license:4290","archive_materialized":true,"browser_launched":true,"extra_pids":[{"cmdline":["browserlogin-runner","profile-1"]}]},
+  "valid":[
+    {"status":"start-intent","remote_session_id":null,"run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key"},
+    {"status":"remote-active","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key"},
+    {"status":"spawn-intent","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","license_acquired":true,"license_api_url":"http://license:4290","archive_materialized":true},
+    {"status":"runner-starting","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","license_acquired":true,"license_api_url":"http://license:4290","archive_materialized":true,"runner_pid":4321,"runner_create_time":1000.5},
+    {"status":"running","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","license_acquired":true,"license_api_url":"http://license:4290","archive_materialized":true,"browser_launched":true,"runner_pid":4321,"runner_create_time":1000.5},
+    {"status":"rollback-required","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key"},
+    {"status":"rollback-pending","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","stop_key":"stop-key","stop_payload":{}},
+    {"status":"runner-lost","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","archive_materialized":true,"browser_launched":true},
+    {"status":"force-stop-pending","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","stop_key":"force-key","stop_payload":{"force":true},"archive_materialized":true,"browser_launched":true},
+    {"status":"stopped","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","stop_key":"stop-key","stop_payload":{"archive":{"storage_id":"storage-1","size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","format":"zip"}},"pending_archive_artifact":"/tmp/profile-1.zip","uploaded_storage_id":"storage-1","archive_materialized":true,"browser_launched":true}
+  ],
+  "invalid":["unknown status","running without browser_launched","license milestone without URL","stopped without archive payload","force-stop-pending with runner_pid"]
+}

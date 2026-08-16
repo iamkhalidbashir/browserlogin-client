@@ -1,0 +1,9 @@
+{
+  "provenance": "archive.py:13-42,100-163,165-259; api.py:78-103; coordinator.py:48-57,273-327",
+  "defaults":{"maxArchiveBytes":536870912,"maxFiles":100000,"maxTotalSize":2147483648,"maxFileSize":536870912,"maxCompressionRatio":200},
+  "disposableCacheDirs":["Default/Cache","Default/Code Cache","Default/GPUCache","Default/DawnCache","Default/DawnGraphiteCache","Default/DawnWebGPUCache","ShaderCache","GrShaderCache","GraphiteDawnCache","DawnCache"],
+  "disposableRuntimeFiles":["RunningChromeVersion","SingletonCookie","SingletonLock","SingletonSocket","BrowserMetrics-spare.pma"],
+  "archiveIdentity":{"profile_id":"profile-1","generation":4,"size":4,"sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","format":"zip"},
+  "tamperScenario":{"original":"DATA","tampered":"D4TA","expected":"archive length or SHA-256 verification failed"},
+  "rejections":["unsafe ZIP path","ZIP symlink rejected","ZIP contains excessive file count","ZIP entry too large","ZIP expands beyond configured limit","ZIP compression ratio exceeds limit"]
+}
