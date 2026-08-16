@@ -285,7 +285,10 @@ describe("Task 18 recovery state", () => {
     await expect(fixture.coordinator.stop("profile-1")).rejects.toThrow(
       "unresolved",
     );
-    expect(fixture.counts().stops).toBe(0);
+    await fixture.coordinator.resolveUploadAmbiguous("profile-1", "storage-1");
+    await fixture.coordinator.stop("profile-1");
+    expect(fixture.counts().uploads).toBe(1);
+    expect(fixture.counts().stops).toBe(1);
   });
 
   it("surfaces a committed-generation conflict and keeps recovery state", async () => {

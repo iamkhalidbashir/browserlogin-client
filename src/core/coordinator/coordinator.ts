@@ -291,16 +291,35 @@ export class LifecycleCoordinator {
       const state = await this.requireState(profileId);
       if (state.status !== "upload-ambiguous")
         throw new BrowserLoginError("no ambiguous upload exists");
+      if (
+        !state.archive ||
+        !state.archive_artifact ||
+        !/^[^\0\r\n]+$/.test(storageId)
+      )
+        throw new BrowserLoginError(
+          "ambiguous upload state lacks a verifiable archive identity",
+        );
+      const archivePayload = {
+        storage_id: storageId,
+        size: state.archive.size,
+        sha256: state.archive.sha256,
+        format: "zip" as const,
+      };
       const payload = {
-        ...(state.stop_payload ?? {}),
-        archive: {
-          ...((state.stop_payload?.archive as object) ?? {}),
-          storage_id: storageId,
-        },
+        archive: archivePayload,
       };
       await this.store.save(
         transition(
-          { ...state, stop_payload: payload, uploaded_storage_id: storageId },
+          {
+            ...state,
+            stop_key: immutableIdempotencyKey(
+              "stop",
+              state.run_id,
+              archivePayload,
+            ),
+            stop_payload: payload,
+            uploaded_storage_id: storageId,
+          },
           "upload-pending",
           this.now,
         ),
@@ -538,6 +557,8 @@ export class LifecycleCoordinator {
         state.stop_key,
       );
       if (
+        result.id !== sessionId ||
+        result.profile_id !== state.profile_id ||
         result.state !== "stopped" ||
         result.status !== "stopped" ||
         typeof result.archive_generation !== "number" ||
@@ -641,6 +662,8 @@ export class LifecycleCoordinator {
       stopKey,
     );
     if (
+      result.id !== sessionId ||
+      result.profile_id !== state.profile_id ||
       result.state !== "stopped" ||
       result.status !== "stopped" ||
       typeof result.archive_generation !== "number" ||
@@ -722,6 +745,18 @@ export class LifecycleCoordinator {
             force: true,
           })
         : undefined,
+      rm(join(this.options.root, "gates", `${state.run_id}.gate`), {
+        force: true,
+      }),
+      rm(join(this.options.root, "controls", `${state.run_id}.control`), {
+        force: true,
+      }),
+      rm(join(this.options.root, "ready", `${state.run_id}.ready`), {
+        force: true,
+      }),
+      rm(join(this.options.root, "artifacts", `${state.run_id}.zip`), {
+        force: true,
+      }),
     ]);
     await this.store.remove(state.profile_id);
   }
