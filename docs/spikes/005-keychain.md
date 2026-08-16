@@ -1,6 +1,6 @@
 # Spike 005: OS keychain shims
 
-Status: local macOS leg passed; native matrix pending final dispatch.
+Status: complete after native matrix run `31925101839`.
 
 ## Decision
 
@@ -78,7 +78,7 @@ Windows command line:
 powershell.exe -NoProfile -NonInteractive -Command -
 ```
 
-The PowerShell source is one stdin line and the envelope is a separate second stdin line. The source constructs `Windows.Security.Credentials.PasswordVault`, stores through `PasswordCredential`, retrieves with `RetrievePassword()`, re-encodes retrieved bytes as `blv1:...`, and removes with `Remove()`. No source string contains the credential payload.
+The PowerShell stdin frame begins with a separate payload-assignment line containing the `blv1:` envelope, followed by the operation source. The source constructs `Windows.Security.Credentials.PasswordVault`, stores through `PasswordCredential`, retrieves with `RetrievePassword()`, re-encodes retrieved bytes as `blv1:...`, and removes with `Remove()`. No payload is placed in argv or environment.
 
 ## Behavior matrix
 
@@ -86,28 +86,28 @@ The PowerShell source is one stdin line and the envelope is a separate second st
 
 | Behavior | macos-14 | windows-2025 | ubuntu-24.04 |
 | --- | --- | --- | --- |
-| store | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
-| retrieve hostile Unicode/newline/metacharacter bytes | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
-| replace | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
-| delete | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
-| not found | PASS locally | PENDING | PASS or BACKEND_UNAVAILABLE |
-| backend unavailable classification | PASS locally | PENDING | PASS |
-| locked/denied | PASS locally; explicit throwaway lookup | PENDING | SKIP; provider-specific |
+| store | PASS | PASS | BACKEND_UNAVAILABLE (missing `secret-tool`) |
+| retrieve hostile Unicode/newline/metacharacter bytes | PASS | PASS | BACKEND_UNAVAILABLE (missing `secret-tool`) |
+| replace | PASS | PASS | BACKEND_UNAVAILABLE (missing `secret-tool`) |
+| delete | PASS | PASS | BACKEND_UNAVAILABLE (missing `secret-tool`) |
+| not found | PASS | PASS | BACKEND_UNAVAILABLE (missing `secret-tool`) |
+| backend unavailable classification | PASS | PASS | PASS |
+| locked/denied | PASS; explicit throwaway lookup | SKIP; provider-owned | SKIP; provider-specific |
 | cleanup proof | PASS locally | N/A | N/A |
-| leak scan: raw and encoded values | PASS locally | PENDING | PENDING |
+| leak scan: raw and encoded values | PASS | PASS | PASS |
 
 ## Native matrix evidence
 
 Workflow: `.github/workflows/spike-keychain.yml` (manual dispatch only).
 
-CI run URL: `PENDING: replace after pushing and dispatching the workflow.`
+CI run URL: <https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31925101839>
 
 Recorded results:
 
 ```text
-macos-14: PENDING
-windows-2025: PENDING
-ubuntu-24.04: PENDING
+macos-14: PASS; cleanup=true; leak_scan=PASS
+windows-2025: PASS; PasswordVault store/retrieve/replace/delete/not-found=PASS; leak_scan=PASS
+ubuntu-24.04: PASS under documented unavailable contract; `secret-tool` missing, `BACKEND_UNAVAILABLE` and remediation=PASS; leak_scan=PASS
 ```
 
 Do not claim three-platform success without the real workflow URL and all three native job results.
