@@ -321,4 +321,12 @@ describe("Task 18 recovery state", () => {
     expect(await readFile(cache, "utf8")).toBe("previous-cache");
     expect(fixture.counts().uploads).toBe(0);
   });
+
+  it("releases a paid lease after force-stop intent teardown", async () => {
+    const fixture = await setup({ paid: true });
+    await fixture.coordinator.start("profile-1");
+    await fixture.coordinator.forceStop("profile-1");
+    expect(fixture.counts().releases).toBe(1);
+    expect(fixture.counts().uploads).toBe(0);
+  });
 });

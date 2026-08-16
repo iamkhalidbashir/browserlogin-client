@@ -202,7 +202,8 @@ export class LifecycleCoordinator {
   async stop(profileId: string): Promise<Session> {
     return this.store.withTransition(profileId, async () => {
       const state = await this.requireState(profileId);
-      await this.reconcileLocked(state);
+      const reconciled = await this.reconcileLocked(state);
+      if (reconciled) return reconciled;
       const current = await this.store.load(profileId);
       if (!current)
         throw new BrowserLoginError(
@@ -222,13 +223,7 @@ export class LifecycleCoordinator {
 
   async forceStop(profileId: string): Promise<Session> {
     return this.store.withTransition(profileId, async () => {
-      const state = await this.requireState(profileId);
-      await this.reconcileLocked(state);
-      let current = await this.store.load(profileId);
-      if (!current)
-        throw new BrowserLoginError(
-          "lifecycle state disappeared during reconciliation",
-        );
+      let current = await this.requireState(profileId);
       if (!current.remote_session_id)
         throw new BrowserLoginError(
           "force stop requires a confirmed remote session",
@@ -241,11 +236,6 @@ export class LifecycleCoordinator {
               force: true,
             }),
             stop_payload: { force: true },
-            license_acquired: false,
-            launch_file: null,
-            runner_pid: null,
-            runner_start_time: null,
-            runner_cmdline_hash: null,
           },
           "force-stop",
           this.now,
@@ -253,6 +243,13 @@ export class LifecycleCoordinator {
         await this.store.save(current);
         await this.crashInjector?.("after-force-stop-intent-save", current);
       }
+      await this.reconcileLocked(current);
+      const persisted = await this.store.load(profileId);
+      if (persisted === null)
+        throw new BrowserLoginError(
+          "lifecycle state disappeared during force-stop reconciliation",
+        );
+      current = persisted as RecoveryState;
       const hadLicense = current.license_acquired;
       await this.options.runtimeStop?.(profileId);
       await this.stopRunner(current);
@@ -567,6 +564,22 @@ export class LifecycleCoordinator {
         },
       });
       this.runnerHandles.set(state.profile_id, runner);
+      void runner.closed.catch(async () => {
+        try {
+          await this.store.withTransition(state.profile_id, async () => {
+            const current = await this.store.load(state.profile_id);
+            if (current)
+              await this.store.save({
+                ...current,
+                retry_count: current.retry_count + 1,
+                retry_after: new Date(Date.now() + 1_000).toISOString(),
+                updated_at: this.now().toISOString(),
+              });
+          });
+        } catch (error) {
+          void error;
+        }
+      });
       state = transition(
         {
           ...state,
@@ -704,6 +717,13 @@ export class LifecycleCoordinator {
         expectedSha256: digest.sha256,
         expectedSessionId: sessionId,
       });
+      if (
+        typeof storageId !== "string" ||
+        !/^[^\0\r\n]{1,256}$/.test(storageId)
+      )
+        throw new BrowserLoginError(
+          "direct upload returned an invalid storage identity",
+        );
     } catch (error) {
       await this.store.save(transition(state, "upload-ambiguous", this.now));
       throw error;
@@ -754,7 +774,9 @@ export class LifecycleCoordinator {
     return result;
   }
 
-  private async reconcileLocked(state: RecoveryState): Promise<void> {
+  private async reconcileLocked(
+    state: RecoveryState,
+  ): Promise<Session | undefined> {
     if (
       state.status === "running" &&
       !this.runnerHandles.has(state.profile_id) &&
@@ -769,7 +791,7 @@ export class LifecycleCoordinator {
       };
       try {
         await assertIdentity(identity);
-        return;
+        return undefined;
       } catch {
         const actual = await readIdentity(identity);
         if (actual)
@@ -782,7 +804,7 @@ export class LifecycleCoordinator {
             : undefined;
         if (remote?.state === "stopped" || remote?.status === "stopped") {
           await this.cleanupLocked(state, true);
-          return;
+          return remote;
         }
         const next = transition(
           {
@@ -796,14 +818,13 @@ export class LifecycleCoordinator {
           this.now,
         );
         await this.store.save(next);
-        await this.stopLocked(next);
-        return;
+        return this.stopLocked(next);
       }
     }
     if (state.remote_session_id && this.options.api.sessionStatus)
       await this.options.api.sessionStatus(state.remote_session_id);
     if (state.status === "force-stop" || state.status === "upload-ambiguous")
-      return;
+      return undefined;
   }
   private async stopRunner(state: RecoveryState): Promise<void> {
     if (this.naturallyClosed.delete(state.profile_id)) {
