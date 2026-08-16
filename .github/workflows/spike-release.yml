@@ -139,25 +139,25 @@ jobs:
         if: runner.os == 'Linux' && inputs.smoke
         shell: bash
         run: |
-          binary=$(find build artifacts -type f -name 'BrowserLogin' -perm -111 | head -1 || true)
-          if [[ -n "$binary" ]]; then
-            BROWSERLOGIN_SPIKE_SMOKE=1 xvfb-run --auto-servernum "$binary"
-          else
-            echo 'Linux artifact is an archive; archive smoke is recorded as deferred to install verification.'
-          fi
+          smoke_dir="$RUNNER_TEMP/browserlogin-linux-smoke"
+          mkdir -p "$smoke_dir"
+          tar --zstd -xf artifacts/*BrowserLogin.tar.zst -C "$smoke_dir"
+          binary="$smoke_dir/BrowserLogin/bin/launcher"
+          test -x "$binary"
+          BROWSERLOGIN_SPIKE_SMOKE=1 xvfb-run --auto-servernum "$binary"
 
       - name: Smoke packaged app (Windows)
         if: runner.os == 'Windows' && inputs.smoke
         shell: pwsh
         run: |
-          $binary = Get-ChildItem -Path build,artifacts -Recurse -Filter 'BrowserLogin.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-          if ($null -eq $binary) {
-            Write-Host 'Windows artifact is an installer archive; installer smoke is recorded as deferred.'
-          } else {
-            $env:BROWSERLOGIN_SPIKE_SMOKE = '1'
-            & $binary.FullName
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
+          $smokeDir = Join-Path $env:RUNNER_TEMP 'browserlogin-windows-smoke'
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          tar --zstd -xf (Get-ChildItem artifacts -Filter '*BrowserLogin.tar.zst').FullName -C $smokeDir
+          $binary = Join-Path $smokeDir 'BrowserLogin/bin/launcher.exe'
+          if (-not (Test-Path $binary)) { throw "Missing extracted launcher: $binary" }
+          $env:BROWSERLOGIN_SPIKE_SMOKE = '1'
+          & $binary
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload spike artifacts
         uses: actions/upload-artifact@v4
