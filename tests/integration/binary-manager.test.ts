@@ -1,12 +1,22 @@
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ensureBinary,
+  downloadVerifiedSource,
   resolvePlatform,
   resolveVersion,
   BinaryManagerError,
@@ -19,39 +29,101 @@ afterEach(async () => {
 
 async function serverFor(
   bytes: Uint8Array,
-  options: { tamper?: boolean; ignoreRange?: boolean } = {},
+  options: {
+    tamperManifest?: boolean;
+    tamperArchive?: boolean;
+    versionMismatch?: boolean;
+    tamperSignature?: boolean;
+    ignoreRange?: boolean;
+    changedEtag?: boolean;
+    official?: boolean;
+  } = {},
 ) {
   const etag = '"task14-etag"';
+  const changedEtag = '"task14-changed-etag"';
   const version = "146.0.7680.177.5";
   const archiveName = "cloakbrowser-windows-x64.zip";
+  const servedBytes = options.tamperArchive
+    ? Buffer.concat([Buffer.from(bytes), Buffer.from("tamper")])
+    : Buffer.from(bytes);
   const hash = createHash("sha256").update(bytes).digest("hex");
   const tamperedHash = `${hash.slice(0, -1)}${hash.endsWith("0") ? "1" : "0"}`;
-  const manifest = `version=${version}\n${options.tamper ? tamperedHash : hash}  ${archiveName}\n`;
+  const manifest = `version=${options.versionMismatch ? "1.2.3.4" : version}\n${options.tamperManifest ? tamperedHash : hash}  ${archiveName}\n`;
+  const keyPair = generateKeyPairSync("ed25519");
+  const validSignature = sign(
+    null,
+    Buffer.from(manifest),
+    keyPair.privateKey,
+  ).toString("base64");
+  const signature = options.tamperSignature
+    ? `${validSignature.slice(0, -1)}${validSignature.endsWith("A") ? "B" : "A"}`
+    : validSignature;
+  const publicKey = Buffer.from(
+    (keyPair.publicKey.export({ format: "jwk" }) as { x?: string }).x!,
+    "base64url",
+  ).toString("base64");
+  const requests: Array<{
+    method: string;
+    path: string;
+    range?: string;
+    ifRange?: string;
+    authorization?: string;
+    platform?: string;
+  }> = [];
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    requests.push({
+      method: request.method ?? "GET",
+      path: url.pathname,
+      range:
+        typeof request.headers.range === "string"
+          ? request.headers.range
+          : undefined,
+      ifRange:
+        typeof request.headers["if-range"] === "string"
+          ? request.headers["if-range"]
+          : undefined,
+      authorization:
+        typeof request.headers.authorization === "string"
+          ? request.headers.authorization
+          : undefined,
+      platform:
+        typeof request.headers["x-platform"] === "string"
+          ? request.headers["x-platform"]
+          : undefined,
+    });
     if (url.pathname === "/api/download/version") {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ version }));
       return;
     }
-    if (url.pathname === "/SHA256SUMS") {
+    if (url.pathname.endsWith("/SHA256SUMS")) {
       response.writeHead(200, { "content-type": "text/plain" });
       response.end(manifest);
       return;
     }
-    if (url.pathname === "/archives/cloakbrowser-windows-x64.zip") {
+    if (url.pathname.endsWith("/SHA256SUMS.sig")) {
+      response.writeHead(200, { "content-type": "text/plain" });
+      response.end(signature);
+      return;
+    }
+    if (
+      url.pathname === "/archives/cloakbrowser-windows-x64.zip" ||
+      url.pathname.endsWith("/cloakbrowser-windows-x64.zip") ||
+      url.pathname === `/api/download/${version}`
+    ) {
       const range = request.headers.range;
       if (range && !options.ignoreRange) {
         const start = Number(range.match(/bytes=(\d+)-/)?.[1] ?? 0);
         response.writeHead(206, {
-          "content-length": bytes.length - start,
-          etag,
+          "content-length": servedBytes.length - start,
+          etag: options.changedEtag ? changedEtag : etag,
         });
-        response.end(Buffer.from(bytes.slice(start)));
+        response.end(servedBytes.subarray(start));
         return;
       }
-      response.writeHead(200, { "content-length": bytes.length, etag });
-      response.end(Buffer.from(bytes));
+      response.writeHead(200, { "content-length": servedBytes.length, etag });
+      response.end(servedBytes);
       return;
     }
     response.writeHead(404);
@@ -68,7 +140,21 @@ async function serverFor(
         server.close((error) => (error ? reject(error) : resolve())),
       ),
   );
-  return { url, version };
+  return { url, version, requests, manifest, publicKey };
+}
+
+function officialFetch(localUrl: string) {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const original = new URL(input.toString());
+    if (
+      original.origin === "https://cloakbrowser.dev" ||
+      original.origin === "https://github.com" ||
+      original.origin === "https://api.github.com"
+    ) {
+      return fetch(`${localUrl}${original.pathname}${original.search}`, init);
+    }
+    return fetch(input, init);
+  }) as typeof fetch;
 }
 
 function fixtureArchive(): Uint8Array {
@@ -106,7 +192,7 @@ describe("Task 14 binary manager", () => {
   });
 
   it("rejects tampered custom checksum before installation", async () => {
-    const source = await serverFor(fixtureArchive(), { tamper: true });
+    const source = await serverFor(fixtureArchive(), { tamperManifest: true });
     const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-tamper-"));
     await expect(
       ensureBinary({
@@ -127,32 +213,258 @@ describe("Task 14 binary manager", () => {
     const bytes = fixtureArchive();
     const source = await serverFor(bytes);
     const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-resume-"));
-    const progress: number[] = [];
+    const archive = join(
+      root,
+      "downloads",
+      `${source.version}-windows-x64.zip`,
+    );
+    await mkdir(join(root, "downloads"), { recursive: true });
+    const partial = Math.max(1, Math.floor(bytes.length * 0.4));
+    await writeFile(`${archive}.part`, bytes.subarray(0, partial));
+    await writeFile(`${archive}.part.etag`, '"task14-etag"');
     const info = await ensureBinary({
       cacheDirectory: root,
       downloadUrl: source.url,
       requestedVersion: source.version,
       platform: "win32",
       arch: "x64",
-      progress: (event) => progress.push(event.downloaded),
     });
     expect(info.path).toContain(source.version);
-    expect(progress.length).toBeGreaterThan(0);
+    const range = source.requests.find((request) => request.range);
+    expect(range?.range).toBe(`bytes=${partial}-`);
+    expect(range?.ifRange).toBe('"task14-etag"');
+    expect(await stat(archive)).toMatchObject({ size: bytes.length });
     await rm(root, { recursive: true, force: true });
-    const ignored = await serverFor(bytes, { ignoreRange: true });
-    const restartedRoot = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-restart-"),
+  });
+
+  it("restarts once when Range is ignored or the ETag changes", async () => {
+    const bytes = fixtureArchive();
+    for (const mode of ["ignored", "changed"] as const) {
+      const source = await serverFor(bytes, {
+        ignoreRange: mode === "ignored",
+        changedEtag: mode === "changed",
+      });
+      const root = await mkdtemp(
+        join(tmpdir(), `browserlogin-task14-${mode}-`),
+      );
+      const archive = join(
+        root,
+        "downloads",
+        `${source.version}-windows-x64.zip`,
+      );
+      await mkdir(join(root, "downloads"), { recursive: true });
+      const partial = Math.max(1, Math.floor(bytes.length * 0.4));
+      await writeFile(`${archive}.part`, bytes.subarray(0, partial));
+      await writeFile(`${archive}.part.etag`, '"task14-etag"');
+      await expect(
+        ensureBinary({
+          cacheDirectory: root,
+          downloadUrl: source.url,
+          requestedVersion: source.version,
+          platform: "win32",
+          arch: "x64",
+        }),
+      ).resolves.toMatchObject({ trust: "unverified-custom" });
+      const archiveGets = source.requests.filter(
+        (request) => request.path.endsWith(".zip") && request.method === "GET",
+      );
+      expect(archiveGets[0]?.range).toBe(`bytes=${partial}-`);
+      expect(archiveGets[0]?.ifRange).toBe('"task14-etag"');
+      expect(archiveGets.at(-1)?.range).toBeUndefined();
+      expect(archiveGets).toHaveLength(2);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("official free flow discovers at cloakbrowser.dev and verifies its signed manifest", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-official-free-"),
+    );
+    const info = await ensureBinary({
+      cacheDirectory: root,
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: officialFetch(source.url),
+      officialSigningPublicKey: source.publicKey,
+    });
+    expect(info).toMatchObject({
+      version: source.version,
+      pro: false,
+      trust: "verified",
+    });
+    const versionRequest = source.requests.find(
+      (request) => request.path === "/api/download/version",
+    );
+    const archiveRequest = source.requests.find((request) =>
+      request.path.endsWith("/cloakbrowser-windows-x64.zip"),
+    );
+    expect(versionRequest?.authorization).toBeUndefined();
+    expect(versionRequest?.platform).toBeUndefined();
+    expect(archiveRequest?.authorization).toBeUndefined();
+    expect(archiveRequest?.platform).toBeUndefined();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("official Pro flow sends Bearer and X-Platform and verifies the signed manifest", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-official-pro-"),
+    );
+    const info = await ensureBinary({
+      cacheDirectory: root,
+      licenseKey: "bl_test_key_secret",
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: officialFetch(source.url),
+      officialSigningPublicKey: source.publicKey,
+    });
+    expect(info).toMatchObject({
+      version: source.version,
+      pro: true,
+      trust: "verified",
+    });
+    for (const request of source.requests.filter(
+      (item) =>
+        item.path === "/api/download/version" ||
+        item.path === `/api/download/${source.version}`,
+    )) {
+      expect(request.authorization).toBe("Bearer bl_test_key_secret");
+      expect(request.platform).toBe("windows-x64");
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    ["signature", { tamperSignature: true }],
+    ["archive SHA", { tamperArchive: true }],
+    ["signed version", { versionMismatch: true }],
+  ] as const)("official %s tampering fails closed", async (_label, options) => {
+    const source = await serverFor(fixtureArchive(), {
+      official: true,
+      ...options,
+    });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-official-failure-"),
     );
     await expect(
       ensureBinary({
-        cacheDirectory: restartedRoot,
-        downloadUrl: ignored.url,
-        requestedVersion: ignored.version,
+        cacheDirectory: root,
         platform: "win32",
         arch: "x64",
+        fetchImpl: officialFetch(source.url),
+        officialSigningPublicKey: source.publicKey,
       }),
-    ).resolves.toMatchObject({ trust: "unverified-custom" });
-    await rm(restartedRoot, { recursive: true, force: true });
+    ).rejects.toMatchObject({ code: "VERIFICATION_FAILED" });
+    await expect(
+      readFile(join(root, "browser-runtime", "current.json")),
+    ).rejects.toThrow();
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("falls back from the official manifest endpoint to the signed GitHub release", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-manifest-fallback-"),
+    );
+    const originalFetch = officialFetch(source.url);
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input.toString());
+      if (
+        url.pathname.endsWith("/SHA256SUMS") &&
+        url.origin === "https://cloakbrowser.dev"
+      )
+        return new Response("not found", { status: 404 });
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    await expect(
+      ensureBinary({
+        cacheDirectory: root,
+        platform: "win32",
+        arch: "x64",
+        fetchImpl,
+        officialSigningPublicKey: source.publicKey,
+      }),
+    ).resolves.toMatchObject({ trust: "verified" });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("falls back from the cloakbrowser.dev archive to the GitHub release", async () => {
+    const source = await serverFor(fixtureArchive(), { official: true });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-archive-fallback-"),
+    );
+    const originalFetch = officialFetch(source.url);
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(input.toString());
+      if (
+        url.origin === "https://cloakbrowser.dev" &&
+        url.pathname.endsWith(".zip")
+      )
+        return new Response("not found", { status: 404 });
+      return originalFetch(input, init);
+    }) as typeof fetch;
+    await expect(
+      ensureBinary({
+        cacheDirectory: root,
+        platform: "win32",
+        arch: "x64",
+        fetchImpl,
+        officialSigningPublicKey: source.publicKey,
+      }),
+    ).resolves.toMatchObject({ trust: "verified" });
+    expect(
+      source.requests.some((request) =>
+        request.path.includes("/releases/download/v"),
+      ),
+    ).toBe(true);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("does not retry deterministic HTTP failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-retry-"));
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      return new Response("no", { status: 503 });
+    }) as unknown as typeof fetch;
+    await expect(
+      downloadVerifiedSource({
+        url: "http://test.invalid/archive.zip",
+        destination: join(root, "archive.zip"),
+        fetchImpl,
+        retries: 4,
+        expectedBytes: 1,
+      }),
+    ).rejects.toMatchObject({ code: "DOWNLOAD_FAILED" });
+    expect(calls).toBe(1);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("retries a network failure but stops after the successful transfer", async () => {
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-network-retry-"),
+    );
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls += 1;
+      if (calls === 1) throw new Error("connection reset");
+      return new Response("x", {
+        status: 200,
+        headers: { "content-length": "1" },
+      });
+    }) as unknown as typeof fetch;
+    await expect(
+      downloadVerifiedSource({
+        url: "http://test.invalid/archive.zip",
+        destination: join(root, "archive.zip"),
+        fetchImpl,
+        expectedBytes: 1,
+        retries: 3,
+      }),
+    ).resolves.toContain("archive.zip");
+    expect(calls).toBe(2);
+    await rm(root, { recursive: true, force: true });
   });
 
   it("short-circuits local override, rejects unsupported platforms, and preflights disk", async () => {
@@ -169,7 +481,7 @@ describe("Task 14 binary manager", () => {
       ensureBinary({
         cacheDirectory: root,
         downloadUrl: "http://unused",
-        requestedVersion: "1.0.0",
+        requestedVersion: "1.0.0.0",
         platform: "win32",
         arch: "x64",
         diskSpace: async () => ({ available: 1 }),
@@ -249,6 +561,51 @@ describe("Task 14 binary manager", () => {
       ensureBinary(options),
     ]);
     expect(first.path).toBe(second.path);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("concurrency: separate processes perform one download and publish atomic current.json", async () => {
+    const source = await serverFor(fixtureArchive());
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-task14-processes-"),
+    );
+    const fixture = fileURLToPath(
+      new URL("../fixtures/binary-concurrency-child.ts", import.meta.url),
+    );
+    const bun = process.env.BUN_BIN ?? `${process.env.HOME}/.bun/bin/bun`;
+    const children = Array.from({ length: 2 }, () =>
+      spawn(bun, [fixture, root, source.url, source.version], {
+        stdio: "pipe",
+      }),
+    );
+    const results = await Promise.all(
+      children.map(
+        (child) =>
+          new Promise<{ code: number; stderr: string }>((resolve) => {
+            let stderr = "";
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr += chunk.toString();
+            });
+            child.on("close", (code) => resolve({ code: code ?? 1, stderr }));
+          }),
+      ),
+    );
+    expect(results, results.map((result) => result.stderr).join("\n")).toEqual([
+      { code: 0, stderr: "" },
+      { code: 0, stderr: "" },
+    ]);
+    expect(
+      source.requests.filter(
+        (request) =>
+          request.path === "/archives/cloakbrowser-windows-x64.zip" &&
+          request.method === "GET",
+      ),
+    ).toHaveLength(1);
+    const pointer = JSON.parse(
+      await readFile(join(root, "browser-runtime", "current.json"), "utf8"),
+    ) as { path: string; version: string };
+    expect(pointer.version).toBe(source.version);
+    expect(pointer.path).toContain(`windows-x64-${source.version}`);
     await rm(root, { recursive: true, force: true });
   });
 });
