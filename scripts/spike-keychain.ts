@@ -353,7 +353,7 @@ function powershellSource(operation: "store" | "retrieve" | "remove", accountNam
   const action = operation === "store"
     ? `try { $old = $vault.Retrieve($resource, $account); $vault.Remove($old) } catch {}; $secret = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($envelope.Substring(5))); $credential = New-Object Windows.Security.Credentials.PasswordCredential -ArgumentList $resource,$account,$secret; $vault.Add($credential)`
     : operation === "retrieve"
-      ? `Write-Output retrieve-start; $credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw "PasswordVault returned a null password" }; $encoded = "blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine($encoded)`
+      ? `$credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw "PasswordVault returned a null password" }; $encoded = "blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine($encoded)`
       : `$credential = $vault.Retrieve($resource, $account); $vault.Remove($credential)`;
   const retrieveTransport = operation === "retrieve" ? "[Console]::Error.WriteLine($encoded)" : "";
   return `$envelope = ${JSON.stringify(envelope)}\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)} } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
@@ -388,7 +388,6 @@ async function main(): Promise<void> {
   const [mac, linux, windows] = await Promise.all([runMac(), runLinux(), runWindows()]);
   for (const child of childRuns) {
     assertNoCredentialMaterial(JSON.stringify(child.argv), "captured argv");
-    assertNoCredentialMaterial(child.stderr, "captured stderr");
     assertNoCredentialMaterial(stripExpectedTransport(child.stdout), "captured stdout");
     assertNoCredentialMaterial(stripExpectedTransport(child.stderr), "captured stderr");
   }
