@@ -25,7 +25,8 @@ async function serverFor(
   const version = "146.0.7680.177.5";
   const archiveName = "cloakbrowser-windows-x64.zip";
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const manifest = `version=${version}\n${options.tamper ? hash.replace(/^./, "0") : hash}  ${archiveName}\n`;
+  const tamperedHash = `${hash.slice(0, -1)}${hash.endsWith("0") ? "1" : "0"}`;
+  const manifest = `version=${version}\n${options.tamper ? tamperedHash : hash}  ${archiveName}\n`;
   const server = createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     if (url.pathname === "/api/download/version") {
@@ -90,7 +91,9 @@ describe("Task 14 binary manager", () => {
       arch: "x64",
       progress: (event) => progress.push({ done: event.done }),
     });
-    expect(info.path).toContain("browser-runtime/browsers/146.0.7680.177.5");
+    expect(info.path).toContain(
+      "browser-runtime/browsers/windows-x64-146.0.7680.177.5",
+    );
     expect(info.trust).toBe("unverified-custom");
     expect(await readFile(info.path, "utf8")).toContain("TEST-ONLY");
     expect(progress.at(-1)?.done).toBe(true);
@@ -180,7 +183,7 @@ describe("Task 14 binary manager", () => {
     let calls = 0;
     const fetchImpl = (async () => {
       calls += 1;
-      return new Response(JSON.stringify({ version: "9.9.9" }), {
+      return new Response(JSON.stringify({ version: "9.9.9.0" }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
@@ -189,13 +192,13 @@ describe("Task 14 binary manager", () => {
       resolveVersion({
         pro: true,
         licenseKey: "paid",
-        env: { CLOAKBROWSER_VERSION: "8.8.8" },
+        env: { CLOAKBROWSER_VERSION: "8.8.8.0" },
         platform: "win32",
         arch: "x64",
         markerDirectory: root,
         fetchImpl,
       }),
-    ).resolves.toMatchObject({ version: "8.8.8", pro: true });
+    ).resolves.toMatchObject({ version: "8.8.8.0", pro: true });
     await expect(
       resolveVersion({
         pro: true,
@@ -206,7 +209,7 @@ describe("Task 14 binary manager", () => {
         markerDirectory: root,
         fetchImpl,
       }),
-    ).resolves.toMatchObject({ version: "9.9.9", pro: true });
+    ).resolves.toMatchObject({ version: "9.9.9.0", pro: true });
     expect(calls).toBe(1);
     await rm(root, { recursive: true, force: true });
   });
