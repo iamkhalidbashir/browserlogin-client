@@ -66,17 +66,11 @@ function classifyFailure(result: RunResult): KeychainError | undefined {
 async function runWindowsProcess(command: string, args: string[], chunks: InputChunk[], expectedTransport: boolean): Promise<RunResult> {
   const argv = [command, ...args];
   argv.forEach((arg) => assertNoCredentialMaterial(arg, `${command} argv`));
-  const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
-  const stdoutPromise = new Response(child.stdout).text();
-  const stderrPromise = new Response(child.stderr).text();
-  for (const chunk of chunks) {
-    if (chunk.delayMs) await Bun.sleep(chunk.delayMs);
-    child.stdin.write(chunk.data);
-  }
-  child.stdin.end();
-  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-  const code = await child.exited;
-  const result: RunResult = { code, signal: null, stdout, stderr, argv };
+  const input = chunks.map((chunk) => chunk.data).join("");
+  const child = Bun.spawnSync({ cmd: argv, stdin: Buffer.from(input, "utf8"), stdout: "pipe", stderr: "pipe", maxBuffer: 1024 * 1024 });
+  const stdout = child.stdout?.toString("utf8") ?? "";
+  const stderr = child.stderr?.toString("utf8") ?? "";
+  const result: RunResult = { code: child.exitCode, signal: null, stdout, stderr, argv };
   assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(stdout) : stdout, `${command} stdout`);
   assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(stderr) : stderr, `${command} stderr`);
   childRuns.push(result);
