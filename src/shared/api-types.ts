@@ -2,6 +2,15 @@ import { z } from "zod";
 
 const nullableString = z.string().nullable();
 const timestamp = nullableString;
+const proxyProtocol = z.enum(["http", "socks5"]);
+const humanPreset = z.enum(["default", "careful"]);
+const bumblebeeProfile = z.enum([
+  "default",
+  "precise",
+  "fast",
+  "natural",
+  "messy",
+]);
 
 export const UserSchema = z
   .object({
@@ -19,7 +28,7 @@ export const ProxySchema = z
   .object({
     id: z.string(),
     name: z.string(),
-    protocol: z.string(),
+    protocol: proxyProtocol,
     host: z.string(),
     port: z.number().int().min(1).max(65535),
     username: nullableString.optional(),
@@ -53,8 +62,8 @@ export const ProfileSchema = z
     platform: z.string(),
     geoip: z.boolean(),
     humanize: z.boolean(),
-    human_preset: z.string(),
-    bumblebee_profile: z.string(),
+    human_preset: humanPreset,
+    bumblebee_profile: bumblebeeProfile,
     headless: z.boolean(),
     timezone: nullableString,
     locale: nullableString,
