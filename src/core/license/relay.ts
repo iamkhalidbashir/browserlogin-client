@@ -35,7 +35,8 @@ export const LICENSE_ROUTES = [
 ] as const;
 
 const PEER_ROUTE = "/__browserlogin/license-relay/peer";
-const CONTROL_NAME = "license-relay.control.json";
+const CONTROL_NAME = "license-relay.json";
+const LEGACY_CONTROL_NAME = "license-relay.control.json";
 const ALLOWED_HEADERS = new Set([
   "accept",
   "accept-encoding",
@@ -83,6 +84,7 @@ export type UpstreamTransport = (
 export type RelayOptions = {
   root: string;
   port?: number;
+  env?: NodeJS.ProcessEnv;
   upstreamUrl?: string;
   transport?: UpstreamTransport;
   nonce?: string;
@@ -147,6 +149,9 @@ export const relayUrl = (port: number): string => {
 const controlPath = (paths: StatePaths): string =>
   `${paths.state}/${CONTROL_NAME}`;
 
+const legacyControlPath = (paths: StatePaths): string =>
+  `${paths.state}/${LEGACY_CONTROL_NAME}`;
+
 const controlFromUnknown = (value: unknown): RelayControl => {
   if (!value || typeof value !== "object")
     throw new Error("relay control is invalid");
@@ -206,13 +211,34 @@ const requestSize = (request: IncomingMessage): number => {
   return size + 2;
 };
 
-const advertisedEncodings = (request: IncomingMessage): Set<string> =>
-  new Set(
-    (request.headers["accept-encoding"] ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase().split(";", 1)[0])
-      .filter(Boolean),
-  );
+const advertisedEncodings = (
+  request: IncomingMessage,
+): { accepted: Set<string>; denied: Set<string>; wildcard: boolean } => {
+  const accepted = new Set<string>();
+  const denied = new Set<string>();
+  let wildcard = false;
+  for (const raw of (request.headers["accept-encoding"] ?? "").split(",")) {
+    const parts = raw
+      .split(";")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!parts[0]) continue;
+    let quality = 1;
+    for (const parameter of parts.slice(1)) {
+      const [name, value] = parameter.split("=", 2);
+      if (name?.toLowerCase() === "q") {
+        const parsed = Number(value);
+        quality =
+          Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : 0;
+      }
+    }
+    const coding = parts[0].toLowerCase();
+    if (coding === "*") wildcard = quality > 0;
+    else if (quality > 0) accepted.add(coding);
+    else denied.add(coding);
+  }
+  return { accepted, denied, wildcard };
+};
 
 const validateRequest = (
   request: IncomingMessage,
@@ -258,9 +284,29 @@ const responseEncodingAllowed = (
 ): boolean => {
   const encoding = response.headers["content-encoding"];
   if (!encoding || Array.isArray(encoding)) return !Array.isArray(encoding);
-  const token = encoding.trim().toLowerCase();
-  return token === "identity" || advertisedEncodings(request).has(token);
+  const preferences = advertisedEncodings(request);
+  return encoding
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .every(
+      (token) =>
+        token === "identity" ||
+        (!preferences.denied.has(token) &&
+          (preferences.accepted.has(token) || preferences.wildcard)),
+    );
 };
+
+class RelayTimeoutError extends Error {
+  constructor(readonly kind: "client" | "upstream") {
+    super(`${kind} timeout`);
+  }
+}
+
+class RelayBodyError extends Error {
+  constructor() {
+    super("client body mismatch");
+  }
+}
 
 const writeUpstreamResponse = (
   response: ServerResponse,
@@ -330,14 +376,14 @@ const readBody = (request: IncomingMessage, length: number): Promise<Buffer> =>
       size += chunk.length;
       if (size <= length) chunks.push(chunk);
     });
-    request.on("end", () =>
-      size === length
-        ? resolve(Buffer.concat(chunks))
-        : reject(new Error("body length mismatch")),
-    );
+    request.on("end", () => {
+      request.setTimeout(0);
+      if (size === length) resolve(Buffer.concat(chunks));
+      else reject(new RelayBodyError());
+    });
     request.on("error", reject);
     request.setTimeout(CLIENT_TIMEOUT_MS, () =>
-      reject(new Error("client timeout")),
+      reject(new RelayTimeoutError("client")),
     );
   });
 
@@ -366,26 +412,39 @@ const makeHandler =
     active.value += 1;
     try {
       const body = await readBody(request, validation.length);
-      const upstream = await Promise.race([
-        transport({
-          route: request.url as (typeof LICENSE_ROUTES)[number],
-          headers: validation.headers,
-          body,
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("upstream timeout")),
-            UPSTREAM_TIMEOUT_MS,
-          ),
-        ),
-      ]);
-      if (!responseEncodingAllowed(upstream, request))
-        return sendError(response, 502);
-      writeUpstreamResponse(response, upstream);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const upstream = await Promise.race([
+          transport({
+            route: request.url as (typeof LICENSE_ROUTES)[number],
+            headers: validation.headers,
+            body,
+          }),
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new RelayTimeoutError("upstream")),
+              UPSTREAM_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        if (!responseEncodingAllowed(upstream, request))
+          return sendError(response, 502);
+        writeUpstreamResponse(response, upstream);
+      } finally {
+        if (timeout !== undefined) clearTimeout(timeout);
+      }
     } catch (error) {
       sendError(
         response,
-        error instanceof Error && error.message.includes("timeout") ? 504 : 502,
+        error instanceof RelayBodyError
+          ? 400
+          : error instanceof RelayTimeoutError && error.kind === "client"
+            ? 408
+            : error instanceof RelayTimeoutError && error.kind === "upstream"
+              ? 504
+              : error instanceof Error && error.message === "upstream timeout"
+                ? 504
+                : 502,
       );
     } finally {
       active.value -= 1;
@@ -410,13 +469,38 @@ const listen = (server: Server, port: number): Promise<number> =>
     server.listen(port, "127.0.0.1");
   });
 
-const portCandidates = (requested?: number): number[] => {
-  if (requested !== undefined) return [requested];
-  return [
-    DEFAULT_RELAY_PORT,
-    ...Array.from({ length: 9 }, (_, index) => 4291 + index),
-    ...Array.from({ length: 100 }, (_, index) => 4300 + index),
-  ];
+const portCandidates = (
+  requested: number | undefined,
+  env: NodeJS.ProcessEnv,
+): number[] => {
+  if (requested !== undefined) {
+    if (!Number.isInteger(requested) || requested < 0 || requested > 65535)
+      throw new RangeError("relay port is invalid");
+    return [requested];
+  }
+  const raw = env.BROWSERLOGIN_LICENSE_PORT?.trim();
+  if (raw) {
+    if (!/^\d+$/.test(raw))
+      throw new RangeError("relay environment port is invalid");
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 1 || value > 65535)
+      throw new RangeError("relay environment port is invalid");
+    return [value];
+  }
+  return Array.from({ length: 110 }, (_, index) => DEFAULT_RELAY_PORT + index);
+};
+
+const removeLegacyControl = async (
+  paths: StatePaths,
+  security: PathSecurity,
+): Promise<void> => {
+  const path = legacyControlPath(paths);
+  try {
+    await security.verify(path, false);
+    await unlink(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
 };
 
 export const startLicenseRelay = async (
@@ -429,6 +513,7 @@ export const startLicenseRelay = async (
   if (!/^[0-9a-f]{64}$/.test(nonce))
     throw new Error("relay nonce must be 64 lowercase hex characters");
   return withLock(licenseRelayLock(paths.locks), async () => {
+    await removeLegacyControl(paths, security);
     const existing = await readRelayControl(options.root, security);
     if (existing) throw new Error("license relay is already owned");
     const owner = await currentOwner();
@@ -444,7 +529,10 @@ export const startLicenseRelay = async (
     const active = { value: 0 };
     let server: Server | undefined;
     let port = 0;
-    for (const candidate of portCandidates(options.port)) {
+    for (const candidate of portCandidates(
+      options.port,
+      options.env ?? process.env,
+    )) {
       const candidateServer = createServer((request, response) => {
         void makeHandler(
           { ...controlBase, port },
@@ -467,7 +555,14 @@ export const startLicenseRelay = async (
     if (!server || !port)
       throw new Error("no loopback relay port is available");
     const control: RelayControl = { ...controlBase, port };
-    await atomicWriteJson(controlPath(paths), control, security);
+    relayUrl(port);
+    try {
+      await atomicWriteJson(controlPath(paths), control, security);
+    } catch (error) {
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      await unlink(controlPath(paths)).catch(() => undefined);
+      throw error;
+    }
     const close = async (): Promise<void> => {
       await new Promise<void>((resolve) => server?.close(() => resolve()));
       const current = await readFile(controlPath(paths), "utf8").catch(
