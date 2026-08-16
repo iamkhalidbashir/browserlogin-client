@@ -252,10 +252,10 @@ async function runLinux(): Promise<{ matrix: Matrix; available: boolean }> {
   return { matrix, available: true };
 }
 
-function powershellSource(operation: "store" | "retrieve" | "remove", accountName: string, resourceName: string): string {
+function powershellSource(operation: "store" | "retrieve" | "remove", accountName: string, resourceName: string, envelope: string): string {
   const accountLiteral = JSON.stringify(accountName);
   const resourceLiteral = JSON.stringify(resourceName);
-  return `$envelope = [Console]::In.ReadLine(); Add-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { if ("${operation}" -eq "store") { try { $old = $vault.Retrieve($resource, $account); $vault.Remove($old) } catch {}; $secret = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($envelope.Substring(5))); $credential = New-Object Windows.Security.Credentials.PasswordCredential -ArgumentList $resource,$account,$secret; $vault.Add($credential) } elseif ("${operation}" -eq "retrieve") { $credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); $bytes = [Text.Encoding]::UTF8.GetBytes("blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password))); [Console]::OpenStandardOutput().Write($bytes, 0, $bytes.Length) } else { $credential = $vault.Retrieve($resource, $account); $vault.Remove($credential) }; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
+  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { if ("${operation}" -eq "store") { try { $old = $vault.Retrieve($resource, $account); $vault.Remove($old) } catch {}; $secret = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($envelope.Substring(5))); $credential = New-Object Windows.Security.Credentials.PasswordCredential -ArgumentList $resource,$account,$secret; $vault.Add($credential) } elseif ("${operation}" -eq "retrieve") { $credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); $bytes = [Text.Encoding]::UTF8.GetBytes("blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password))); [Console]::OpenStandardOutput().Write($bytes, 0, $bytes.Length) } else { $credential = $vault.Retrieve($resource, $account); $vault.Remove($credential) }; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
 }
 
 async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
@@ -263,7 +263,7 @@ async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
   if (process.platform !== "win32") return { matrix: { platform: skip("not Windows") }, available: false };
   const powershell = (await exists("powershell.exe")) ? "powershell.exe" : (await exists("pwsh.exe")) ? "pwsh.exe" : undefined;
   if (!powershell) return { matrix: { backend_unavailable: fail(KeychainError.BACKEND_UNAVAILABLE, "PowerShell is missing") }, available: true };
-  const invoke = (operation: "store" | "retrieve" | "remove", envelope = "") => run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: `${powershellSource(operation, account, resource)}\n` }, { data: `${envelope}\n` }], operation === "retrieve");
+  const invoke = (operation: "store" | "retrieve" | "remove", envelope = "") => run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: `${powershellSource(operation, account, resource, envelope)}\n` }], operation === "retrieve");
   let result = await invoke("store", envelopes[0]);
   matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault store failed", result));
   result = await invoke("retrieve");
