@@ -262,7 +262,7 @@ function powershellSource(operation: "store" | "retrieve" | "remove", accountNam
       ? `$credential = $vault.Retrieve($resource, $account); $credential.RetrievePassword(); if ($null -eq $credential.Password) { throw "PasswordVault returned a null password" }; $encoded = "blv1:" + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($credential.Password)); [Console]::WriteLine($encoded)`
       : `$credential = $vault.Retrieve($resource, $account); $vault.Remove($credential)`;
   const retrieveTransport = operation === "retrieve" ? "[Console]::Error.WriteLine($encoded)" : "";
-  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)}; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
+  return `$envelope = @'\n${envelope}\n'@\nAdd-Type -AssemblyName System.Runtime.WindowsRuntime; $null = [Windows.Security.Credentials.PasswordVault,Windows.Security.Credentials,ContentType=WindowsRuntime]; $vault = New-Object Windows.Security.Credentials.PasswordVault; $resource = ${resourceLiteral}; $account = ${accountLiteral}; try { ${action.replace("[Console]::WriteLine($encoded)", retrieveTransport)} } catch { [Console]::Error.WriteLine($_.Exception.GetType().FullName); [Console]::Error.WriteLine($_.Exception.Message); exit 1 }`;
 }
 
 async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
