@@ -42,6 +42,24 @@ function connect(port: number): Promise<Socket> {
   });
 }
 
+function waitForSocketEvent(
+  socket: Socket,
+  event: "close" | "data",
+  timeoutMs = 2_000,
+): Promise<unknown[]> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.removeListener(event, onEvent);
+      reject(new Error(`timed out waiting for socket ${event}`));
+    }, timeoutMs);
+    const onEvent = (...args: unknown[]) => {
+      clearTimeout(timer);
+      resolve(args);
+    };
+    socket.once(event, onEvent);
+  });
+}
+
 async function echoTarget(): Promise<number> {
   return listen(
     createServer({ allowHalfOpen: true }, (socket) => {
@@ -58,6 +76,7 @@ async function authenticatedUpstream(
   expectedPassword: string,
   replyCode = 0,
   rejectFirstAuth = false,
+  finalResponse?: Buffer,
 ): Promise<number> {
   let authAttempts = 0;
   return listen(
@@ -82,6 +101,14 @@ async function authenticatedUpstream(
               return socket.write(
                 Buffer.from([5, replyCode, 0, 1, 127, 0, 0, 1, 0, 80]),
               );
+            if (finalResponse) {
+              socket.write(Buffer.from([5, 0, 0, 1, 127, 0, 0, 1, 0, 80]));
+              socket.once("end", () => {
+                socket.write(finalResponse);
+                socket.end();
+              });
+              return;
+            }
             const target = createConnection({
               host: "127.0.0.1",
               port: targetPort,
@@ -136,6 +163,32 @@ describe("authenticated SOCKS5 relay", () => {
       Buffer.from("echo:payload"),
     );
     socket.end();
+  });
+
+  it("forwards final upstream bytes after the client half-closes", async () => {
+    const targetPort = await echoTarget();
+    const upstreamPort = await authenticatedUpstream(
+      targetPort,
+      "secret",
+      0,
+      false,
+      Buffer.from("final:request-before-eof"),
+    );
+    const relay = new Socks5Relay({
+      host: "127.0.0.1",
+      port: upstreamPort,
+      username: "user",
+      password: "secret",
+    });
+    relays.push(relay);
+    await relay.start();
+    const socket = await throughRelay(Number(new URL(relay.proxyUrl).port));
+    socket.end(Buffer.from("request-before-eof"));
+    const [data] = await waitForSocketEvent(socket, "data");
+    expect(data).toEqual(Buffer.from("final:request-before-eof"));
+    await waitForSocketEvent(socket, "close");
+    await relay.close();
+    expect(relay.activeCount).toBe(0);
   });
 
   it("supports domain, IPv4, IPv6 framing and half-close", async () => {

@@ -321,23 +321,42 @@ export class Socks5Relay {
 
   private async tunnel(client: Socket, upstream: Socket): Promise<void> {
     await new Promise<void>((resolve) => {
-      let ended = 0;
-      const complete = () => {
-        ended += 1;
-        if (ended === 2) resolve();
+      let clientEnded = false;
+      let upstreamEnded = false;
+      let settled = false;
+      const finish = () => {
+        if (!settled && clientEnded && upstreamEnded) {
+          settled = true;
+          resolve();
+        }
       };
-      client.on("end", () => {
+      const fail = () => {
+        if (settled) return;
+        settled = true;
+        client.destroy();
+        upstream.destroy();
+        resolve();
+      };
+      client.once("end", () => {
+        clientEnded = true;
         upstream.end();
-        complete();
+        finish();
       });
-      upstream.on("end", () => {
+      upstream.once("end", () => {
+        upstreamEnded = true;
         client.end();
-        complete();
+        finish();
       });
-      client.on("close", complete);
-      upstream.on("close", complete);
-      client.on("error", complete);
-      upstream.on("error", complete);
+      client.once("close", () => {
+        if (!clientEnded || !upstreamEnded) fail();
+        else finish();
+      });
+      upstream.once("close", () => {
+        if (!clientEnded || !upstreamEnded) fail();
+        else finish();
+      });
+      client.once("error", fail);
+      upstream.once("error", fail);
       client.pipe(upstream, { end: false });
       upstream.pipe(client, { end: false });
     });
