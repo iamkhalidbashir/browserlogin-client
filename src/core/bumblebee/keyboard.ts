@@ -1,5 +1,5 @@
 import { sleepWithSignal, throwIfAborted } from "./types";
-import type { CdpSender, Clock } from "./types";
+import type { CdpSender, Clock, RandomSource } from "./types";
 
 const SHIFTED: Record<string, string> = {
   "1": "!",
@@ -52,6 +52,9 @@ export type KeyboardOptions = {
   clock?: Clock;
   keyHoldMs?: number;
   interCharMs?: number;
+  rng?: RandomSource;
+  typingPauseChance?: number;
+  typingPauseRange?: readonly [number, number];
 };
 
 export class HumanKeyboard {
@@ -66,9 +69,16 @@ export class HumanKeyboard {
     this.clock = options.clock ?? { sleep: async () => {} };
     this.keyHoldMs = options.keyHoldMs ?? 0;
     this.interCharMs = options.interCharMs ?? 0;
+    this.rng = options.rng ?? Math.random;
+    this.typingPauseChance = options.typingPauseChance ?? 0.15;
+    this.typingPauseRange = options.typingPauseRange ?? [500, 1200];
   }
   private readonly keyHoldMs: number;
   private readonly interCharMs: number;
+  private readonly rng: RandomSource;
+  private readonly typingPauseChance: number;
+  private readonly typingPauseRange: readonly [number, number];
+  private characterStarted = false;
 
   async dispatch(
     params: Record<string, unknown>,
@@ -89,7 +99,11 @@ export class HumanKeyboard {
     );
     throwIfAborted(signal);
     if (params.type === "rawKeyDown" || params.type === "keyDown")
-      await sleepWithSignal(this.clock, this.keyHoldMs, signal);
+      await sleepWithSignal(
+        this.clock,
+        this.keyHoldMs * (0.67 + this.rng() * 0.83),
+        signal,
+      );
     if (params.type === "keyUp")
       this.modifiers =
         typeof params.modifiers === "number"
@@ -102,11 +116,13 @@ export class HumanKeyboard {
     sessionId = this.sessionId,
     signal?: AbortSignal,
   ): Promise<void> {
+    let first = true;
     for (const char of [...text]) {
       throwIfAborted(signal);
+      if (!first) await this.interCharacterDelay(signal);
       await this.sender.send("Input.insertText", { text: char }, sessionId);
       throwIfAborted(signal);
-      await sleepWithSignal(this.clock, this.interCharMs, signal);
+      first = false;
     }
   }
 
@@ -115,11 +131,25 @@ export class HumanKeyboard {
     sessionId = this.sessionId,
     signal?: AbortSignal,
   ): Promise<void> {
+    if (this.characterStarted) await this.interCharacterDelay(signal);
     const keyDown: Record<string, unknown> = { ...params, type: "keyDown" };
     const keyUp: Record<string, unknown> = { ...params, type: "keyUp" };
     delete keyUp.text;
     await this.dispatch(keyDown, sessionId, signal);
     await this.dispatch(keyUp, sessionId, signal);
+    this.characterStarted = true;
+  }
+
+  private async interCharacterDelay(signal?: AbortSignal): Promise<void> {
+    const delay =
+      this.rng() < this.typingPauseChance
+        ? this.typingPauseRange[0] +
+          this.rng() * (this.typingPauseRange[1] - this.typingPauseRange[0])
+        : Math.max(
+            10,
+            this.interCharMs + (this.rng() - 0.5) * this.interCharMs,
+          );
+    await sleepWithSignal(this.clock, delay, signal);
   }
 
   swallowKeyUp(key: string): void {

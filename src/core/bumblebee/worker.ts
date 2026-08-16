@@ -11,6 +11,7 @@ import {
   type Point,
   type ProfileName,
   type RandomSource,
+  REAL_CLOCK,
   sleepWithSignal,
   throwIfAborted,
 } from "./types";
@@ -55,7 +56,7 @@ export class BumblebeeWorker implements RawInputWorker {
     this.sender = sender;
     this.ownedSender = ownedSender;
     this.sessionId = options.sessionId;
-    this.clock = options.clock ?? { sleep: async () => {} };
+    this.clock = options.clock ?? REAL_CLOCK;
     this.rng = options.rng ?? Math.random;
     this.policy = options.policy;
     this.mouse = new HumanMouse(this.sender, this.sessionId, {
@@ -63,11 +64,14 @@ export class BumblebeeWorker implements RawInputWorker {
       profile: options.profile,
       metrics: this.metrics,
       viewport: options.viewport,
+      clock: this.clock,
+      rng: this.rng,
     });
     this.keyboard = new HumanKeyboard(this.sender, this.sessionId, {
       clock: this.clock,
-      keyHoldMs: options.keyHoldMs,
-      interCharMs: options.interCharMs,
+      rng: this.rng,
+      keyHoldMs: options.keyHoldMs ?? 30,
+      interCharMs: options.interCharMs ?? 100,
     });
   }
 
@@ -98,18 +102,20 @@ export class BumblebeeWorker implements RawInputWorker {
     const linked = linkSignals(signal, this.closeController.signal);
     try {
       throwIfAborted(linked.signal);
+      if (this.ownedSender) this.ownedSender.setTargetId(event.targetId);
+      const relaySession = this.ownedSender ? undefined : event.sessionId;
       const params = event.params;
       if (event.method === "Input.dispatchMouseEvent")
-        await this.mouseEvent(params, event.sessionId, linked.signal);
+        await this.mouseEvent(params, relaySession, linked.signal);
       else if (event.method === "Input.dispatchKeyEvent")
-        await this.keyboardEvent(params, event.sessionId, linked.signal);
+        await this.keyboardEvent(params, relaySession, linked.signal);
       else if (event.method === "Input.insertText")
-        await this.insertText(params, event.sessionId, linked.signal);
+        await this.insertText(params, relaySession, linked.signal);
       else if (event.method === "Input.dispatchTouchEvent") {
         await this.sender.send(
           event.method,
           params,
-          event.sessionId ?? this.sessionId,
+          relaySession ?? this.sessionId,
         );
         throwIfAborted(linked.signal);
       }

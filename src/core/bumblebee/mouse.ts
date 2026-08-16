@@ -1,5 +1,6 @@
 import { classicalPath } from "./profiles";
-import { SCREEN, OnnxMousePolicy } from "./policy";
+import { SCREEN, DT_SECONDS, OnnxMousePolicy } from "./policy";
+import { MOUSE_PROFILES } from "./profiles";
 import {
   CancellationError,
   throwIfAborted,
@@ -7,6 +8,10 @@ import {
   type FallbackMetrics,
   type Point,
   type ProfileName,
+  type Clock,
+  type RandomSource,
+  REAL_CLOCK,
+  sleepWithSignal,
 } from "./types";
 
 export type MouseOptions = {
@@ -16,6 +21,8 @@ export type MouseOptions = {
   maxPoints?: number;
   metrics?: FallbackMetrics;
   viewport?: { width: number; height: number };
+  clock?: Clock;
+  rng?: RandomSource;
 };
 
 export class HumanMouse {
@@ -24,6 +31,8 @@ export class HumanMouse {
   private readonly profile: ProfileName;
   private readonly maxPoints: number;
   private readonly viewport: { width: number; height: number };
+  private readonly clock: Clock;
+  private readonly rng: RandomSource;
   private policy?: OnnxMousePolicy;
 
   constructor(
@@ -38,6 +47,8 @@ export class HumanMouse {
       width: SCREEN.width,
       height: SCREEN.height,
     };
+    this.clock = options.clock ?? REAL_CLOCK;
+    this.rng = options.rng ?? Math.random;
     this.policy = options.policy;
   }
 
@@ -90,8 +101,25 @@ export class HumanMouse {
       points = [start, destination];
     }
     points[points.length - 1] = destination;
-    for (const point of points)
+    let elapsed = 0;
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index];
       await this.dispatch("mouseMoved", point, params, sessionId, signal);
+      if (index < points.length - 1) {
+        const delay = segmentDelay(
+          this.profile,
+          this.rng,
+          points[index],
+          points[index + 1],
+          index,
+          points.length,
+          Boolean(this.policy),
+        );
+        const bounded = Math.min(delay, Math.max(0, 30_000 - elapsed));
+        elapsed += bounded;
+        await sleepWithSignal(this.clock, bounded, signal);
+      }
+    }
   }
 
   async dispatch(
@@ -122,6 +150,35 @@ export class HumanMouse {
     this.metrics.reasons[reason] = (this.metrics.reasons[reason] ?? 0) + 1;
     console.warn(`[bumblebee] classical mouse fallback: ${reason}`);
   }
+}
+
+function segmentDelay(
+  profileName: ProfileName,
+  rng: RandomSource,
+  start: Point,
+  end: Point,
+  index: number,
+  count: number,
+  rl: boolean,
+): number {
+  if (rl) return DT_SECONDS * 1000;
+  const profile = MOUSE_PROFILES[profileName];
+  const distance = Math.hypot(end.x - start.x, end.y - start.y);
+  const t = count <= 1 ? 0 : index / (count - 1);
+  const variation = profile.speed_factor_variation
+    ? (rng() * 2 - 1) * profile.speed_factor_variation
+    : 0;
+  const factor = Math.min(
+    profile.max_speed_factor,
+    Math.max(
+      profile.min_speed_factor,
+      1.15 - 0.45 * Math.sin(Math.PI * t) + variation,
+    ),
+  );
+  return Math.min(
+    1000,
+    (distance / Math.max(1, profile.speed_px_s * factor)) * 1000,
+  );
 }
 
 function clamp(
