@@ -16,6 +16,7 @@ describe("Bumblebee worker input semantics", () => {
       policy: {
         rollout: async (start: Point, target: Point) => [start, target],
       } as never,
+      clock: quietClock,
       sender: {
         send: async (method, params, session) => {
           seen.push({ method, params, session });
@@ -128,6 +129,7 @@ describe("Bumblebee worker input semantics", () => {
     const model = new Uint8Array([1, 2, 3]);
     const worker = await BumblebeeWorker.create({
       policyOptions: { modelBytes: model, wasmBytes: new Uint8Array([1]) },
+      clock: quietClock,
       sender: {
         send: async (method) => {
           seen.push(method);
@@ -353,5 +355,50 @@ describe("Bumblebee worker input semantics", () => {
     ).rejects.toThrow("BUMBLEBEE_CANCELLED");
     expect(seen).toHaveLength(1);
     expect(worker.metrics.classicalFallbacks).toBe(0);
+  });
+
+  it("uses real trajectory cadence by default and injected zero-time clocks in tests", async () => {
+    const sleeps: number[] = [];
+    const worker = await BumblebeeWorker.create({
+      policy: {
+        rollout: async (start: Point, target: Point) => [start, target],
+      } as never,
+      clock: {
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+      rng: () => 0.5,
+      sender: { send: async () => {} },
+    });
+    await worker.execute(
+      {
+        method: "Input.dispatchMouseEvent",
+        params: { type: "mouseMoved", x: 100, y: 100 },
+      },
+      new AbortController().signal,
+    );
+    expect(sleeps.some((ms) => ms >= 8 && ms <= 9)).toBe(true);
+  });
+
+  it("interrupts the real default clock within the bounded abort window", async () => {
+    const controller = new AbortController();
+    const worker = await BumblebeeWorker.create({
+      policy: {
+        rollout: async (start: Point, target: Point) => [start, target],
+      } as never,
+      sender: { send: async () => {} },
+    });
+    const started = performance.now();
+    const pending = worker.execute(
+      {
+        method: "Input.dispatchMouseEvent",
+        params: { type: "mouseMoved", x: 100, y: 100 },
+      },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 1);
+    await expect(pending).rejects.toThrow("BUMBLEBEE_CANCELLED");
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });
