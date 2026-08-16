@@ -122,7 +122,8 @@ describe("BrowserLogin REST client", () => {
     ).toBe("profile-1");
     expect((await api.deleteProfile("profile-1")).status).toBe("deleted");
     expect((await api.restoreProfile("profile-1")).status).toBe("restored");
-    await expect(api.listMembers("profile-1")).rejects.toBeInstanceOf(ApiError);
+    const members = await api.listMembers("profile-1");
+    expect(members[0]).toMatchObject({ id: "user-2", role: "editor" });
     expect(
       (await api.shareProfile("profile-1", "user-2", "editor")).status,
     ).toBe("shared");
@@ -134,11 +135,9 @@ describe("BrowserLogin REST client", () => {
     expect(
       (await api.replaceNotes("profile-1", "Replacement", 2)).version,
     ).toBe(3);
-    await expect(api.listNoteHistory("profile-1")).rejects.toBeInstanceOf(
-      ApiError,
-    );
-    await expect(api.listNotesHistory("profile-1")).rejects.toBeInstanceOf(
-      ApiError,
+    expect((await api.listNoteHistory("profile-1"))[0]?.version).toBe(2);
+    expect((await api.listNotesHistory("profile-1"))[0]?.created_by).toBe(
+      "user-1",
     );
     expect((await api.startSession("profile-1", "start-1")).session.id).toBe(
       "session-1",
@@ -191,9 +190,13 @@ describe("BrowserLogin REST client", () => {
     ).toBe("proxy-1");
     expect((await api.deleteProxy("proxy-1")).status).toBe("deleted");
     expect((await api.changeProxyIp("proxy-1")).ip).toBe("203.0.113.42");
-    await expect(api.listUsers()).rejects.toBeInstanceOf(ApiError);
+    expect((await api.listUsers())[0]).toMatchObject({
+      id: "user-2",
+      email: "editor@example.test",
+    });
     expect((await api.disableUser("user-2")).status).toBe("disabled");
-    await expect(api.listAudit("profile-1")).rejects.toBeInstanceOf(ApiError);
+    expect((await api.listAudit("profile-1"))[0]?.entity_id).toBe("profile-1");
+    expect((await api.listAudit())[0]?.action).toBe("profile.updated");
 
     const start = seen.find((request) =>
       request.path.endsWith("/profiles/profile-1/sessions"),
@@ -263,9 +266,7 @@ describe("BrowserLogin REST client", () => {
           await api.restoreProfile("profile-1");
           break;
         case "listMembers":
-          await expect(api.listMembers("profile-1")).rejects.toBeInstanceOf(
-            ApiError,
-          );
+          await api.listMembers("profile-1");
           break;
         case "shareProfile":
           await api.shareProfile("profile-1", "user-2", "editor");
@@ -283,14 +284,10 @@ describe("BrowserLogin REST client", () => {
           await api.replaceNotes("profile-1", "Replacement", 2);
           break;
         case "listNoteHistory":
-          await expect(api.listNoteHistory("profile-1")).rejects.toBeInstanceOf(
-            ApiError,
-          );
+          await api.listNoteHistory("profile-1");
           break;
         case "listNotesHistory":
-          await expect(
-            api.listNotesHistory("profile-1"),
-          ).rejects.toBeInstanceOf(ApiError);
+          await api.listNotesHistory("profile-1");
           break;
         case "startSession":
           await api.startSession("profile-1", "case-start");
@@ -348,20 +345,65 @@ describe("BrowserLogin REST client", () => {
           await api.changeProxyIp("proxy-1");
           break;
         case "listUsers":
-          await expect(api.listUsers()).rejects.toBeInstanceOf(ApiError);
+          await api.listUsers();
           break;
         case "disableUser":
           await api.disableUser("user-2");
           break;
         case "listAudit":
-          await expect(api.listAudit("profile-1")).rejects.toBeInstanceOf(
-            ApiError,
-          );
+          await api.listAudit("profile-1");
           break;
       }
     } finally {
       await server.close();
     }
+  });
+
+  it("maps representative Member, NoteVersion, User, and AuditEvent drift to ApiError", async () => {
+    const malformed = new Map<string, unknown>([
+      [
+        "/profiles/profile-1/members",
+        [{ id: "user-2", name: "Editor", role: "editor" }],
+      ],
+      [
+        "/profiles/profile-1/notes/history",
+        [{ id: "note-1", version: 2, notes: "Current notes" }],
+      ],
+      [
+        "/profiles/profile-1/notes-history",
+        [{ id: "note-1", version: 2, notes: "Current notes" }],
+      ],
+      ["/users", [{ id: "user-2", name: "Editor", status: "active" }]],
+      [
+        "/audit",
+        [
+          {
+            action: "profile.updated",
+            entity_type: "browserProfile",
+            entity_id: "profile-1",
+          },
+        ],
+      ],
+    ]);
+    const api = client("https://browserlogin.test/api/v1", {
+      fetch: async (input) => {
+        const requestUrl = input instanceof Request ? input.url : String(input);
+        const body = malformed.get(new URL(requestUrl).pathname);
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    });
+    await expect(api.listMembers("profile-1")).rejects.toBeInstanceOf(ApiError);
+    await expect(api.listNoteHistory("profile-1")).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    await expect(api.listNotesHistory("profile-1")).rejects.toBeInstanceOf(
+      ApiError,
+    );
+    await expect(api.listUsers()).rejects.toBeInstanceOf(ApiError);
+    await expect(api.listAudit()).rejects.toBeInstanceOf(ApiError);
   });
 
   it("streams, validates, and atomically activates an archive", async () => {
