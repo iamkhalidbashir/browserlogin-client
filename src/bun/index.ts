@@ -1,10 +1,16 @@
 import { BrowserWindow, Updater } from "electrobun/main";
 
-if (process.argv.includes("--browserlogin-smoke")) {
+if (
+  process.argv.includes("--browserlogin-smoke") ||
+  process.env.BROWSERLOGIN_SPIKE_SMOKE === "1"
+) {
   process.exit(0);
 }
 
-if (process.argv.includes("--browserlogin-updater-smoke")) {
+if (
+  process.argv.includes("--browserlogin-updater-smoke") ||
+  process.env.BROWSERLOGIN_SPIKE_UPDATER === "1"
+) {
   const update = await Updater.checkForUpdate();
   if (update.error) {
     console.error(update.error);

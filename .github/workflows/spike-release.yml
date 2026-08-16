@@ -133,7 +133,7 @@ jobs:
           test -n "$app"
           binary="$app/Contents/MacOS/launcher"
           test -x "$binary"
-          "$binary" --browserlogin-smoke
+          BROWSERLOGIN_SPIKE_SMOKE=1 "$binary"
 
       - name: Smoke packaged app (Linux)
         if: runner.os == 'Linux' && inputs.smoke
@@ -141,7 +141,7 @@ jobs:
         run: |
           binary=$(find build artifacts -type f -name 'BrowserLogin' -perm -111 | head -1 || true)
           if [[ -n "$binary" ]]; then
-            xvfb-run --auto-servernum "$binary" --browserlogin-smoke
+            BROWSERLOGIN_SPIKE_SMOKE=1 xvfb-run --auto-servernum "$binary"
           else
             echo 'Linux artifact is an archive; archive smoke is recorded as deferred to install verification.'
           fi
@@ -154,7 +154,8 @@ jobs:
           if ($null -eq $binary) {
             Write-Host 'Windows artifact is an installer archive; installer smoke is recorded as deferred.'
           } else {
-            & $binary.FullName --browserlogin-smoke
+            $env:BROWSERLOGIN_SPIKE_SMOKE = '1'
+            & $binary.FullName
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
