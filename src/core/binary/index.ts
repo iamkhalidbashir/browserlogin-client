@@ -8,11 +8,14 @@ import { downloadVerifiedSource } from "./download.js";
 import { installBinary, installedBinary } from "./install.js";
 import {
   archiveName,
+  githubArchiveUrl,
+  githubManifestBase,
   resolveVersion,
   sourceArchiveUrl,
   officialArchiveUrl,
+  officialManifestBase,
 } from "./versions.js";
-import { officialManifestBase, verifyArchive } from "./verify.js";
+import { verifyArchive } from "./verify.js";
 import {
   BinaryManagerError,
   type BinaryInfo,
@@ -114,11 +117,16 @@ export async function ensureBinary(
         return { ...lockedExisting, platform: resolved.platform };
       const custom = customSource;
       const source = custom ? ("custom" as const) : ("official" as const);
-      const archiveUrl = custom
-        ? sourceArchiveUrl(custom, resolved.platform)
+      const archiveUrls = custom
+        ? [sourceArchiveUrl(custom, resolved.platform)]
         : resolved.pro
-          ? `${new URL(`/api/download/${resolved.version}`, "https://cloakbrowser.dev").toString()}`
-          : officialArchiveUrl(resolved.platform, resolved.version);
+          ? [
+              `${new URL(`/api/download/${resolved.version}`, "https://cloakbrowser.dev").toString()}`,
+            ]
+          : [
+              officialArchiveUrl(resolved.platform, resolved.version),
+              githubArchiveUrl(resolved.platform, resolved.version),
+            ];
       const headers =
         resolved.pro && options.licenseKey
           ? {
@@ -131,26 +139,59 @@ export async function ensureBinary(
         "downloads",
         `${resolved.version}-${resolved.platform}${resolved.pro ? "-pro" : ""}.${archiveName(resolved.platform).split(".").slice(1).join(".")}`,
       );
-      await downloadVerifiedSource({
-        url: archiveUrl,
-        destination: archive,
-        headers,
-        progress: options.progress,
-        fetchImpl: options.fetchImpl,
-        diskSpace: options.diskSpace,
-      });
-      const manifestBase = custom
+      let selectedArchiveUrl: string | undefined;
+      let lastDownloadError: unknown;
+      for (const archiveUrl of archiveUrls) {
+        try {
+          await downloadVerifiedSource({
+            url: archiveUrl,
+            destination: archive,
+            headers,
+            progress: options.progress,
+            fetchImpl: options.fetchImpl,
+            diskSpace: options.diskSpace,
+          });
+          selectedArchiveUrl = archiveUrl;
+          break;
+        } catch (error) {
+          lastDownloadError = error;
+        }
+      }
+      if (!selectedArchiveUrl) throw lastDownloadError;
+      const customManifestBase = custom
         ? custom.replace(/\/(?:[^/]+\.(?:zip|tar\.gz))$/, "")
-        : officialManifestBase(resolved.version, resolved.pro);
-      const verification = await verifyArchive(
-        archive,
-        resolved.platform,
-        resolved.version,
-        source,
-        manifestBase,
-        headers,
-        options.fetchImpl ?? fetch,
-      );
+        : undefined;
+      const manifestBases = customManifestBase
+        ? [customManifestBase]
+        : [
+            officialManifestBase(resolved.version, resolved.pro),
+            githubManifestBase(resolved.version),
+          ];
+      let verification: Awaited<ReturnType<typeof verifyArchive>> | undefined;
+      let lastVerificationError: unknown;
+      for (const manifestBase of manifestBases) {
+        try {
+          verification = await verifyArchive(
+            archive,
+            resolved.platform,
+            resolved.version,
+            source,
+            manifestBase,
+            headers,
+            options.fetchImpl ?? fetch,
+            options.officialSigningPublicKey,
+          );
+          break;
+        } catch (error) {
+          lastVerificationError = error;
+          if (
+            error instanceof BinaryManagerError &&
+            !error.message.includes("SHA256SUMS could not be fetched")
+          )
+            break;
+        }
+      }
+      if (!verification) throw lastVerificationError;
       const info = await installBinary({
         archive,
         root,

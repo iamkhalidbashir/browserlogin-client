@@ -50,6 +50,7 @@ async function downloadAttempt(
   options: DownloadOptions,
   part: string,
   etagPath: string,
+  allowResume = true,
 ): Promise<void> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const existing = await stat(part)
@@ -58,8 +59,9 @@ async function downloadAttempt(
   const oldEtag = existing
     ? await readFile(etagPath, "utf8").catch(() => "")
     : "";
+  const resumeRequested = allowResume && existing > 0 && Boolean(oldEtag);
   const headers = new Headers(options.headers);
-  if (existing && oldEtag) {
+  if (resumeRequested) {
     headers.set("Range", `bytes=${existing}-`);
     headers.set("If-Range", oldEtag);
   }
@@ -85,6 +87,7 @@ async function downloadAttempt(
       "CloakBrowser download request failed",
       "DOWNLOAD_FAILED",
       { cause: error },
+      true,
     );
   }
   clearTimeout(connectTimer);
@@ -99,12 +102,15 @@ async function downloadAttempt(
     await unlink(part).catch(() => undefined);
     await unlink(etagPath).catch(() => undefined);
   }
-  if (response.status === 206 && !append) {
+  if (resumeRequested && response.status === 200) {
+    await response.body?.cancel();
     clearTimeout(totalTimer);
-    throw new BinaryManagerError(
-      "CloakBrowser server changed the partial download",
-      "DOWNLOAD_FAILED",
-    );
+    return downloadAttempt(options, part, etagPath, false);
+  }
+  if (response.status === 206 && !append) {
+    await response.body?.cancel();
+    clearTimeout(totalTimer);
+    return downloadAttempt(options, part, etagPath, false);
   }
   if (!response.ok && response.status !== 206) {
     clearTimeout(totalTimer);
@@ -159,6 +165,7 @@ async function downloadAttempt(
       "CloakBrowser download stream failed",
       "DOWNLOAD_FAILED",
       { cause: error },
+      true,
     );
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
@@ -207,7 +214,7 @@ export async function downloadVerifiedSource(
       lastError = error;
       if (
         error instanceof BinaryManagerError &&
-        error.code !== "DOWNLOAD_FAILED"
+        (!error.retryable || error.code !== "DOWNLOAD_FAILED")
       )
         throw error;
       if (attempt + 1 < (options.retries ?? 3)) await sleep(100 * 2 ** attempt);
