@@ -1,0 +1,6 @@
+{
+  "provenance": "launch.py:9-31; models.py:108-173; coordinator.py:167-186",
+  "profile":{"id":"profile-1","seed":12345,"platform":"macos","geoip":true,"humanize":true,"human_preset":"careful","bumblebee_profile":"natural","headless":false,"timezone":"America/New_York","locale":"en-US","user_agent":"test-agent","viewport":{"width":1440,"height":900},"args":["--fingerprint-noise=false"],"proxy":{"protocol":"http","host":"proxy.test","port":8080,"username":"user","password":"TEST-ONLY-password"}},
+  "paths":{"userDataDir":"/tmp/browserlogin/profile-1/work","browserCacheDir":"/tmp/browserlogin/profile-1/cache","browserCacheMaxBytes":536870912},
+  "expectedLaunchPayload":{"profile_id":"profile-1","seed":12345,"platform":"macos","geoip":true,"humanize":true,"human_preset":"careful","bumblebee_profile":"natural","headless":false,"timezone":"America/New_York","locale":"en-US","user_agent":"test-agent","viewport":{"width":1440,"height":900},"args":["--fingerprint-noise=false"],"user_data_dir":"/tmp/browserlogin/profile-1/work","browser_cache_dir":"/tmp/browserlogin/profile-1/cache","browser_cache_max_bytes":536870912,"proxy":{"protocol":"http","host":"proxy.test","port":8080,"username":"user","password":"TEST-ONLY-password"}}
+}

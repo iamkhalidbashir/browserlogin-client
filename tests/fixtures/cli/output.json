@@ -1,0 +1,14 @@
+{
+  "provenance": "cli.py:13-15,18-28,31-41,44-89",
+  "exitCodes":{"ok":0,"usage":2,"failure":3},
+  "commands":[
+    {"argv":["profiles"],"stdout":"[{\"profile_id\":\"profile-1\",\"name\":\"Research profile\",\"platform\":\"macos\",\"archive_generation\":4,\"cloud_session\":false}]\n","exitCode":0},
+    {"argv":["start","profile-1"],"stdout":"Profile started: profile-1\n","exitCode":0},
+    {"argv":["stop","profile-1"],"stdout":"Profile stopped: profile-1\n","exitCode":0},
+    {"argv":["stop","profile-1","--force","--yes"],"stdout":"Profile force closed: profile-1\n","exitCode":0},
+    {"argv":["stop","profile-1","--yes"],"stderr":"--yes is valid only with --force\n","exitCode":3},
+    {"argv":["stop","profile-1","--force"],"stderr":"Force close requires --yes in a noninteractive terminal.\n","exitCode":2},
+    {"argv":["profiles"],"stderr":"BrowserLogin connection setup is required\n","exitCode":2},
+    {"argv":["start","profile-1"],"stderr":"Lifecycle request could not be completed.\n","exitCode":3}
+  ]
+}
