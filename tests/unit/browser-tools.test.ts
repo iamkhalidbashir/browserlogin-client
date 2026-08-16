@@ -89,6 +89,12 @@ describe("browser tools manifest and router", () => {
     expect(router.listTools().map((tool) => tool.name)).not.toContain(
       UNSAFE_TOOL_NAME,
     );
+    expect(
+      router.call("browser_evaluate", {
+        profile: "p1",
+        function: "() => 1",
+      }),
+    ).resolves.toMatchObject({ isError: true });
     const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
     process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
     expect(setup(new Map()).router.listTools()).toHaveLength(24);
