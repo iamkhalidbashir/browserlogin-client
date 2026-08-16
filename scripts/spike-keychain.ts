@@ -63,8 +63,31 @@ function classifyFailure(result: RunResult): KeychainError | undefined {
   return undefined;
 }
 
+async function runWindowsProcess(command: string, args: string[], chunks: InputChunk[], expectedTransport: boolean): Promise<RunResult> {
+  const argv = [command, ...args];
+  argv.forEach((arg) => assertNoCredentialMaterial(arg, `${command} argv`));
+  const child = Bun.spawn(argv, { stdin: "pipe", stdout: "pipe", stderr: "pipe", timeout: timeoutMs });
+  const stdoutPromise = new Response(child.stdout).text();
+  const stderrPromise = new Response(child.stderr).text();
+  for (const chunk of chunks) {
+    if (chunk.delayMs) await Bun.sleep(chunk.delayMs);
+    child.stdin.write(chunk.data);
+  }
+  child.stdin.end();
+  const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
+  const code = await child.exited;
+  const result: RunResult = { code, signal: null, stdout, stderr, argv };
+  assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(stdout) : stdout, `${command} stdout`);
+  assertNoCredentialMaterial(expectedTransport ? stripExpectedTransport(stderr) : stderr, `${command} stderr`);
+  childRuns.push(result);
+  return result;
+}
+
 function run(command: string, args: string[], chunks: InputChunk[] = [], expectedTransport = false): Promise<RunResult> {
   for (const arg of args) assertNoCredentialMaterial(arg, `${command} argv`);
+  if (process.platform === "win32" && /(?:^|[\\/])(?:powershell|pwsh)(?:\.exe)?$/i.test(command)) {
+    return runWindowsProcess(command, args, chunks, expectedTransport);
+  }
   const child = spawn(command, args, { shell: false, stdio: ["pipe", "pipe", "pipe"] });
   const result = new Promise<RunResult>((resolve, reject) => {
     let stdout = "";
