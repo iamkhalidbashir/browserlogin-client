@@ -287,6 +287,8 @@ async function runWindows(): Promise<{ matrix: Matrix; available: boolean }> {
   if (process.platform !== "win32") return { matrix: { platform: skip("not Windows") }, available: false };
   const powershell = (await exists("powershell.exe")) ? "powershell.exe" : (await exists("pwsh.exe")) ? "pwsh.exe" : undefined;
   if (!powershell) return { matrix: { backend_unavailable: fail(KeychainError.BACKEND_UNAVAILABLE, "PowerShell is missing") }, available: true };
+  const transportProbe = await run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: "Write-Output bun-powershell-probe\n" }]);
+  matrix.transport_probe = transportProbe.stdout.includes("bun-powershell-probe") ? pass() : fail(KeychainError.BACKEND_UNAVAILABLE, `Bun PowerShell stdout capture failed (stdout=${transportProbe.stdout.length}, stderr=${transportProbe.stderr.length})`);
   const invoke = (operation: "store" | "retrieve" | "remove", envelope = "") => run(powershell, ["-NoProfile", "-NonInteractive", "-Command", "-"], [{ data: `${powershellSource(operation, account, resource, envelope)}\n` }], operation === "retrieve");
   let result = await invoke("store", envelopes[0]);
   matrix.store = successful(result) ? pass() : fail(classifyFailure(result), failureDetail("PasswordVault store failed", result));
