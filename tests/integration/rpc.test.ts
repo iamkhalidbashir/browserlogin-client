@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { afterEach, describe, expect, test } from "vitest";
 
-const BUN = `${process.env.HOME ?? "/Users/bashir"}/.bun/bin/bun`;
+const BUN = process.env.BUN_BIN ?? "bun";
 const roots: string[] = [];
 const children: ChildProcess[] = [];
 const generated: string[] = [];

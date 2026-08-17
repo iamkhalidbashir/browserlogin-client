@@ -7,7 +7,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConflictError } from "../../src/shared/errors.js";
 import {
@@ -238,9 +238,9 @@ describe("Task 18 recovery state", () => {
       status: "start-intent" as const,
     } satisfies RecoveryState;
     await store.save(state);
-    expect(profileStatePath(root, "profile-1")).toMatch(
-      /state\/[0-9a-f]{64}\.json$/,
-    );
+    const persistedPath = profileStatePath(root, "profile-1");
+    expect(basename(dirname(persistedPath))).toBe("state");
+    expect(basename(persistedPath)).toMatch(/^[0-9a-f]{64}\.json$/);
     expect(await store.load("profile-1")).toEqual(state);
     await expect(
       store.save({

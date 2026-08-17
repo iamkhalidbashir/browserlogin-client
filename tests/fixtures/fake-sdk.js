@@ -3,9 +3,16 @@ import { spawn } from "node:child_process";
 export const launchPersistentContext = async (options) => {
   const executable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
   if (!executable) throw new Error("fake executable is not configured");
+  const executableArgs = JSON.parse(
+    process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS || "[]",
+  );
   const child = spawn(
     executable,
-    [...options.args, `--user-data-dir=${options.userDataDir}`],
+    [
+      ...executableArgs,
+      ...options.args,
+      `--user-data-dir=${options.userDataDir}`,
+    ],
     { stdio: "ignore" },
   );
   let connected = true;

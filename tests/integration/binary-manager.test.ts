@@ -180,7 +180,7 @@ describe("Task 14 binary manager", () => {
       arch: "x64",
       progress: (event) => progress.push({ done: event.done }),
     });
-    expect(info.path).toContain(
+    expect(info.path.replaceAll("\\", "/")).toContain(
       "browser-runtime/browsers/windows-x64-146.0.7680.177.5",
     );
     expect(info.trust).toBe("unverified-custom");
@@ -712,7 +712,7 @@ describe("Task 14 binary manager", () => {
     const fixture = fileURLToPath(
       new URL("../fixtures/binary-concurrency-child.ts", import.meta.url),
     );
-    const bun = process.env.BUN_BIN ?? `${process.env.HOME}/.bun/bin/bun`;
+    const bun = process.env.BUN_BIN ?? "bun";
     const children = Array.from({ length: 2 }, () =>
       spawn(bun, [fixture, root, source.url, source.version], {
         stdio: "pipe",
@@ -747,5 +747,5 @@ describe("Task 14 binary manager", () => {
     expect(pointer.version).toBe(source.version);
     expect(pointer.path).toContain(`windows-x64-${source.version}`);
     await rm(root, { recursive: true, force: true });
-  });
+  }, 20_000);
 });

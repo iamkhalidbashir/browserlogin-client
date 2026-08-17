@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, writeFile, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 import { runRunnerChild } from "../../src/core/runner/child.js";
 import { createOneShotLaunchFile } from "../../src/core/runner/launch.js";
@@ -117,10 +118,12 @@ describe("fake runner lifecycle", () => {
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-runner-unauthorized-child-"),
     );
-    const fakeBinary = new URL("../fixtures/fake-browser.js", import.meta.url)
-      .pathname;
-    const fakeSdk = new URL("../fixtures/fake-sdk.js", import.meta.url)
-      .pathname;
+    const fakeBinary = fileURLToPath(
+      new URL("../fixtures/fake-browser.js", import.meta.url),
+    );
+    const fakeSdk = fileURLToPath(
+      new URL("../fixtures/fake-sdk.js", import.meta.url),
+    );
     const argvFile = join(root, "fake-argv.json");
     const paths = {
       launchFile: join(root, "launch.json"),
@@ -140,7 +143,9 @@ describe("fake runner lifecycle", () => {
     const child = spawn(
       command,
       [
-        new URL("../../src/core/runner/child.ts", import.meta.url).pathname,
+        fileURLToPath(
+          new URL("../../src/core/runner/child.ts", import.meta.url),
+        ),
         "--profile-id",
         spec.profile_id,
         "--launch-file",
@@ -402,11 +407,13 @@ describe("fake runner lifecycle", () => {
       const root = await mkdtemp(
         join(tmpdir(), "browserlogin-runner-real-child-"),
       );
-      const fakeBinary = new URL("../fixtures/fake-browser.js", import.meta.url)
-        .pathname;
-      const fakeSdk = new URL("../fixtures/fake-sdk.js", import.meta.url)
-        .pathname;
-      chmodSync(fakeBinary, 0o700);
+      const fakeBinary = fileURLToPath(
+        new URL("../fixtures/fake-browser.js", import.meta.url),
+      );
+      const fakeSdk = fileURLToPath(
+        new URL("../fixtures/fake-sdk.js", import.meta.url),
+      );
+      if (process.platform !== "win32") chmodSync(fakeBinary, 0o700);
       const argvFile = join(root, "fake-argv.json");
       const exitFile = join(root, "fake-exit");
       const logFile = join(root, "fake-log.jsonl");
@@ -432,12 +439,16 @@ describe("fake runner lifecycle", () => {
       const oldSdkModule = process.env.BROWSERLOGIN_RUNNER_SDK_MODULE;
       const oldExecutable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
       const oldTestMode = process.env.BROWSERLOGIN_RUNNER_TEST_MODE;
+      const oldExecutableArgs = process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS;
       process.env.FAKE_BROWSER_ARGV_FILE = argvFile;
       process.env.FAKE_BROWSER_EXIT_FILE = exitFile;
       process.env.FAKE_BROWSER_EXIT_AFTER_MS = "5000";
       process.env.FAKE_BROWSER_LOG_FILE = logFile;
       process.env.BROWSERLOGIN_RUNNER_SDK_MODULE = fakeSdk;
-      process.env.BROWSERLOGIN_FAKE_EXECUTABLE = fakeBinary;
+      process.env.BROWSERLOGIN_FAKE_EXECUTABLE =
+        process.platform === "win32" ? "bun" : fakeBinary;
+      process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS =
+        process.platform === "win32" ? JSON.stringify([fakeBinary]) : "[]";
       process.env.BROWSERLOGIN_RUNNER_TEST_MODE = "1";
       const oldLifecycle = process.env.FAKE_SDK_LIFECYCLE;
       process.env.FAKE_SDK_LIFECYCLE = lifecycle;
@@ -492,6 +503,9 @@ describe("fake runner lifecycle", () => {
         if (oldTestMode === undefined)
           delete process.env.BROWSERLOGIN_RUNNER_TEST_MODE;
         else process.env.BROWSERLOGIN_RUNNER_TEST_MODE = oldTestMode;
+        if (oldExecutableArgs === undefined)
+          delete process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS;
+        else process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS = oldExecutableArgs;
         if (oldLifecycle === undefined) delete process.env.FAKE_SDK_LIFECYCLE;
         else process.env.FAKE_SDK_LIFECYCLE = oldLifecycle;
       }

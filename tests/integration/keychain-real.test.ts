@@ -23,7 +23,7 @@ function runPowerShellParser(source: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", "-"],
+      ["-NoProfile", "-NonInteractive", "-Command", source],
       {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
@@ -44,13 +44,13 @@ function runPowerShellParser(source: string): Promise<string> {
       if (code === 0) resolve(stdout.trim());
       else reject(new Error(stderr.replace(/\r?\n/g, " ").slice(0, 500)));
     });
-    child.stdin.end(source);
+    child.stdin.end();
   });
 }
 
 describe("real keychain integration", () => {
   it.skipIf(process.platform !== "win32")(
-    "PowerShell parses store/get/delete frames with source-first stdin",
+    "PowerShell parses store/get/delete frames",
     async () => {
       const key = {
         service: KEYCHAIN_SERVICE,

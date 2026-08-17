@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { startRemoteMcpMock } from "../mocks/remote-mcp-server.js";
 
-const BUN = `${process.env.HOME ?? "/Users/bashir"}/.bun/bin/bun`;
+const BUN = process.env.BUN_BIN ?? "bun";
 const SERVER = join(process.cwd(), "src/mcp/server.ts");
 const API_KEY = "bl_test_key_secret";
 const LOCAL_API_FAILURE = "https://127.0.0.1:1/api/v1";

@@ -6,7 +6,6 @@ import {
 import { spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -197,9 +196,7 @@ async function runChild(
     new URL("../fixtures/coordinator-crash-child.ts", import.meta.url),
   );
   return new Promise((resolve, reject) => {
-    const bun =
-      process.env.BROWSERLOGIN_BUN_PATH ??
-      join(homedir(), ".bun", "bin", "bun");
+    const bun = process.env.BROWSERLOGIN_BUN_PATH ?? "bun";
     const child = spawn(bun, [fixture], {
       cwd: dirname(dirname(fixture)),
       env: {
@@ -241,6 +238,15 @@ async function runChild(
   });
 }
 
+function expectForcedCrash(
+  result: Awaited<ReturnType<typeof runChild>>,
+  label?: string,
+): void {
+  if (process.platform === "win32")
+    expect(result.code, label ?? JSON.stringify(result)).not.toBe(0);
+  else expect(result.signal, label ?? JSON.stringify(result)).toBe("SIGKILL");
+}
+
 describe("Task 18 fresh-process SIGKILL recovery", () => {
   it("recovers every named durable cut point without duplicate session, upload, or commit", async () => {
     for (const point of points) {
@@ -248,9 +254,7 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       roots.push(root);
       const mock = await startMock();
       const crashed = await runChild(root, mock.port, point, false);
-      expect(crashed.signal, `${point}: ${JSON.stringify(crashed)}`).toBe(
-        "SIGKILL",
-      );
+      expectForcedCrash(crashed, `${point}: ${JSON.stringify(crashed)}`);
       expect(await readFile(join(root, `crash-${point}`), "utf8")).toMatch(
         /\d+\n/,
       );
@@ -315,7 +319,7 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       "after-running-save",
       false,
     );
-    expect(crashed.signal).toBe("SIGKILL");
+    expectForcedCrash(crashed);
     const state = await createRecoveryStore(root).load("profile-1");
     expect(state?.runner_pid).toBeTypeOf("number");
     process.kill(state!.runner_pid!, "SIGKILL");
@@ -342,7 +346,7 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       "after-running-save",
       false,
     );
-    expect(crashed.signal).toBe("SIGKILL");
+    expectForcedCrash(crashed);
     mock.counters.remoteStopped = true;
     const recovered = await runChild(
       root,

@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 const execute = promisify(execFile);
-const BUN = `${process.env.HOME ?? "/Users/bashir"}/.bun/bin/bun`;
+const BUN = process.env.BUN_BIN ?? "bun";
 let root = "";
 let binary = "";
 let fixture = "";

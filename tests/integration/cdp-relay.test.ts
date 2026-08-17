@@ -504,7 +504,7 @@ describe("CDP input relay", () => {
     let aborted = false;
     const relay = await startCdpRelay({
       upstreamUrl: upstream.url,
-      timeoutMs: 30,
+      timeoutMs: 100,
       worker: {
         execute: (_event, signal) => {
           signal.addEventListener(
@@ -526,7 +526,7 @@ describe("CDP input relay", () => {
       params: { text: "private" },
     });
     expect(await receive(client)).toEqual({ id: 8, result: {} });
-    expect(Date.now() - start).toBeGreaterThanOrEqual(20);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(80);
     expect(aborted).toBe(true);
     expect(
       upstream.messages.find((message) => message.method === "Input.insertText")
