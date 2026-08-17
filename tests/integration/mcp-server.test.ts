@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,133 +9,223 @@ import { startRemoteMcpMock } from "../mocks/remote-mcp-server.js";
 const BUN = `${process.env.HOME ?? "/Users/bashir"}/.bun/bin/bun`;
 const SERVER = join(process.cwd(), "src/mcp/server.ts");
 const API_KEY = "bl_test_key_secret";
-const children: ChildProcessWithoutNullStreams[] = [];
+const LOCAL_API_FAILURE = "https://127.0.0.1:1/api/v1";
+
+type RpcId = number | string | null;
+type RpcFrame = {
+  jsonrpc: "2.0";
+  id?: RpcId;
+  method?: string;
+  result?: unknown;
+  error?: unknown;
+};
+type PendingRequest = {
+  resolve: (frame: RpcFrame) => void;
+  reject: (error: Error) => void;
+  onExit: () => void;
+};
+
+const children: StdioHarness[] = [];
 const roots: string[] = [];
-const stderrByChild = new WeakMap<ChildProcessWithoutNullStreams, string>();
 
 afterEach(async () => {
-  await Promise.all(
-    children.splice(0).map(async (child) => {
-      if (!child.killed && child.exitCode === null) child.kill("SIGTERM");
-      if (child.exitCode === null)
-        await once(child, "exit").catch(() => undefined);
-    }),
-  );
+  await Promise.all(children.splice(0).map((child) => child.stop()));
   await Promise.all(
     roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
   );
 });
 
-function launch(
-  root: string,
-  remoteUrl: string,
-): ChildProcessWithoutNullStreams {
-  const child = spawn(BUN, [SERVER], {
-    cwd: process.cwd(),
-    env: {
-      ...process.env,
-      BROWSERLOGIN_STATE_DIR: root,
-      BROWSERLOGIN_API_KEY: API_KEY,
-      BROWSERLOGIN_MCP_REMOTE_TOKEN: API_KEY,
-      BROWSERLOGIN_MCP_REMOTE_URL: remoteUrl,
-    },
-    stdio: "pipe",
-  });
-  child.stderr.setEncoding("utf8");
-  stderrByChild.set(child, "");
-  child.stderr.on("data", (chunk: string) =>
-    stderrByChild.set(child, `${stderrByChild.get(child) ?? ""}${chunk}`),
-  );
-  children.push(child);
-  return child;
+function validateFrame(value: unknown, line: string): RpcFrame {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    (value as Record<string, unknown>).jsonrpc !== "2.0"
+  ) {
+    throw new Error(`invalid JSON-RPC stdout frame: ${line}`);
+  }
+  return value as RpcFrame;
 }
 
-async function waitForExit(
-  child: ChildProcessWithoutNullStreams,
-  timeoutMs = 5_000,
-): Promise<{ code: number | null; stderr: string }> {
-  let stderr = "";
-  const onStderr = (chunk: string) => {
-    stderr += chunk;
-  };
-  child.stderr.setEncoding("utf8");
-  child.stderr.on("data", onStderr);
-  const exit = (
-    child.exitCode !== null
-      ? Promise.resolve([child.exitCode, null])
-      : once(child, "exit")
-  ).then(([code]) => {
-    child.stderr.off("data", onStderr);
-    return {
-      code: code as number | null,
-      stderr: `${stderrByChild.get(child) ?? ""}${stderr}`,
-    };
-  });
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("child did not exit")), timeoutMs),
-  );
-  return Promise.race([exit, timeout]);
-}
+class StdioHarness {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly stdoutLines: string[] = [];
+  readonly stdoutErrors: string[] = [];
+  readonly stderrChunks: string[] = [];
+  private stdoutTail = "";
+  private readonly pending = new Map<RpcId, PendingRequest>();
+  private exited = false;
 
-async function request(
-  child: ChildProcessWithoutNullStreams,
-  id: number,
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<Record<string, unknown>> {
-  let buffer = "";
-  const result = new Promise<Record<string, unknown>>((resolve, reject) => {
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString("utf8");
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch (error) {
-          reject(new Error(`invalid stdout frame: ${line}: ${String(error)}`));
-          return;
+  constructor(
+    baseUrl: string,
+    root: string,
+    remoteUrl: string,
+    apiKey = API_KEY,
+  ) {
+    this.child = spawn(BUN, [SERVER], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        BROWSERLOGIN_STATE_DIR: root,
+        BROWSERLOGIN_API_KEY: apiKey,
+        BROWSERLOGIN_BASE_URL: baseUrl,
+        BROWSERLOGIN_MCP_REMOTE_TOKEN: API_KEY,
+        BROWSERLOGIN_MCP_REMOTE_URL: remoteUrl,
+      },
+      stdio: "pipe",
+    });
+    this.child.stdout.setEncoding("utf8");
+    this.child.stderr.setEncoding("utf8");
+    this.child.stdout.on("data", (chunk: string) => this.consumeStdout(chunk));
+    this.child.stderr.on("data", (chunk: string) =>
+      this.stderrChunks.push(chunk),
+    );
+    this.child.once("exit", () => {
+      this.exited = true;
+    });
+  }
+
+  get stdout(): string {
+    return this.stdoutLines.join("\n");
+  }
+
+  get stderr(): string {
+    return this.stderrChunks.join("");
+  }
+
+  private consumeStdout(chunk: string): void {
+    this.stdoutTail += chunk;
+    const lines = this.stdoutTail.split("\n");
+    this.stdoutTail = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      this.stdoutLines.push(line);
+      try {
+        const frame = validateFrame(JSON.parse(line), line);
+        if (frame.id !== undefined && this.pending.has(frame.id)) {
+          const pending = this.pending.get(frame.id)!;
+          this.pending.delete(frame.id);
+          if (pending.onExit) this.child.off("exit", pending.onExit);
+          pending.resolve(frame);
         }
-        if (
-          !parsed ||
-          typeof parsed !== "object" ||
-          (parsed as Record<string, unknown>).jsonrpc !== "2.0"
-        ) {
-          reject(new Error(`invalid JSON-RPC frame: ${line}`));
-          return;
-        }
-        if ((parsed as Record<string, unknown>).id === id) {
-          child.stdout.off("data", onData);
-          resolve(parsed as Record<string, unknown>);
+      } catch (error) {
+        this.stdoutErrors.push(
+          error instanceof Error ? error.message : String(error),
+        );
+        for (const [id, pending] of this.pending) {
+          this.pending.delete(id);
+          if (pending.onExit) this.child.off("exit", pending.onExit);
+          pending.reject(
+            error instanceof Error ? error : new Error(String(error)),
+          );
         }
       }
-    };
-    child.stdout.on("data", onData);
-    child.once("exit", (code, signal) =>
-      reject(
-        new Error(
-          `server exited before response (${String(code)}, ${String(signal)}): ${stderrByChild.get(child) ?? ""}`,
-        ),
-      ),
+    }
+  }
+
+  request(
+    id: number,
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<RpcFrame> {
+    if (this.pending.has(id)) throw new Error(`duplicate request id ${id}`);
+    return new Promise<RpcFrame>((resolve, reject) => {
+      const onExit = () => {
+        this.pending.delete(id);
+        reject(new Error(`server exited before response for ${method}`));
+      };
+      this.pending.set(id, { resolve, reject, onExit });
+      this.child.once("exit", onExit);
+      this.child.stdin.write(
+        `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
+      );
+      (
+        this.child.stdin as typeof this.child.stdin & { flush?: () => void }
+      ).flush?.();
+    });
+  }
+
+  notify(method: string, params: Record<string, unknown> = {}): void {
+    this.child.stdin.write(
+      `${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`,
     );
-  });
-  child.stdin.write(
-    `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
-  );
-  (child.stdin as typeof child.stdin & { flush?: () => void }).flush?.();
-  return result;
+    (
+      this.child.stdin as typeof this.child.stdin & { flush?: () => void }
+    ).flush?.();
+  }
+
+  async waitForExit(
+    timeoutMs = 5_000,
+  ): Promise<{ code: number | null; signal: string | null }> {
+    if (this.exited)
+      return { code: this.child.exitCode, signal: this.child.signalCode };
+    return new Promise((resolve, reject) => {
+      const onExit = (code: number | null, signal: string | null) => {
+        cleanup();
+        resolve({ code, signal });
+      };
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("child did not exit"));
+      }, timeoutMs);
+      const cleanup = () => {
+        clearTimeout(timer);
+        this.child.off("exit", onExit);
+      };
+      this.child.once("exit", onExit);
+    });
+  }
+
+  finishAssertions(): void {
+    expect(this.stdoutErrors).toEqual([]);
+    expect(this.stdoutTail.trim()).toBe("");
+    expect(this.stderr).not.toMatch(
+      /MaxListenersExceededWarning|UnhandledPromiseRejection/,
+    );
+  }
+
+  async stop(): Promise<void> {
+    if (!this.exited) {
+      this.child.kill("SIGTERM");
+      await this.waitForExit().catch(() => undefined);
+    }
+    for (const [id, pending] of this.pending) {
+      this.pending.delete(id);
+      this.child.off("exit", pending.onExit);
+      pending.reject(new Error(`request ${String(id)} was abandoned`));
+    }
+  }
 }
 
-async function initialize(
-  child: ChildProcessWithoutNullStreams,
-): Promise<Record<string, unknown>> {
-  return request(child, 1, "initialize", {
+function launch(root: string, remoteUrl: string): StdioHarness {
+  const harness = new StdioHarness(LOCAL_API_FAILURE, root, remoteUrl);
+  children.push(harness);
+  return harness;
+}
+
+async function initialize(child: StdioHarness): Promise<RpcFrame> {
+  const response = await child.request(1, "initialize", {
     protocolVersion: "2025-11-25",
     capabilities: {},
     clientInfo: { name: "task-23-test", version: "1" },
   });
+  child.notify("notifications/initialized");
+  return response;
+}
+
+function callResult(response: RpcFrame): Record<string, unknown> {
+  expect(response.jsonrpc).toBe("2.0");
+  expect(response.error).toBeUndefined();
+  expect(response.result).toBeDefined();
+  return response.result as Record<string, unknown>;
+}
+
+function expectErrorResult(response: RpcFrame, text: string): void {
+  const result = callResult(response);
+  expect(result.isError).toBe(true);
+  expect(result.content, JSON.stringify(result)).toEqual([
+    { type: "text", text },
+  ]);
 }
 
 describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
@@ -148,8 +237,8 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       const child = launch(root, remote.url);
       const initialized = await initialize(child);
       expect(initialized.result).toBeTruthy();
-      const listed = await request(child, 2, "tools/list");
-      const tools = (listed.result as Record<string, unknown>).tools as Array<
+      const listed = await child.request(2, "tools/list");
+      const tools = (callResult(listed).tools ?? []) as Array<
         Record<string, unknown>
       >;
       expect(tools).toHaveLength(43);
@@ -168,17 +257,43 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
         ["browser_snapshot", { profile: "profile-1" }],
         ...REMOTE_TOOL_NAMES.map((remoteName) => [remoteName, {}]),
       ] as const;
-      expect(calls.length).toBeGreaterThanOrEqual(20);
-      for (const [name, args] of calls) {
-        const response = await request(child, id++, "tools/call", {
+      expect(calls).toHaveLength(20);
+
+      expectErrorResult(
+        await child.request(id++, "tools/call", {
+          name: calls[0]![0],
+          arguments: calls[0]![1],
+        }),
+        "Lifecycle request could not be completed.",
+      );
+      expectErrorResult(
+        await child.request(id++, "tools/call", {
+          name: calls[1]![0],
+          arguments: calls[1]![1],
+        }),
+        "Lifecycle request could not be completed.",
+      );
+      expectErrorResult(
+        await child.request(id++, "tools/call", {
+          name: calls[2]![0],
+          arguments: calls[2]![1],
+        }),
+        "PROFILE_NOT_RUNNING",
+      );
+      for (const [name, arguments_] of calls.slice(3)) {
+        const response = await child.request(id++, "tools/call", {
           name,
-          ...args,
+          arguments: arguments_,
         });
-        expect(response.jsonrpc).toBe("2.0");
-        expect(response.result ?? response.error).toBeTruthy();
+        const result = callResult(response);
+        expect(result.isError).toBe(false);
+        expect(result.structuredContent).toEqual({
+          result: { tool: name, ok: true },
+        });
       }
-      child.stdin.end();
-      await waitForExit(child);
+      child.child.stdin.end();
+      await child.waitForExit();
+      child.finishAssertions();
     } finally {
       await remote.close();
     }
@@ -190,33 +305,30 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     const child = launch(root, "http://127.0.0.1:1/mcp");
     const initialized = await initialize(child);
     expect(initialized.result).toBeTruthy();
-    const listed = await request(child, 2, "tools/list");
-    const tools = (listed.result as Record<string, unknown>).tools as unknown[];
-    expect(tools).toHaveLength(26);
-    const instructions = (initialized.result as Record<string, unknown>)
-      .instructions as string;
-    expect(instructions).toContain("degraded local-only mode");
-    child.kill("SIGTERM");
-    await waitForExit(child);
+    expect(
+      (initialized.result as Record<string, unknown>).instructions,
+    ).toContain("degraded local-only mode");
+    const listed = await child.request(2, "tools/list");
+    expect(callResult(listed).tools as unknown[]).toHaveLength(26);
+    child.child.kill("SIGTERM");
+    await child.waitForExit();
+    child.finishAssertions();
   });
 
   it("prints the exact setup-required error and exits 2", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-empty-"));
     roots.push(root);
-    const child = spawn(BUN, [SERVER], {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        BROWSERLOGIN_STATE_DIR: root,
-        BROWSERLOGIN_API_KEY: "",
-        BROWSERLOGIN_MCP_REMOTE_URL: "http://127.0.0.1:1/mcp",
-      },
-      stdio: "pipe",
-    });
+    const child = new StdioHarness(
+      LOCAL_API_FAILURE,
+      root,
+      "http://127.0.0.1:1/mcp",
+      "",
+    );
     children.push(child);
-    const result = await waitForExit(child);
+    const result = await child.waitForExit();
     expect(result.code).toBe(2);
-    expect(result.stderr).toBe("BrowserLogin connection setup is required\n");
+    expect(child.stderr).toBe("BrowserLogin connection setup is required\n");
+    child.finishAssertions();
   });
 
   it("stops on SIGTERM within five seconds", async () => {
@@ -224,9 +336,10 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     roots.push(root);
     const child = launch(root, "http://127.0.0.1:1/mcp");
     await initialize(child);
-    child.kill("SIGTERM");
-    const result = await waitForExit(child);
+    child.child.kill("SIGTERM");
+    const result = await child.waitForExit();
     expect(result.code).toBe(0);
+    child.finishAssertions();
   });
 
   it("stops on stdin EOF within five seconds", async () => {
@@ -234,8 +347,9 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     roots.push(root);
     const child = launch(root, "http://127.0.0.1:1/mcp");
     await initialize(child);
-    child.stdin.end();
-    const result = await waitForExit(child);
+    child.child.stdin.end();
+    const result = await child.waitForExit();
     expect(result.code).toBe(0);
+    child.finishAssertions();
   });
 });
