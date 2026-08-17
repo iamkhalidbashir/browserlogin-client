@@ -41,6 +41,106 @@ test("proxy create and change-ip never render the password", async ({
   });
 });
 
+test("proxy update targets the selected proxy row", async ({ page }) => {
+  await page.goto("/proxies?multi=1");
+  const row = page.getByRole("row", { name: /Backup/ });
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit proxy" });
+  await expect(dialog.getByLabel("Host", { exact: true })).toHaveValue(
+    "10.0.0.2",
+  );
+  await dialog.getByLabel("Host", { exact: true }).fill("backup.example.test");
+  await dialog.getByRole("button", { name: "Save proxy" }).click();
+  await expect(page.getByRole("status")).toContainText("Proxy saved");
+  const call = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (item) => item.method === "proxiesUpdate",
+    ),
+  );
+  expect(call?.params).toMatchObject({
+    proxyId: "proxy-2",
+    name: "Backup",
+    protocol: "socks5",
+    host: "backup.example.test",
+    port: 1080,
+  });
+});
+
+test("user and member actions target the selected rows and profile", async ({
+  page,
+}) => {
+  await page.goto("/users?multi=1");
+  await page
+    .getByLabel("Members profile")
+    .selectOption({ label: "Secondary profile" });
+  const memberRow = page.getByRole("row", { name: /Second member/ });
+  await memberRow.getByRole("button", { name: "Disable user" }).click();
+  await expect(page.getByRole("alert")).toContainText("Second member");
+  await expect(page.getByRole("alert")).toContainText(
+    "force-stops all of their active sessions",
+  );
+  await page.getByRole("button", { name: "Confirm disable" }).click();
+  await expect(page.getByRole("status")).toContainText("User disabled");
+  await page.getByLabel("Share user").selectOption({ label: "Second member" });
+  await page.getByRole("button", { name: "Share profile" }).click();
+  await expect(page.getByRole("status")).toContainText("Profile shared");
+  await page.getByRole("button", { name: "Remove" }).click();
+  const calls = (await page.evaluate(
+    () => window.__browserloginMockCalls ?? [],
+  )) as Array<{ method: string; params: unknown }>;
+  const paramsOf = (method: string) =>
+    calls.find((item) => item.method === method)?.params as Record<
+      string,
+      unknown
+    >;
+  expect(paramsOf("usersDisable")).toMatchObject({ userId: "user-2" });
+  expect(paramsOf("membersShare")).toMatchObject({
+    profileId: "profile-2",
+    userId: "user-2",
+    role: "viewer",
+  });
+  expect(
+    calls.some(
+      (item) =>
+        item.method === "membersList" &&
+        (item.params as { profileId?: string }).profileId === "profile-2",
+    ),
+  ).toBe(true);
+  expect(paramsOf("membersRemove")).toMatchObject({
+    profileId: "profile-2",
+    userId: "member-1",
+  });
+});
+
+test("notes and history follow the selected profile", async ({ page }) => {
+  await page.goto("/audit?multi=1");
+  await page
+    .getByLabel("Notes profile")
+    .selectOption({ label: "Secondary profile" });
+  await page.getByLabel("Profile notes").fill("Secondary profile note");
+  await page.getByRole("button", { name: "Save notes" }).click();
+  await expect(page.getByRole("status")).toContainText("version 2");
+  const calls = (await page.evaluate(
+    () => window.__browserloginMockCalls ?? [],
+  )) as Array<{ method: string; params: unknown }>;
+  for (const method of ["notesGet", "notesHistory", "notesAppend"]) {
+    expect(
+      calls.some(
+        (item) =>
+          item.method === method &&
+          (item.params as { profileId?: string }).profileId === "profile-2",
+      ),
+    ).toBe(true);
+  }
+  const append = calls.find((item) => item.method === "notesAppend")
+    ?.params as Record<string, unknown>;
+  expect(append).toMatchObject({
+    profileId: "profile-2",
+    notes: "Secondary profile note",
+    expectedVersion: 1,
+  });
+});
+
 test("owner controls users and profile members with consequence confirmation", async ({
   page,
 }) => {

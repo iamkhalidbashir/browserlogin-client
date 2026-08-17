@@ -231,6 +231,9 @@ export function createMockBridge(
   let connected =
     typeof window === "undefined" ||
     new URLSearchParams(window.location.search).get("setup") !== "1";
+  const multi =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("multi") === "1";
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
   let liveSessions: Array<Record<string, unknown>> = [];
   let hasLicense = false;
@@ -302,6 +305,46 @@ export function createMockBridge(
             email: "member@example.test",
             status: "active",
             owner,
+          },
+          ...(multi
+            ? [
+                {
+                  id: "user-2",
+                  name: "Second member",
+                  email: "second@example.test",
+                  status: "active",
+                  owner: false,
+                },
+              ]
+            : []),
+        ]) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "profilesList" && multi && !overrides.profilesList) {
+        const value = AppRPCSchemas.profilesList.result.parse([
+          profile,
+          {
+            ...profile,
+            id: "profile-2",
+            name: "Secondary profile",
+            platform: "linux",
+            cloud: { archive_generation: 1, current_session_id: null },
+          },
+        ]) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "proxiesList" && multi && !overrides.proxiesList) {
+        const value = AppRPCSchemas.proxiesList.result.parse([
+          ...(values.proxiesList as Array<Record<string, unknown>>),
+          {
+            id: "proxy-2",
+            name: "Backup",
+            protocol: "socks5",
+            host: "10.0.0.2",
+            port: 1080,
+            username: null,
+            last_ip: null,
+            last_ip_changed_at: null,
           },
         ]) as BridgeResult<K>;
         return { ok: true, value };

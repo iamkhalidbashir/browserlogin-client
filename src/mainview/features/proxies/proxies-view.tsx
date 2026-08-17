@@ -5,6 +5,7 @@ import { useBridge } from "../../rpc-client.js";
 export default function ProxiesView() {
   const bridge = useBridge();
   const [editing, setEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({
     name: "",
@@ -32,8 +33,37 @@ export default function ProxiesView() {
     },
   });
   const owner = Boolean(users.data?.[0]?.owner);
+  const blank = {
+    name: "",
+    protocol: "http" as "http" | "socks5",
+    host: "",
+    port: 8080,
+    username: "",
+    password: "",
+    change_ip_url: "",
+  };
+  const openCreate = () => {
+    setForm(blank);
+    setEditingId(null);
+    setEditing(true);
+  };
+  const openEdit = (proxyId: string) => {
+    const current = proxies.data?.find((proxy) => proxy.id === proxyId);
+    if (!current) return;
+    setForm({
+      name: current.name,
+      protocol: current.protocol,
+      host: current.host,
+      port: current.port,
+      username: current.username ?? "",
+      password: "",
+      change_ip_url: current.change_ip_url ?? "",
+    });
+    setEditingId(current.id);
+    setEditing(true);
+  };
   const save = async () => {
-    const result = await bridge.request("proxiesCreate", {
+    const fields = {
       name: form.name,
       protocol: form.protocol,
       host: form.host,
@@ -41,10 +71,16 @@ export default function ProxiesView() {
       username: form.username || null,
       password: form.password || null,
       change_ip_url: form.change_ip_url || null,
-    });
+    };
+    const result = editingId
+      ? await bridge.request("proxiesUpdate", { proxyId: editingId, ...fields })
+      : await bridge.request("proxiesCreate", fields);
     setForm({ ...form, password: "" });
     setMessage(result.ok ? "Proxy saved." : result.error.message);
-    if (result.ok) setEditing(false);
+    if (result.ok) {
+      setEditing(false);
+      setEditingId(null);
+    }
   };
   const changeIp = async (proxyId: string) => {
     const result = await bridge.request("proxiesChangeIp", { proxyId });
@@ -65,7 +101,7 @@ export default function ProxiesView() {
           </p>
         </div>
         {owner ? (
-          <button className="button-primary" onClick={() => setEditing(true)}>
+          <button className="button-primary" onClick={openCreate}>
             Add proxy
           </button>
         ) : null}
@@ -105,6 +141,12 @@ export default function ProxiesView() {
                       </button>{" "}
                       <button
                         className="table-action"
+                        onClick={() => openEdit(proxy.id)}
+                      >
+                        Edit
+                      </button>{" "}
+                      <button
+                        className="table-action"
                         onClick={() =>
                           void bridge.request("proxiesDelete", {
                             proxyId: proxy.id,
@@ -129,14 +171,19 @@ export default function ProxiesView() {
           className="drawer"
           role="dialog"
           aria-modal="true"
-          aria-label="Create proxy"
+          aria-label={editingId ? "Edit proxy" : "Create proxy"}
         >
           <div className="drawer-card">
             <div className="flex justify-between">
-              <h3 className="text-xl font-semibold">Create proxy</h3>
+              <h3 className="text-xl font-semibold">
+                {editingId ? "Edit proxy" : "Create proxy"}
+              </h3>
               <button
                 className="table-action"
-                onClick={() => setEditing(false)}
+                onClick={() => {
+                  setEditing(false);
+                  setEditingId(null);
+                }}
               >
                 Close
               </button>

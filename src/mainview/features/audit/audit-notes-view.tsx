@@ -5,9 +5,21 @@ import { useBridge } from "../../rpc-client.js";
 export default function AuditNotesView() {
   const bridge = useBridge();
   const [profileFilter, setProfileFilter] = useState("");
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
+    null,
+  );
   const [notes, setNotes] = useState("Current profile note");
   const [mode, setMode] = useState<"append" | "replace">("append");
   const [message, setMessage] = useState("");
+  const profiles = useQuery({
+    queryKey: ["profiles"],
+    queryFn: async () => {
+      const result = await bridge.request("profilesList", {});
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    },
+  });
+  const notesProfileId = selectedProfileId ?? profiles.data?.[0]?.id ?? null;
   const audit = useQuery({
     queryKey: ["audit", profileFilter],
     queryFn: async () => {
@@ -20,10 +32,12 @@ export default function AuditNotesView() {
     },
   });
   const current = useQuery({
-    queryKey: ["notes", "profile-1"],
+    queryKey: ["notes", notesProfileId],
+    enabled: Boolean(notesProfileId),
     queryFn: async () => {
+      if (!notesProfileId) throw new Error("No profile selected");
       const result = await bridge.request("notesGet", {
-        profileId: "profile-1",
+        profileId: notesProfileId,
       });
       if (!result.ok) throw new Error(result.error.message);
       setNotes(result.value.notes);
@@ -31,18 +45,21 @@ export default function AuditNotesView() {
     },
   });
   const history = useQuery({
-    queryKey: ["notes-history", "profile-1"],
+    queryKey: ["notes-history", notesProfileId],
+    enabled: Boolean(notesProfileId),
     queryFn: async () => {
+      if (!notesProfileId) throw new Error("No profile selected");
       const result = await bridge.request("notesHistory", {
-        profileId: "profile-1",
+        profileId: notesProfileId,
       });
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     },
   });
   const save = async () => {
+    if (!notesProfileId) return;
     const params = {
-      profileId: "profile-1",
+      profileId: notesProfileId,
       notes,
       expectedVersion: current.data?.version ?? 0,
     };
@@ -102,17 +119,33 @@ export default function AuditNotesView() {
       <div className="panel mt-6">
         <div className="flex items-center justify-between">
           <h3 className="font-medium">Profile notes</h3>
-          <select
-            className="input max-w-xs"
-            aria-label="Notes save mode"
-            value={mode}
-            onChange={(event) =>
-              setMode(event.target.value as "append" | "replace")
-            }
-          >
-            <option value="append">Append</option>
-            <option value="replace">Replace</option>
-          </select>
+          <div className="flex gap-2">
+            <select
+              className="input max-w-xs"
+              aria-label="Notes profile"
+              value={notesProfileId ?? ""}
+              onChange={(event) =>
+                setSelectedProfileId(event.target.value || null)
+              }
+            >
+              {profiles.data?.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input max-w-xs"
+              aria-label="Notes save mode"
+              value={mode}
+              onChange={(event) =>
+                setMode(event.target.value as "append" | "replace")
+              }
+            >
+              <option value="append">Append</option>
+              <option value="replace">Replace</option>
+            </select>
+          </div>
         </div>
         <textarea
           className="input mt-4 min-h-32"
