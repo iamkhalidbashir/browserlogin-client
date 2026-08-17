@@ -1,3 +1,4 @@
+import { writeSync } from "node:fs";
 import { appendFile, mkdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -94,6 +95,7 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
         source: "env" as const,
       };
     } else {
+      if ((await store.read()) === null) throw new SetupRequiredError();
       resolution = await store.resolve();
     }
   } catch {
@@ -283,9 +285,8 @@ export async function main(): Promise<void> {
       error instanceof SetupRequiredError ||
       (error instanceof Error && error.message === SETUP_MESSAGE)
     ) {
-      process.stdin.destroy();
-      process.stderr.write(`${SETUP_MESSAGE}\n`, () => process.exit(2));
-      return;
+      writeSync(process.stderr.fd, `${SETUP_MESSAGE}\n`);
+      process.exit(2);
     }
     process.stderr.write("BrowserLogin MCP server could not start\n");
     process.exitCode = 1;

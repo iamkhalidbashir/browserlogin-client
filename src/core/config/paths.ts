@@ -65,10 +65,11 @@ export function resolveStateRoot(options: StatePathOptions = {}): string {
     return posix.join(home, "Library", "Application Support", "BrowserLogin");
   }
   if (platform === "win32") {
-    const localAppData = options.localAppData ?? env.LOCALAPPDATA;
+    const localAppData =
+      options.localAppData ?? options.appData ?? env.LOCALAPPDATA;
     return win32.join(
       requireAbsolute(
-        localAppData ?? options.appData ?? win32.join(home, "AppData", "Local"),
+        localAppData ?? win32.join(home, "AppData", "Local"),
         "Windows local app data",
         platform,
       ),

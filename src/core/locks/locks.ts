@@ -89,7 +89,7 @@ const acquireFileLock = async (
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      await reclaimStale(lockPath);
+      if (await reclaimStale(lockPath)) continue;
       if (Date.now() >= deadline)
         throw new LockTimeoutError(lockPath, timeoutMs);
       await sleep(pollMs);
