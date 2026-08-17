@@ -35,7 +35,10 @@ function readAsset(path: string, label: string): Uint8Array {
     }
     return bytes;
   } catch (error) {
-    throw new Error(`MODEL_ASSET_MISSING:${label}:${path}:searched=${path}:${String(error)}`);
+    throw new Error(
+      `MODEL_ASSET_MISSING:${label}:${path}:searched=${path}:${String(error)}`,
+      { cause: error },
+    );
   }
 }
 

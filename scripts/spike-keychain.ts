@@ -33,7 +33,7 @@ type InputChunk = { data: string; delayMs?: number };
 
 const resource = "co.browserlogin.app";
 const account = `bl_test_${randomBytes(8).toString("hex")}`;
-const secret = `pa ss\"word'\n$()\\ümlaut`;
+const secret = `pa ss"word'\n$()\\ümlaut`;
 const replacement = `replace\n${randomBytes(5).toString("hex")}<>|`;
 const timeoutMs = 15_000;
 const rawSecrets = [secret, replacement];

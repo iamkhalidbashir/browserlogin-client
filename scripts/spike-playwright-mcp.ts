@@ -57,7 +57,9 @@ async function firstExisting(paths: string[]): Promise<string> {
     try {
       await readFile(path);
       return path;
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }
   throw new Error(`None of these files exist: ${paths.join(", ")}`);
 }
@@ -69,7 +71,9 @@ async function cacheEntries(): Promise<string[]> {
     try {
       const glob = new Bun.Glob("**/*");
       for await (const entry of glob.scan({ cwd: path, onlyFiles: true })) entries.push(join(path, entry));
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }
   return entries.sort();
 }
@@ -79,7 +83,9 @@ async function waitForCdp(endpoint: string): Promise<void> {
     try {
       const response = await fetch(`${endpoint}/json/version`);
       if (response.ok) return;
-    } catch {}
+    } catch (error) {
+      void error;
+    }
     await sleep(100);
   }
   throw new Error(`Timed out waiting for CDP at ${endpoint}`);

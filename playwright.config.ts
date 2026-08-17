@@ -1,12 +1,16 @@
 import { defineConfig } from "@playwright/test";
+import { existsSync } from "node:fs";
 
-const executablePath =
+const candidateExecutable =
   process.env.BROWSERLOGIN_CHROMIUM_PATH ??
   (process.platform === "darwin"
     ? "/Applications/Chromium.app/Contents/MacOS/Chromium"
     : process.platform === "win32"
       ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
       : "/usr/bin/chromium");
+const executablePath = existsSync(candidateExecutable)
+  ? candidateExecutable
+  : undefined;
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -22,7 +26,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:4173",
     headless: true,
-    launchOptions: { executablePath },
+    launchOptions: executablePath ? { executablePath } : {},
     viewport: { width: 1280, height: 800 },
     trace: "retain-on-failure",
   },
