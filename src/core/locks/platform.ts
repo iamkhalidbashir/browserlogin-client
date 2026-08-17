@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { promisify } from "node:util";
 import type { LockProbe, ProcessStartTime } from "./types.js";
@@ -49,7 +50,7 @@ export const getProcessStartTime = async (
 ): Promise<ProcessStartTime | undefined> => {
   try {
     if (process.platform === "linux") {
-      const stat = await Bun.file(`/proc/${pid}/stat`).text();
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
       return parseLinuxStartTime(stat);
     }
     if (process.platform === "win32") return await powershellStartTime(pid);
@@ -64,7 +65,7 @@ export const getProcessCommandLine = async (
 ): Promise<string[] | undefined> => {
   try {
     if (process.platform === "linux") {
-      const bytes = await Bun.file(`/proc/${pid}/cmdline`).arrayBuffer();
+      const bytes = await readFile(`/proc/${pid}/cmdline`);
       return new TextDecoder().decode(bytes).split("\0").filter(Boolean);
     }
     if (process.platform === "win32") {

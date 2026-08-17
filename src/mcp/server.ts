@@ -283,8 +283,8 @@ export async function main(): Promise<void> {
       error instanceof SetupRequiredError ||
       (error instanceof Error && error.message === SETUP_MESSAGE)
     ) {
-      process.stderr.write(`${SETUP_MESSAGE}\n`);
-      process.exitCode = 2;
+      process.stdin.destroy();
+      process.stderr.write(`${SETUP_MESSAGE}\n`, () => process.exit(2));
       return;
     }
     process.stderr.write("BrowserLogin MCP server could not start\n");

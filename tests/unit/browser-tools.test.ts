@@ -84,13 +84,13 @@ describe("browser tools manifest and router", () => {
     );
   });
 
-  test("exposes 23 safe tools and exactly 24 with the exact unsafe flag", () => {
+  test("exposes 23 safe tools and exactly 24 with the exact unsafe flag", async () => {
     const { router } = setup(new Map());
     expect(router.listTools()).toHaveLength(23);
     expect(router.listTools().map((tool) => tool.name)).not.toContain(
       UNSAFE_TOOL_NAME,
     );
-    expect(
+    await expect(
       router.call("browser_evaluate", {
         profile: "p1",
         function: "() => 1",

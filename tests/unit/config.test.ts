@@ -171,7 +171,7 @@ describe("atomic config store", () => {
     expect(await readFile(paths.connection, "utf8")).toContain(
       '"key_ref": "keychain"',
     );
-    expect(
+    await expect(
       (await import("node:fs/promises")).readdir(paths.root),
     ).resolves.not.toContain(expect.stringMatching(/\.tmp$/));
   });
