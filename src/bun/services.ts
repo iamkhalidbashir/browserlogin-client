@@ -452,9 +452,17 @@ export function createCoreAppRuntime(context: AppServiceContext): {
           profileIds.add(value.profile_id);
       }
       const lifecycle = await coordinator();
-      await Promise.all(
-        [...profileIds].map((profileId) => lifecycle.recover(profileId)),
+      const recovered = await Promise.all(
+        [...profileIds].map(async (profileId) => ({
+          profileId,
+          state: await lifecycle.recover(profileId),
+        })),
       );
+      for (const { profileId, state } of recovered) {
+        if (state?.status === "running")
+          live.set(profileId, { ...state } as Record<string, unknown>);
+        else live.delete(profileId);
+      }
     },
   };
 }

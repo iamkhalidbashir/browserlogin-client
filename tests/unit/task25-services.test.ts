@@ -6,8 +6,12 @@ import type { BrowserLoginClient } from "../../src/core/api/client.js";
 import type { ensureBinary } from "../../src/core/binary/index.js";
 import type { ConnectionStore } from "../../src/core/config/connection.js";
 import type { LifecycleCoordinator } from "../../src/core/coordinator/index.js";
+import {
+  createRecoveryStore,
+  type RecoveryState,
+} from "../../src/core/coordinator/state.js";
 import type { KeychainFacade } from "../../src/core/keychain/index.js";
-import { createCoreAppServices } from "../../src/bun/services.js";
+import { createCoreAppRuntime } from "../../src/bun/services.js";
 import type { UpdateController } from "../../src/bun/updater.js";
 
 const roots: string[] = [];
@@ -63,17 +67,20 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
     downloadUpdate: vi.fn(),
     applyAfterConfirmation: vi.fn(),
   } as unknown as UpdateController;
+  const runtime = createCoreAppRuntime({
+    root,
+    keychain,
+    connection,
+    client,
+    coordinator,
+    updateController,
+    emitProgress: vi.fn(),
+    ensureBinary: options.ensureBinary,
+  });
   return {
-    services: createCoreAppServices({
-      root,
-      keychain,
-      connection,
-      client,
-      coordinator,
-      updateController,
-      emitProgress: vi.fn(),
-      ensureBinary: options.ensureBinary,
-    }),
+    root,
+    services: runtime.services,
+    recover: runtime.recover,
     coordinator,
   };
 }
@@ -156,5 +163,44 @@ describe("Task 25 core service composition", () => {
       total: 10,
       done: true,
     });
+  });
+
+  test("repopulates live sessions from recovered durable running state", async () => {
+    const { root, services, recover, coordinator } = await fixture();
+    const state = {
+      version: 1,
+      profile_id: "profile-recovered",
+      run_id: "0123456789abcdef0123456789abcdef",
+      start_key: "start-key",
+      stop_key: null,
+      remote_session_id: "session-recovered",
+      archive: null,
+      archive_artifact: null,
+      work_dir: join(root, "work"),
+      cache_dir: join(root, "cache"),
+      launch_file: null,
+      runner_pid: 42,
+      runner_start_time: "1000",
+      runner_cmdline_hash: "a".repeat(64),
+      license_acquired: false,
+      archive_materialized: true,
+      browser_launched: true,
+      relay_cdp_url: "ws://127.0.0.1:43123/",
+      uploaded_storage_id: null,
+      stop_payload: null,
+      retry_count: 0,
+      retry_after: null,
+      updated_at: "2026-08-18T00:00:00.000Z",
+      status: "running" as const,
+    } satisfies RecoveryState;
+    await createRecoveryStore(root).save(state);
+    vi.mocked(coordinator.recover).mockResolvedValue(state);
+    await recover();
+    await expect(services.sessionsLive?.({})).resolves.toEqual([
+      expect.objectContaining({
+        profile_id: "profile-recovered",
+        relay_cdp_url: "ws://127.0.0.1:43123/",
+      }),
+    ]);
   });
 });
