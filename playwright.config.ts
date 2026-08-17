@@ -13,11 +13,18 @@ export default defineConfig({
   timeout: 30_000,
   fullyParallel: false,
   workers: 1,
+  retries: process.env.CI ? 1 : 0,
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "playwright-report", open: "never" }],
+  ],
+  outputDir: "test-results/playwright",
   use: {
     baseURL: "http://127.0.0.1:4173",
     headless: true,
     launchOptions: { executablePath },
     viewport: { width: 1280, height: 800 },
+    trace: "retain-on-failure",
   },
   webServer: {
     command: "bun run dev:web -- --host 127.0.0.1 --port 4173",

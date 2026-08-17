@@ -19,6 +19,8 @@
     "wait-for-app": "bun scripts/wait-for-app.ts",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
+    "test:contract": "vitest run tests/contract",
+    "test:e2e": "playwright test --config playwright.config.ts",
     "test:watch": "vitest",
     "test:onnx-fidelity": "vitest run tests/unit/bumblebee-fidelity.test.ts"
   },
