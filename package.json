@@ -11,6 +11,8 @@
     "format": "prettier --write .",
     "dev": "bun scripts/electrobun.ts dev",
     "dev:main": "bun src/bun/index.ts",
+    "cli": "bun src/cli/index.ts",
+    "build:cli": "bun build --compile src/cli/index.ts --outfile dist/browserlogin",
     "wait-for-app": "bun scripts/wait-for-app.ts",
     "test": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",

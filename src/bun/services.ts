@@ -329,7 +329,7 @@ export function createCoreAppRuntime(context: AppServiceContext): {
       (await client()).listAudit((raw as Partial<ProfileParams>).profileId),
     binaryStatus: async () => lastBinary,
     binaryDownload: async (raw) => {
-      const params = raw as { advancedEnabled: boolean };
+      const params = raw as { advancedEnabled: boolean; pro?: boolean };
       const settings = await readSettings(context.root, context.keychain);
       if (settings.download_source === "custom" && !params.advancedEnabled)
         throw Object.assign(new Error("advanced confirmation required"), {
@@ -339,6 +339,7 @@ export function createCoreAppRuntime(context: AppServiceContext): {
       lastBinary = await (context.ensureBinary ?? ensureBinary)({
         cacheDirectory: context.root,
         licenseKey: licenseKey ?? undefined,
+        pro: params.pro,
         downloadUrl: settings.custom_download_url ?? undefined,
         progress: (event) => {
           progress = {

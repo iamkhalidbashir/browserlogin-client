@@ -208,7 +208,12 @@ export const AppRPCSchemas = {
   auditList: { params: profileId.partial(), result: z.array(AuditEventSchema) },
   binaryStatus: { params: empty, result: binaryInfo.nullable() },
   binaryDownload: {
-    params: z.object({ advancedEnabled: z.boolean().default(false) }).strict(),
+    params: z
+      .object({
+        advancedEnabled: z.boolean().default(false),
+        pro: z.boolean().optional(),
+      })
+      .strict(),
     result: binaryInfo,
   },
   binaryProgress: {
