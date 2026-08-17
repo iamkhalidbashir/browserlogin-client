@@ -49,6 +49,7 @@ jobs:
             update_archive: production-macos-arm64-BrowserLogin.app.tar.zst
             metadata: production-macos-arm64-update.json
             cli_asset: browserlogin-macos-arm64
+            helper_asset: browserlogin-browser-tools-macos-arm64
           - target: windows-x64
             runner: windows-2025
             artifact_prefix: production-win-x64
@@ -56,6 +57,7 @@ jobs:
             update_archive: production-win-x64-BrowserLogin.tar.zst
             metadata: production-win-x64-update.json
             cli_asset: browserlogin-windows-x64.exe
+            helper_asset: browserlogin-browser-tools-windows-x64.exe
           - target: linux-x64
             runner: ubuntu-24.04
             artifact_prefix: production-linux-x64
@@ -63,6 +65,7 @@ jobs:
             update_archive: production-linux-x64-BrowserLogin.tar.zst
             metadata: production-linux-x64-update.json
             cli_asset: browserlogin-linux-x64
+            helper_asset: browserlogin-browser-tools-linux-x64
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -197,6 +200,12 @@ jobs:
           mkdir -p release
           bun build --compile src/cli/index.ts --outfile "release/${{ matrix.cli_asset }}"
 
+      - name: Build browser-tools helper
+        shell: bash
+        run: |
+          bun run build:browser-tools-helper
+          cp "dist/vendor/${{ matrix.helper_asset }}" "release/${{ matrix.helper_asset }}"
+
       - name: Build web renderer
         run: bun run build:web
 
@@ -248,6 +257,7 @@ jobs:
             macos-arm64)
               file "$launcher" | grep -q 'Mach-O 64-bit executable arm64'
               file "release/${{ matrix.cli_asset }}" | grep -q 'Mach-O 64-bit executable arm64'
+              file "release/${{ matrix.helper_asset }}" | grep -q 'Mach-O 64-bit executable arm64'
               dmg_mount="$RUNNER_TEMP/browserlogin-release-dmg"
               mkdir -p "$dmg_mount"
               hdiutil attach "$installer" -readonly -nobrowse -mountpoint "$dmg_mount"
@@ -259,6 +269,7 @@ jobs:
             linux-x64)
               file "$launcher" | grep -Eq 'ELF 64-bit.*x86-64'
               file "release/${{ matrix.cli_asset }}" | grep -Eq 'ELF 64-bit.*x86-64'
+              file "release/${{ matrix.helper_asset }}" | grep -Eq 'ELF 64-bit.*x86-64'
               installer_dir="$RUNNER_TEMP/browserlogin-release-installer"
               mkdir -p "$installer_dir"
               tar -xzf "$installer" -C "$installer_dir"
@@ -306,6 +317,7 @@ jobs:
           $launcher = Join-Path $smokeDir "BrowserLogin/bin/launcher.exe"
           Assert-PeX64 $launcher
           Assert-PeX64 "release/${{ matrix.cli_asset }}"
+          Assert-PeX64 "release/${{ matrix.helper_asset }}"
 
           $updateListing = & tar -tf $update
           if ($LASTEXITCODE -ne 0) { throw "Could not list Windows update archive" }
@@ -403,7 +415,7 @@ jobs:
             test -f "$manifest"
             (cd release && sha256sum -c "$(basename "$manifest")")
           done
-          test "$(find release -maxdepth 1 -type f -name 'browserlogin-*' | wc -l | tr -d ' ')" = 3
+          test "$(find release -maxdepth 1 -type f -name 'browserlogin-*' | wc -l | tr -d ' ')" = 6
           test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup.zip' -o -name '*Setup.tar.gz' \) | wc -l | tr -d ' ')" = 3
           test "$(find release -maxdepth 1 -type f -name 'production-*-update.json' | wc -l | tr -d ' ')" = 3
 
@@ -434,6 +446,9 @@ jobs:
             browserlogin-macos-arm64
             browserlogin-windows-x64.exe
             browserlogin-linux-x64
+            browserlogin-browser-tools-macos-arm64
+            browserlogin-browser-tools-windows-x64.exe
+            browserlogin-browser-tools-linux-x64
             production-macos-arm64-BrowserLogin.dmg
             production-macos-arm64-BrowserLogin.app.tar.zst
             production-macos-arm64-update.json
