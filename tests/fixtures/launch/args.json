@@ -1,5 +1,5 @@
 {
-  "provenance": "launch.py:9-31; runner.py:145-166; processes.py:404-414",
+  "provenance": "browserlogin_client/launch.py:9-31; browserlogin_client/runner.py:145-166; browserlogin_client/processes.py:404-414",
   "protectedArgvEntries": [
     "--fingerprint=",
     "--disk-cache-dir=",

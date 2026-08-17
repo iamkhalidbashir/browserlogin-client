@@ -1,5 +1,5 @@
 {
-  "provenance": "proxy_routing.py:8-62",
+  "provenance": "browserlogin_client/proxy_routing.py:8-62",
   "cases":[
     {"name":"http credentials","input":{"protocol":"http","host":"proxy.test","port":8080,"username":"u","password":"p"},"expected":{"mode":"direct","launchProxy":{"server":"http://proxy.test:8080","username":"u","password":"p"}}},
     {"name":"https without credentials","input":{"protocol":"HTTPS","host":"proxy.test","port":443},"expected":{"mode":"direct","launchProxy":"https://proxy.test:443"}},

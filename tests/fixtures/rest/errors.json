@@ -1,5 +1,5 @@
 {
-  "provenance": "api.py:27-31; docs/browserlogin.md:7-17,383-451,478-484",
+  "provenance": "browserlogin_client/api.py:27-31; docs/browserlogin.md:7-17,383-451,478-484",
   "cases": [
     {"name":"unauthorized","status":401,"headers":{"WWW-Authenticate":"Bearer realm=\"BrowserLogin\""}},
     {"name":"sessionConflict","status":409,"operation":"start session"},

@@ -1,5 +1,5 @@
 {
-  "provenance": "models.py:16-24,276-461; coordinator.py:114-219,221-253,255-327,329-421",
+  "provenance": "browserlogin_client/models.py:16-24,276-461; browserlogin_client/coordinator.py:114-219,221-253,255-327,329-421",
   "identity":{"profile_id":"profile-1","remote_session_id":"session-1","run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key","runner_pid":4321,"runner_create_time":1000.5,"license_acquired":true,"license_api_url":"http://license:4290","archive_materialized":true,"browser_launched":true,"extra_pids":[{"cmdline":["browserlogin-runner","profile-1"]}]},
   "valid":[
     {"status":"start-intent","remote_session_id":null,"run_id":"0123456789abcdef0123456789abcdef","start_key":"start-key"},

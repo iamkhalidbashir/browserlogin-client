@@ -1,5 +1,5 @@
 {
-  "provenance": "connection.py:21-28,36-84,115-155,158-185",
+  "provenance": "browserlogin_client/connection.py:21-28,36-84,115-155,158-185",
   "configSchemaVersion":2,
   "configFile":"connection.json",
   "configMaxBytes":16384,

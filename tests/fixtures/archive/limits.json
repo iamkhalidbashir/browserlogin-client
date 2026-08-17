@@ -1,5 +1,5 @@
 {
-  "provenance": "archive.py:13-42,100-163,165-259; api.py:78-103; coordinator.py:48-57,273-327",
+  "provenance": "browserlogin_client/archive.py:13-42,100-163,165-259; browserlogin_client/api.py:78-103; browserlogin_client/coordinator.py:48-57,273-327",
   "defaults":{"maxArchiveBytes":536870912,"maxFiles":100000,"maxTotalSize":2147483648,"maxFileSize":536870912,"maxCompressionRatio":200},
   "disposableCacheDirs":["Default/Cache","Default/Code Cache","Default/GPUCache","Default/DawnCache","Default/DawnGraphiteCache","Default/DawnWebGPUCache","ShaderCache","GrShaderCache","GraphiteDawnCache","DawnCache"],
   "disposableRuntimeFiles":["RunningChromeVersion","SingletonCookie","SingletonLock","SingletonSocket","BrowserMetrics-spare.pma"],

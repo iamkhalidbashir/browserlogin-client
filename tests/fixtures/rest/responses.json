@@ -1,5 +1,5 @@
 {
-  "provenance": "models.py:176-245,248-291; docs/browserlogin.md:21-715",
+  "provenance": "browserlogin_client/models.py:176-245,248-291; docs/browserlogin.md:21-715",
   "profile": {
     "id":"profile-1","name":"Research profile","seed":12345,"platform":"macos","geoip":true,"humanize":true,"human_preset":"careful","bumblebee_profile":"natural","headless":false,"timezone":null,"locale":null,"user_agent":null,"viewport":null,"args":["--fingerprint-noise=false"],"proxy":{"id":"proxy-1","name":"Residential test","protocol":"http","host":"proxy.example.test","port":8443,"username":"proxy-user","password":"TEST-ONLY-not-production","change_ip_url":"https://proxy.test/change-ip"},"cloud":{"archive_generation":4,"current_session_id":null}
   },

@@ -89,3 +89,45 @@ flag; this is explicit and testable packaging behavior.
 Context7 was unavailable because its monthly quota was exhausted. Installed
 declarations, the package's local distribution, and official ONNX Runtime,
 Bun, and Electrobun documentation were inspected instead.
+
+## Corrected inference-latency measurement (2026-08-18)
+
+The original `ms` field combined WASM session creation with one inference and therefore did not measure the plan's inference-only `<50ms` criterion. The spike now reports `loadMs`, `warmupMs`, and a separate steady-state inference `ms` after one warm-up.
+
+Source output:
+
+```json
+{
+  "loaded": true,
+  "ms": 0.497,
+  "loadMs": 188.722,
+  "warmupMs": 6.443,
+  "source": "onnxruntime-web-wasm",
+  "model": "/Users/bashir/Projects/OpensourceProjects/browserlogin-client/resources/models/sac_mouse_v2.onnx",
+  "wasm": "/Users/bashir/Projects/OpensourceProjects/browserlogin-client/node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
+  "fetches": 0,
+  "modelSha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
+  "mean": [9.837336540222168, 24.51468276977539],
+  "log_std": [2, 2]
+}
+```
+
+Compiled adjacent-file output with HTTP/HTTPS proxies pointed at a dead loopback port:
+
+```json
+{
+  "loaded": true,
+  "ms": 0.748,
+  "loadMs": 178.193,
+  "warmupMs": 6.784,
+  "source": "onnxruntime-web-wasm",
+  "model": "/tmp/task6-model.onnx",
+  "wasm": "/tmp/task6-wasm.wasm",
+  "fetches": 0,
+  "modelSha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
+  "mean": [9.837336540222168, 24.51468276977539],
+  "log_std": [2, 2]
+}
+```
+
+Both runs report `fetches: 0`, identical float32 outputs, and inference `ms < 50`. Session/model initialization remains separately visible in `loadMs` and is not represented as inference latency.

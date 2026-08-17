@@ -1,5 +1,5 @@
 {
-  "provenance": "proxy_routing.py:8-62",
+  "provenance": "browserlogin_client/proxy_routing.py:8-62",
   "cases": [
     {
       "name": "http credentials",

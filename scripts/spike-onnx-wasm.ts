@@ -3,9 +3,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as ort from "onnxruntime-web/wasm";
 
-const defaultModel = resolve(import.meta.dir, "../resources/models/sac_mouse_v2.onnx");
-const defaultWasm = resolve(import.meta.dir, "../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm");
-const expectedHash = "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b";
+const defaultModel = resolve(
+  import.meta.dir,
+  "../resources/models/sac_mouse_v2.onnx",
+);
+const defaultWasm = resolve(
+  import.meta.dir,
+  "../node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",
+);
+const expectedHash =
+  "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b";
 
 type Options = {
   model: string;
@@ -15,7 +22,7 @@ type Options = {
 
 function argumentValue(args: string[], name: string, fallback: string): string {
   const index = args.indexOf(name);
-  return index === -1 ? fallback : args[index + 1] ?? "";
+  return index === -1 ? fallback : (args[index + 1] ?? "");
 }
 
 function parseArgs(): Options {
@@ -46,9 +53,19 @@ function sha256(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
-function finiteFloat32(data: unknown, name: string, expectedSize: number): number[] {
-  if (!(data instanceof Float32Array) || data.length !== expectedSize || !data.every(Number.isFinite)) {
-    throw new Error(`MODEL_OUTPUT_INVALID:${name}:expected=float32[${expectedSize}]`);
+function finiteFloat32(
+  data: unknown,
+  name: string,
+  expectedSize: number,
+): number[] {
+  if (
+    !(data instanceof Float32Array) ||
+    data.length !== expectedSize ||
+    !data.every(Number.isFinite)
+  ) {
+    throw new Error(
+      `MODEL_OUTPUT_INVALID:${name}:expected=float32[${expectedSize}]`,
+    );
   }
   return Array.from(data);
 }
@@ -63,7 +80,9 @@ async function main(): Promise<void> {
   }
   const actualHash = sha256(model);
   if (actualHash !== expectedHash) {
-    throw new Error(`MODEL_HASH_MISMATCH:expected=${expectedHash}:actual=${actualHash}`);
+    throw new Error(
+      `MODEL_HASH_MISMATCH:expected=${expectedHash}:actual=${actualHash}`,
+    );
   }
 
   let fetches = 0;
@@ -82,22 +101,40 @@ async function main(): Promise<void> {
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.proxy = false;
     ort.env.wasm.wasmBinary = wasm;
-    const started = performance.now();
+    const loadStarted = performance.now();
     const session = await ort.InferenceSession.create(model, {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
-    const input = new ort.Tensor("float32", new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]), [1, 10]);
+    const loadMs = Number((performance.now() - loadStarted).toFixed(3));
+    const input = new ort.Tensor(
+      "float32",
+      new Float32Array([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]),
+      [1, 10],
+    );
+    const warmupStarted = performance.now();
+    await session.run({ observation: input });
+    const warmupMs = Number((performance.now() - warmupStarted).toFixed(3));
+    const started = performance.now();
     const result = await session.run({ observation: input });
     const mean = result.mean;
     const logStd = result.log_std;
-    if (!mean || !logStd || mean.dims.join(",") !== "1,2" || logStd.dims.join(",") !== "1,2") {
-      throw new Error("MODEL_OUTPUT_INVALID:names_or_shapes:expected=mean[1,2],log_std[1,2]");
+    if (
+      !mean ||
+      !logStd ||
+      mean.dims.join(",") !== "1,2" ||
+      logStd.dims.join(",") !== "1,2"
+    ) {
+      throw new Error(
+        "MODEL_OUTPUT_INVALID:names_or_shapes:expected=mean[1,2],log_std[1,2]",
+      );
     }
     const elapsedMs = Number((performance.now() - started).toFixed(3));
     const output = {
       loaded: true,
       ms: elapsedMs,
+      loadMs,
+      warmupMs,
       source: "onnxruntime-web-wasm",
       model: options.model,
       wasm: options.wasm,

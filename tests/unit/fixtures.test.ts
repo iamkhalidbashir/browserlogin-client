@@ -22,7 +22,23 @@ describe("Task 2 Python parity fixtures", () => {
       "connection/schema.json",
     ]) {
       const data = fixture(name);
-      expect(data.provenance).toMatch(/\.py:\d+-\d+/);
+      const provenances: string[] = [];
+      const collect = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          value.forEach(collect);
+          return;
+        }
+        if (!value || typeof value !== "object") return;
+        for (const [key, nested] of Object.entries(value)) {
+          if (key === "provenance" && typeof nested === "string")
+            provenances.push(nested);
+          collect(nested);
+        }
+      };
+      collect(data);
+      expect(provenances.length).toBeGreaterThan(0);
+      for (const provenance of provenances)
+        expect(provenance).toMatch(/browserlogin_client\/[a-z_]+\.py:\d+-\d+/);
     }
   });
 
