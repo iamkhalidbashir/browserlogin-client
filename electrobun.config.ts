@@ -13,7 +13,7 @@ export default {
       entrypoint: "src/bun/index.ts",
     },
     copy: {
-      "src/mainview/index.html": "views/mainview/index.html",
+      "dist/mainview": "views/mainview",
     },
     mac: {
       codesign: false,

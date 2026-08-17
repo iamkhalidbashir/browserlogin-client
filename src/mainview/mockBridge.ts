@@ -1,0 +1,222 @@
+import { AppRPCSchemas, type AppRPCMethod } from "../shared/rpc-schema.js";
+import type { Bridge, BridgeParams, BridgeResult } from "./rpc-client.js";
+
+const profile = {
+  id: "profile-1",
+  name: "Research profile",
+  seed: 42,
+  proxy: null,
+  platform: "macos",
+  geoip: true,
+  humanize: true,
+  human_preset: "careful" as const,
+  bumblebee_profile: "natural" as const,
+  headless: false,
+  timezone: "America/Los_Angeles",
+  locale: "en-US",
+  user_agent: null,
+  viewport: { width: 1440, height: 900 },
+  args: [],
+  cloud: { archive_generation: 4, current_session_id: null },
+};
+
+export const mockParams: Record<AppRPCMethod, unknown> = {
+  connectionGet: {},
+  connectionSet: {
+    baseUrl: "https://example.test/api/v1",
+    apiKey: "bl_test_key_value",
+  },
+  connectionTest: {},
+  profilesList: {},
+  profilesGet: { profileId: "profile-1" },
+  profilesCreate: { name: "New profile" },
+  profilesUpdate: { profileId: "profile-1", expectedConfigVersion: 1 },
+  profilesDelete: { profileId: "profile-1" },
+  profilesRestore: { profileId: "profile-1" },
+  sessionsStart: { profileId: "profile-1" },
+  sessionsStop: { profileId: "profile-1" },
+  sessionsForceStop: {
+    profileId: "profile-1",
+    confirmation: "FORCE CLOSE profile-1",
+  },
+  sessionsLive: {},
+  proxiesList: {},
+  proxiesCreate: {
+    name: "Local",
+    protocol: "http",
+    host: "127.0.0.1",
+    port: 8080,
+  },
+  proxiesUpdate: {
+    proxyId: "proxy-1",
+    name: "Local",
+    protocol: "http",
+    host: "127.0.0.1",
+    port: 8080,
+  },
+  proxiesDelete: { proxyId: "proxy-1" },
+  proxiesChangeIp: { proxyId: "proxy-1" },
+  usersList: {},
+  usersDisable: { userId: "user-1" },
+  membersList: { profileId: "profile-1" },
+  membersShare: { profileId: "profile-1", userId: "user-1", role: "viewer" },
+  membersRemove: { profileId: "profile-1", userId: "user-1" },
+  notesGet: { profileId: "profile-1" },
+  notesAppend: { profileId: "profile-1", notes: "Note", expectedVersion: 1 },
+  notesReplace: { profileId: "profile-1", notes: "Note", expectedVersion: 1 },
+  notesHistory: { profileId: "profile-1" },
+  auditList: {},
+  binaryStatus: {},
+  binaryDownload: { advancedEnabled: false },
+  binaryProgress: {},
+  licenseStatus: {},
+  licenseSet: { licenseKey: "license-value" },
+  licenseClear: {},
+  settingsGet: {},
+  settingsSet: { advancedEnabled: false },
+  updatesCheck: {},
+  updatesDownload: {},
+  updatesApply: { confirmed: true },
+  cliInstall: {},
+  logsTail: { lines: 500 },
+};
+
+const values: Record<AppRPCMethod, unknown> = {
+  connectionGet: {
+    baseUrl: "https://example.test/api/v1",
+    hasApiKey: true,
+    hasLicense: false,
+  },
+  connectionSet: { baseUrl: "https://example.test/api/v1", hasApiKey: true },
+  connectionTest: { connected: true, hasApiKey: true },
+  profilesList: [profile],
+  profilesGet: profile,
+  profilesCreate: profile,
+  profilesUpdate: profile,
+  profilesDelete: { status: "deleted" },
+  profilesRestore: { status: "restored" },
+  sessionsStart: { profile_id: "profile-1", status: "running" },
+  sessionsStop: { profile_id: "profile-1", status: "stopped" },
+  sessionsForceStop: { profile_id: "profile-1", status: "force-stopped" },
+  sessionsLive: [],
+  proxiesList: [],
+  proxiesCreate: {
+    id: "proxy-1",
+    name: "Local",
+    protocol: "http",
+    host: "127.0.0.1",
+    port: 8080,
+  },
+  proxiesUpdate: {
+    id: "proxy-1",
+    name: "Local",
+    protocol: "http",
+    host: "127.0.0.1",
+    port: 8080,
+  },
+  proxiesDelete: { status: "deleted" },
+  proxiesChangeIp: {
+    id: "proxy-1",
+    ip: "203.0.113.10",
+    changed_at: "2026-08-17T00:00:00Z",
+  },
+  usersList: [
+    {
+      id: "user-1",
+      name: "Owner",
+      email: "owner@example.test",
+      status: "active",
+      owner: true,
+    },
+  ],
+  usersDisable: { status: "disabled" },
+  membersList: [],
+  membersShare: { status: "shared" },
+  membersRemove: { status: "removed" },
+  notesGet: { notes: "", version: 1 },
+  notesAppend: { version: 2 },
+  notesReplace: { version: 2 },
+  notesHistory: [],
+  auditList: [],
+  binaryStatus: null,
+  binaryDownload: {
+    path: "/tmp/cloakbrowser",
+    pro: false,
+    source: "official",
+    trust: "verified",
+  },
+  binaryProgress: { downloaded: 0, total: null, done: true },
+  licenseStatus: { hasLicense: false },
+  licenseSet: { hasLicense: true },
+  licenseClear: { hasLicense: false },
+  settingsGet: {
+    has_license: false,
+    download_source: "official",
+    custom_download_url: null,
+    browser_cache_max_bytes: 536870912,
+    update_channel: "stable",
+  },
+  settingsSet: {
+    has_license: false,
+    download_source: "official",
+    custom_download_url: null,
+    browser_cache_max_bytes: 536870912,
+    update_channel: "stable",
+  },
+  updatesCheck: {
+    channel: "stable",
+    updateAvailable: false,
+    updateReady: false,
+  },
+  updatesDownload: {
+    channel: "stable",
+    updateAvailable: false,
+    updateReady: false,
+  },
+  updatesApply: {
+    channel: "stable",
+    updateAvailable: true,
+    updateReady: false,
+  },
+  cliInstall: { installed: false, message: "CLI not installed" },
+  logsTail: { lines: [] },
+};
+
+export function createMockBridge(
+  overrides: Partial<Record<AppRPCMethod, unknown>> = {},
+): Bridge {
+  return {
+    async request<K extends AppRPCMethod>(
+      method: K,
+      params: BridgeParams<K>,
+    ): Promise<{ ok: true; value: BridgeResult<K> }> {
+      AppRPCSchemas[method].params.parse(params);
+      const value = AppRPCSchemas[method].result.parse(
+        overrides[method] ?? values[method],
+      ) as BridgeResult<K>;
+      return { ok: true, value };
+    },
+  };
+}
+
+export function createDefaultBridge(): Bridge {
+  return typeof window !== "undefined" && "__electrobun" in window
+    ? {
+        async request<K extends AppRPCMethod>(
+          method: K,
+          params: BridgeParams<K>,
+        ) {
+          const bridge = await createElectrobunBridgeLazy();
+          return bridge.request(method, params);
+        },
+      }
+    : createMockBridge();
+}
+
+let electrobunBridge: Promise<Bridge> | undefined;
+function createElectrobunBridgeLazy(): Promise<Bridge> {
+  electrobunBridge ??= import("./rpc-client.js").then(
+    ({ createElectrobunBridge }) => createElectrobunBridge(),
+  );
+  return electrobunBridge;
+}
