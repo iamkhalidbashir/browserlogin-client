@@ -14,6 +14,7 @@ export default {
     },
     copy: {
       "dist/mainview": "views/mainview",
+      "dist/vendor": "vendor",
     },
     mac: {
       codesign: false,
