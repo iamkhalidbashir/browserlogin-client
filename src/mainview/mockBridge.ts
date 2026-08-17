@@ -234,6 +234,15 @@ export function createMockBridge(
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
   let liveSessions: Array<Record<string, unknown>> = [];
   let hasLicense = false;
+  const downloadDelayMs = (() => {
+    if (typeof window === "undefined") return 0;
+    const raw = new URLSearchParams(window.location.search).get(
+      "downloadDelayMs",
+    );
+    const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(2000, Math.max(0, parsed));
+  })();
   if (typeof window !== "undefined") window.__browserloginMockCalls = calls;
   return {
     async request<K extends AppRPCMethod>(
@@ -254,6 +263,9 @@ export function createMockBridge(
       }
       if (method === "connectionSet") connected = true;
       if (method === "connectionClear") connected = false;
+      if (method === "binaryDownload" && downloadDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, downloadDelayMs));
+      }
       if (method === "licenseSet") hasLicense = true;
       if (method === "licenseClear") hasLicense = false;
       if (method === "licenseStatus") {

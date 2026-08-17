@@ -24,7 +24,8 @@
     "test:watch": "vitest",
     "test:onnx-fidelity": "vitest run tests/unit/bumblebee-fidelity.test.ts",
     "notices": "bun scripts/notices.ts",
-    "notices:check": "bun scripts/notices.ts --check"
+    "notices:check": "bun scripts/notices.ts --check",
+    "test:acceptance": "bun tests/e2e-acceptance/run.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
