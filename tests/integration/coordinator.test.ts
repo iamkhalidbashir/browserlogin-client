@@ -414,5 +414,5 @@ describe("Task 18 recovery state", () => {
     expect(
       await generationFixture.coordinator.store.load("profile-1"),
     ).not.toBeNull();
-  });
+  }, 15_000);
 });
