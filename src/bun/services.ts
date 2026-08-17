@@ -7,6 +7,7 @@ import {
   type LocalSettings,
 } from "../shared/config-types.js";
 import {
+  KEYCHAIN_API_ACCOUNT,
   KEYCHAIN_LICENSE_ACCOUNT,
   KEYCHAIN_SERVICE,
 } from "../shared/keychain-types.js";
@@ -216,6 +217,17 @@ export function createCoreAppRuntime(context: AppServiceContext): {
       if (!resolved.apiKey) return { connected: false, hasApiKey: false };
       await (await client()).getUser();
       return { connected: true, hasApiKey: true };
+    },
+    connectionClear: async () => {
+      await context.keychain.delete({
+        service: KEYCHAIN_SERVICE,
+        account: KEYCHAIN_API_ACCOUNT,
+      });
+      await import("node:fs/promises").then(({ rm }) =>
+        rm(context.connection.paths.connection, { force: true }),
+      );
+      coordinatorPromise = undefined;
+      return { hasApiKey: false as const };
     },
     profilesList: async () =>
       (await (await client()).listProfiles()).map(stripProfileSecrets),

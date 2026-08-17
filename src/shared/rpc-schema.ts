@@ -140,6 +140,10 @@ export const AppRPCSchemas = {
     params: empty,
     result: z.object({ connected: z.boolean(), hasApiKey: z.boolean() }),
   },
+  connectionClear: {
+    params: empty,
+    result: z.object({ hasApiKey: z.literal(false) }),
+  },
   profilesList: { params: empty, result: z.array(safeProfile) },
   profilesGet: { params: profileId, result: safeProfile },
   profilesCreate: {

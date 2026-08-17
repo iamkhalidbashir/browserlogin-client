@@ -31,6 +31,7 @@ export const mockParams: Record<AppRPCMethod, unknown> = {
     apiKey: "bl_test_key_value",
   },
   connectionTest: {},
+  connectionClear: {},
   profilesList: {},
   profilesGet: { profileId: "profile-1" },
   profilesCreate: { name: "New profile" },
@@ -93,6 +94,7 @@ const values: Record<AppRPCMethod, unknown> = {
   },
   connectionSet: { baseUrl: "https://example.test/api/v1", hasApiKey: true },
   connectionTest: { connected: true, hasApiKey: true },
+  connectionClear: { hasApiKey: false },
   profilesList: [profile],
   profilesGet: profile,
   profilesCreate: profile,
@@ -231,6 +233,7 @@ export function createMockBridge(
     new URLSearchParams(window.location.search).get("setup") !== "1";
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
   let liveSessions: Array<Record<string, unknown>> = [];
+  let hasLicense = false;
   if (typeof window !== "undefined") window.__browserloginMockCalls = calls;
   return {
     async request<K extends AppRPCMethod>(
@@ -250,6 +253,32 @@ export function createMockBridge(
         return { ok: true, value };
       }
       if (method === "connectionSet") connected = true;
+      if (method === "connectionClear") connected = false;
+      if (method === "licenseSet") hasLicense = true;
+      if (method === "licenseClear") hasLicense = false;
+      if (method === "licenseStatus") {
+        return {
+          ok: true,
+          value: AppRPCSchemas.licenseStatus.result.parse({
+            hasLicense,
+          }) as BridgeResult<K>,
+        };
+      }
+      if (method === "updatesCheck" || method === "updatesDownload") {
+        const available =
+          typeof window !== "undefined" &&
+          new URLSearchParams(window.location.search).get("update") ===
+            "available";
+        return {
+          ok: true,
+          value: AppRPCSchemas[method].result.parse({
+            channel: "stable",
+            updateAvailable: available,
+            updateReady: method === "updatesDownload" && available,
+            ...(available ? { version: "0.2.0" } : {}),
+          }) as BridgeResult<K>,
+        };
+      }
       if (method === "usersList") {
         const owner =
           typeof window === "undefined" ||

@@ -13,6 +13,7 @@ const validParams: Record<AppRPCMethod, unknown> = {
     apiKey: "bl_test_key",
   },
   connectionTest: {},
+  connectionClear: {},
   profilesList: {},
   profilesGet: { profileId: "profile-1" },
   profilesCreate: { name: "test" },
