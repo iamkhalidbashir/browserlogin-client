@@ -1,9 +1,13 @@
 import type { ProcessIdentity } from "../processes/identity.js";
 import type { PathSecurity } from "../config/paths.js";
 
-export const READY_MARKER = "browserlogin-runner-ready-v1\n";
 export const AUTHORIZATION_MARKER = "authorized\n";
 export const STOP_MARKER = "stop\n";
+
+export type RunnerReady = {
+  version: 1;
+  relayCdpUrl: string;
+};
 
 export type LaunchProxy = {
   protocol: string;
@@ -96,7 +100,7 @@ export type RunnerSupervisorOptions = {
   readyTimeoutMs?: number;
   cooperativeStopTimeoutMs?: number;
   hardStopTimeoutMs?: number;
-  onReady?: () => Promise<void> | void;
+  onReady?: (ready: RunnerReady) => Promise<void> | void;
   onSpawned?: (identity: ProcessIdentity) => Promise<void> | void;
   healthCallback?: () => Promise<boolean> | boolean;
   onNormalStop?: () => Promise<void> | void;

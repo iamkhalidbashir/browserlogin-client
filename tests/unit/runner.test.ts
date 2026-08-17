@@ -9,10 +9,7 @@ import {
   readAndDeleteLaunchFile,
   validateLaunchSpec,
 } from "../../src/core/runner/launch.js";
-import {
-  AUTHORIZATION_MARKER,
-  READY_MARKER,
-} from "../../src/core/runner/types.js";
+import { AUTHORIZATION_MARKER } from "../../src/core/runner/types.js";
 import {
   publishReady,
   waitForAuthorization,
@@ -106,7 +103,7 @@ describe("runner launch protocol", () => {
     ).toThrow();
   });
 
-  test("requires exact gate and ready bytes", async () => {
+  test("requires exact gate bytes and a validated loopback ready record", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-protocol-"));
     const gate = join(root, "gate");
     const ready = join(root, "ready");
@@ -114,8 +111,19 @@ describe("runner launch protocol", () => {
       writeFile(gate, AUTHORIZATION_MARKER),
     );
     await waitForAuthorization(gate, 100);
-    await publishReady(ready);
-    await waitForReady(ready, 100);
-    expect(READY_MARKER).toBe("browserlogin-runner-ready-v1\n");
+    await publishReady(ready, {
+      version: 1,
+      relayCdpUrl: "ws://127.0.0.1:43123",
+    });
+    expect(await waitForReady(ready, 100)).toEqual({
+      version: 1,
+      relayCdpUrl: "ws://127.0.0.1:43123/",
+    });
+    await expect(
+      publishReady(ready, {
+        version: 1,
+        relayCdpUrl: "ws://example.test:43123",
+      }),
+    ).rejects.toThrow("runner relay URL is invalid");
   });
 });

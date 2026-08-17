@@ -8,6 +8,8 @@ import { waitForAuthorization, publishReady } from "./protocol.js";
 import { STOP_MARKER } from "./types.js";
 import { routeProxy } from "../proxy/routing.js";
 import { Socks5Relay } from "../proxy/socks-relay.js";
+import { startCdpRelay, type CdpRelay } from "../cdp/relay.js";
+import { BumblebeeWorker } from "../bumblebee/worker.js";
 import type {
   BrowserContextLike,
   CloakBrowserSdk,
@@ -55,6 +57,8 @@ export async function runRunnerChild(
   const sdk = options.sdk ?? (await loadSdk());
   let context: BrowserContextLike | undefined;
   let relay: Socks5Relay | undefined;
+  let cdpRelay: CdpRelay | undefined;
+  let worker: BumblebeeWorker | undefined;
   let stopped = false;
   let normalStopCalled = false;
   const normalStop = async (): Promise<void> => {
@@ -99,8 +103,21 @@ export async function runRunnerChild(
     const browser = context.browser?.();
     browser?.on?.("disconnected", onClose);
     const pagesAtReady = context.pages().length;
-    await resolveCdpEndpoint(spec.user_data_dir, options.cdpTimeoutMs);
-    if (!stopped) await publishReady(options.paths.readyFile);
+    const upstreamUrl = await resolveCdpEndpoint(
+      spec.user_data_dir,
+      options.cdpTimeoutMs,
+    );
+    worker = await BumblebeeWorker.create({
+      browserWsUrl: upstreamUrl,
+      profile: spec.bumblebee_profile,
+      viewport: spec.viewport ?? undefined,
+    });
+    cdpRelay = await startCdpRelay({ upstreamUrl, worker });
+    if (!stopped)
+      await publishReady(options.paths.readyFile, {
+        version: 1,
+        relayCdpUrl: cdpRelay.url,
+      });
     if (pagesAtReady === 0) await stop();
     let hadPage = pagesAtReady > 0;
     let controlFailure: unknown;
@@ -155,6 +172,8 @@ export async function runRunnerChild(
     context.off("close", onClose);
     browser?.off?.("disconnected", onClose);
   } finally {
+    await cdpRelay?.stop();
+    await worker?.close();
     if (context) await context.close();
     await relay?.close();
     await unlink(options.paths.readyFile).catch(() => undefined);

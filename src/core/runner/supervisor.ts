@@ -79,6 +79,7 @@ const cleanupArtifacts = async (
 
 export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
   identity: ProcessIdentity;
+  relayCdpUrl: string;
   closed: Promise<ChildExit>;
   stop(): Promise<void>;
 }> {
@@ -140,6 +141,7 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
     throw error;
   }
   const assert = options.assertIdentity ?? assertIdentity;
+  let relayCdpUrl: string | undefined;
   try {
     await assert(runner.identity);
     await options.onSpawned?.(runner.identity);
@@ -150,16 +152,21 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
     throw error;
   }
   try {
-    await waitForReady(options.paths.readyFile, options.readyTimeoutMs);
+    const ready = await waitForReady(
+      options.paths.readyFile,
+      options.readyTimeoutMs,
+    );
     await assert(runner.identity);
     if (options.healthCallback && !(await options.healthCallback()))
       throw new Error("CloakBrowser runner health callback rejected readiness");
-    await options.onReady?.();
+    await options.onReady?.(ready);
+    relayCdpUrl = ready.relayCdpUrl;
   } catch (error) {
     await stopRunner(runner.identity, options).catch(() => undefined);
     await cleanupArtifacts(options.paths);
     throw error;
   }
+  if (!relayCdpUrl) throw new Error("runner relay URL is unavailable");
   let normalStopCalled = false;
   let intentionalStop = false;
   const normalStop = async (): Promise<void> => {
@@ -176,6 +183,7 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
   let completed = false;
   return {
     identity: runner.identity,
+    relayCdpUrl,
     closed,
     stop: async () => {
       if (completed) return;

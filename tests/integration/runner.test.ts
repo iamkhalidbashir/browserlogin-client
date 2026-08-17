@@ -8,6 +8,7 @@ import { describe, expect, test } from "vitest";
 import { runRunnerChild } from "../../src/core/runner/child.js";
 import { createOneShotLaunchFile } from "../../src/core/runner/launch.js";
 import { launchRunner } from "../../src/core/runner/supervisor.js";
+import { publishReady } from "../../src/core/runner/protocol.js";
 import { readFileSync, chmodSync } from "node:fs";
 import type { ChildExit, LaunchSpec } from "../../src/core/runner/types.js";
 
@@ -289,7 +290,10 @@ describe("fake runner lifecycle", () => {
               await new Promise((resolve) => setTimeout(resolve, 2));
             }
             expect(await readFile(paths.gateFile, "utf8")).toBe("authorized\n");
-            await writeFile(paths.readyFile, "browserlogin-runner-ready-v1\n");
+            await publishReady(paths.readyFile, {
+              version: 1,
+              relayCdpUrl: "ws://127.0.0.1:43123",
+            });
           })();
           return { identity, completion: new Promise(() => undefined) };
         },
@@ -348,7 +352,10 @@ describe("fake runner lifecycle", () => {
             !(await readFile(paths.gateFile, "utf8").catch(() => undefined))
           )
             await new Promise((resolve) => setTimeout(resolve, 2));
-          await writeFile(paths.readyFile, "browserlogin-runner-ready-v1\n");
+          await publishReady(paths.readyFile, {
+            version: 1,
+            relayCdpUrl: "ws://127.0.0.1:43123",
+          });
         })();
         return {
           identity: {

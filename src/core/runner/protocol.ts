@@ -1,7 +1,11 @@
 import { constants } from "node:fs";
 import { unlink, writeFile, rename, open, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-import { READY_MARKER, AUTHORIZATION_MARKER, STOP_MARKER } from "./types.js";
+import {
+  AUTHORIZATION_MARKER,
+  STOP_MARKER,
+  type RunnerReady,
+} from "./types.js";
 
 const wait = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -80,12 +84,38 @@ export async function writeStopControl(path: string): Promise<void> {
   await writeMarker(path, STOP_MARKER);
 }
 
-export async function publishReady(path: string): Promise<void> {
+const validateReady = (value: unknown): RunnerReady => {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("runner ready record is invalid");
+  const ready = value as Partial<RunnerReady>;
+  if (ready.version !== 1 || typeof ready.relayCdpUrl !== "string")
+    throw new Error("runner ready record is invalid");
+  let url: URL;
+  try {
+    url = new URL(ready.relayCdpUrl);
+  } catch (error) {
+    throw new Error("runner relay URL is invalid", { cause: error });
+  }
+  if (
+    url.protocol !== "ws:" ||
+    !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname) ||
+    url.username ||
+    url.password ||
+    url.hash
+  )
+    throw new Error("runner relay URL is invalid");
+  return { version: 1, relayCdpUrl: url.toString() };
+};
+
+export async function publishReady(
+  path: string,
+  ready: RunnerReady,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = `${path}.${process.pid}.${Date.now()}.tmp`;
   const fd = await open(temp, "wx", 0o600);
   try {
-    await fd.writeFile(READY_MARKER, "utf8");
+    await fd.writeFile(`${JSON.stringify(validateReady(ready))}\n`, "utf8");
     await fd.sync();
     await fd.close();
     await rename(temp, path);
@@ -96,8 +126,32 @@ export async function publishReady(path: string): Promise<void> {
   }
 }
 
-export const waitForReady = (
+export const waitForReady = async (
   path: string,
   timeoutMs = 30_000,
   pollMs = 50,
-): Promise<void> => waitForExactFile(path, READY_MARKER, timeoutMs, pollMs);
+): Promise<RunnerReady> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const fd = await open(
+        path,
+        constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+      );
+      try {
+        const info = await fd.stat();
+        if (!info.isFile())
+          throw new Error("protocol file is not a regular file");
+        const ready = validateReady(JSON.parse(await fd.readFile("utf8")));
+        await unlink(path);
+        return ready;
+      } finally {
+        await fd.close();
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await wait(Math.min(pollMs, Math.max(1, deadline - Date.now())));
+  }
+  throw new Error("protocol marker timed out");
+};
