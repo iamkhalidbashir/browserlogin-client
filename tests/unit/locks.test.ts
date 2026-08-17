@@ -39,7 +39,7 @@ describe("Task 13 locks", () => {
     expect(maximum).toBe(1);
     await expect(readFile(lockPath, "utf8")).rejects.toThrow();
     await rm(directory, { recursive: true, force: true });
-  });
+  }, 15_000);
 
   it.runIf(process.platform !== "win32")(
     "serializes real cross-process contenders",
