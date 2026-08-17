@@ -57,6 +57,7 @@ const base = z.object({
   license_acquired: z.boolean(),
   archive_materialized: z.boolean(),
   browser_launched: z.boolean(),
+  relay_cdp_url: z.string().regex(SAFE_ID).nullable().optional(),
   uploaded_storage_id: z.string().regex(SAFE_ID).nullable(),
   stop_payload: z.record(z.string(), z.unknown()).nullable(),
   retry_count: z.number().int().nonnegative(),

@@ -63,6 +63,7 @@ export type LicenseLifecycle = {
 };
 export type RunnerHandle = {
   identity: { pid: number; process_start_time: string; cmdline_hash: string };
+  relayCdpUrl?: string;
   stop(): Promise<void>;
   closed: Promise<unknown>;
 };
@@ -250,6 +251,47 @@ export class LifecycleCoordinator {
     });
   }
 
+  async rollbackStart(profileId: string): Promise<Session> {
+    return this.store.withTransition(profileId, async () => {
+      const state = await this.requireState(profileId);
+      if (!state.remote_session_id)
+        throw new BrowserLoginError(
+          "start rollback requires a confirmed remote session",
+        );
+      if (
+        !["remote-active", "archive_materialized", "spawn-intent"].includes(
+          state.status,
+        )
+      )
+        throw new BrowserLoginError(
+          "start rollback is only available before browser readiness",
+        );
+      await this.options.runtimeStop?.(state.profile_id);
+      await this.stopRunner(state);
+      if (state.license_acquired) {
+        await this.options.license?.release();
+        this.licenseUrls.delete(state.profile_id);
+      }
+      const stopKey = immutableIdempotencyKey("stop", state.run_id, {
+        rollback_start: true,
+      });
+      const result = await this.options.api.stopSession(
+        state.remote_session_id,
+        undefined,
+        stopKey,
+      );
+      if (
+        result.id !== state.remote_session_id ||
+        result.profile_id !== state.profile_id ||
+        result.state !== "stopped" ||
+        result.status !== "stopped"
+      )
+        throw new BrowserLoginError("start rollback was not committed");
+      await this.cleanupLocked(state);
+      return result;
+    });
+  }
+
   async recover(profileId: string): Promise<RecoveryState | null> {
     const deadline = Date.now() + RECOVERY_LIMIT_MS;
     return this.store.withTransition(profileId, async () => {
@@ -363,6 +405,7 @@ export class LifecycleCoordinator {
           runner_start_time: null,
           runner_cmdline_hash: null,
           browser_launched: false,
+          relay_cdp_url: null,
         },
         "archive_materialized",
         this.now,
@@ -396,6 +439,7 @@ export class LifecycleCoordinator {
       license_acquired: false,
       archive_materialized: false,
       browser_launched: false,
+      relay_cdp_url: null,
       uploaded_storage_id: null,
       stop_payload: null,
       retry_count: 0,
@@ -574,6 +618,7 @@ export class LifecycleCoordinator {
           runner_start_time: runner.identity.process_start_time,
           runner_cmdline_hash: runner.identity.cmdline_hash,
           browser_launched: true,
+          relay_cdp_url: runner.relayCdpUrl ?? null,
         },
         "running",
         this.now,
@@ -670,6 +715,7 @@ export class LifecycleCoordinator {
       runner_start_time: null,
       runner_cmdline_hash: null,
       browser_launched: false,
+      relay_cdp_url: null,
       license_acquired: false,
       launch_file: null,
     };
@@ -813,6 +859,7 @@ export class LifecycleCoordinator {
             runner_start_time: null,
             runner_cmdline_hash: null,
             browser_launched: false,
+            relay_cdp_url: null,
           },
           "archive_materialized",
           this.now,
@@ -862,6 +909,8 @@ export class LifecycleCoordinator {
       runner_start_time: null,
       runner_cmdline_hash: null,
       launch_file: null,
+      browser_launched: false,
+      relay_cdp_url: null,
     } as RecoveryState;
     await this.store.save(cleared);
     const result = await this.options.api.forceStopSession(
@@ -900,15 +949,22 @@ export class LifecycleCoordinator {
         state,
       );
     }
-    await this.store.save({
+    const cleared = {
       ...state,
       license_acquired: false,
       runner_pid: null,
       runner_start_time: null,
       runner_cmdline_hash: null,
       launch_file: null,
-    });
-    await this.cleanupLocked(state, true);
+      browser_launched: false,
+      relay_cdp_url: null,
+      status:
+        state.status === "running"
+          ? ("archive_materialized" as const)
+          : state.status,
+    };
+    await this.store.save(cleared);
+    await this.cleanupLocked(cleared, true);
     return remote;
   }
 

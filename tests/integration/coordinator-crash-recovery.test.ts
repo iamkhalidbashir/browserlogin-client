@@ -334,7 +334,7 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       "after-running-save",
       true,
     );
-    expect(recovered.code).toBe(0);
+    expect(recovered.code, recovered.stderr).toBe(0);
     expect(mock.counters.starts).toBe(1);
     expect(mock.counters.uploads).toBe(1);
     expect(mock.counters.stops).toBe(1);
@@ -359,11 +359,13 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
       "after-running-save",
       true,
     );
-    expect(recovered.code).toBe(0);
-    expect(mock.counters.starts).toBe(1);
-    expect(mock.counters.uploads).toBe(0);
-    expect(mock.counters.stops).toBe(0);
-    expect(mock.counters.forces).toBe(0);
+    expect(recovered.code, recovered.stderr).toBe(0);
+    expect(mock.counters).toMatchObject({
+      starts: 1,
+      uploads: 0,
+      stops: 0,
+      forces: 0,
+    });
     expect(await createRecoveryStore(root).load("profile-1")).toBeNull();
   }, 30_000);
 });

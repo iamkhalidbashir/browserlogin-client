@@ -83,6 +83,7 @@ async function setup(
   let uploads = 0;
   let stops = 0;
   let releases = 0;
+  let runtimeStops = 0;
   let conflictAttempts = 0;
   let adoptedArchive: string | undefined;
   let remoteStopped = false;
@@ -185,12 +186,17 @@ async function setup(
       : undefined,
     runner: async () => ({
       identity: { pid: 4321, process_start_time: "1000", cmdline_hash: SHA },
+      relayCdpUrl: "ws://127.0.0.1:43123/",
       stop: async () => undefined,
       closed: new Promise(() => undefined),
     }),
     adoptArchive: async (_profileId, artifact, generation) => {
       adoptedArchive = join(root, `adopted-${generation}.zip`);
       await copyFile(artifact, adoptedArchive);
+    },
+    runtimeStop: async (profileId) => {
+      expect(profileId).toBe("profile-1");
+      runtimeStops += 1;
     },
     crashInjector: async (point, state) => {
       if (point !== options.crashPoint) return;
@@ -203,7 +209,14 @@ async function setup(
   return {
     root,
     coordinator,
-    counts: () => ({ starts, uploads, stops, releases, adoptedArchive }),
+    counts: () => ({
+      starts,
+      uploads,
+      stops,
+      releases,
+      runtimeStops,
+      adoptedArchive,
+    }),
   };
 }
 
@@ -254,6 +267,7 @@ describe("Task 18 recovery state", () => {
     const { coordinator, counts } = await setup({ paid: true });
     const started = await coordinator.start("profile-1");
     expect(started.status).toBe("running");
+    expect(started.relay_cdp_url).toBe("ws://127.0.0.1:43123/");
     await coordinator.start("profile-1");
     const stopped = await coordinator.stop("profile-1");
     expect(stopped.status).toBe("stopped");
@@ -270,6 +284,22 @@ describe("Task 18 recovery state", () => {
     const { coordinator, counts } = await setup();
     await coordinator.start("profile-1");
     expect(counts().releases).toBe(0);
+  });
+
+  it("rolls back a confirmed prelaunch remote session without an archive", async () => {
+    const { coordinator, counts } = await setup({
+      crashPoint: "after-remote-active-save",
+    });
+    await expect(coordinator.start("profile-1")).rejects.toThrow("test crash");
+    const rolledBack = await coordinator.rollbackStart("profile-1");
+    expect(rolledBack.status).toBe("stopped");
+    expect(counts()).toMatchObject({
+      starts: 1,
+      uploads: 0,
+      stops: 1,
+      runtimeStops: 1,
+    });
+    expect(await coordinator.store.load("profile-1")).toBeNull();
   });
 
   it.each([
