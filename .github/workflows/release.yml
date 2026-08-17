@@ -141,8 +141,8 @@ jobs:
           await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`);
           const configPath = "electrobun.config.ts";
           const before = await readFile(configPath, "utf8");
+          if (!/version: "[^"]+",/.test(before)) throw new Error("Electrobun version field is missing");
           const after = before.replace(/version: "[^"]+",/, `version: "${version}",`);
-          if (after === before) throw new Error("Electrobun version field was not replaced");
           await writeFile(configPath, after);
           TS
 
