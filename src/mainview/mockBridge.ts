@@ -103,7 +103,18 @@ const values: Record<AppRPCMethod, unknown> = {
   sessionsStop: { profile_id: "profile-1", status: "stopped" },
   sessionsForceStop: { profile_id: "profile-1", status: "force-stopped" },
   sessionsLive: [],
-  proxiesList: [],
+  proxiesList: [
+    {
+      id: "proxy-1",
+      name: "Local",
+      protocol: "http",
+      host: "127.0.0.1",
+      port: 8080,
+      username: "workspace-user",
+      last_ip: "203.0.113.9",
+      last_ip_changed_at: "2026-08-17T00:00:00Z",
+    },
+  ],
   proxiesCreate: {
     id: "proxy-1",
     name: "Local",
@@ -134,14 +145,40 @@ const values: Record<AppRPCMethod, unknown> = {
     },
   ],
   usersDisable: { status: "disabled" },
-  membersList: [],
+  membersList: [
+    {
+      id: "member-1",
+      name: "Profile viewer",
+      email: "viewer@example.test",
+      status: "active",
+      role: "viewer",
+      created_at: "2026-08-17T00:00:00Z",
+      updated_at: "2026-08-17T00:00:00Z",
+    },
+  ],
   membersShare: { status: "shared" },
   membersRemove: { status: "removed" },
-  notesGet: { notes: "", version: 1 },
+  notesGet: { notes: "Current profile note", version: 1 },
   notesAppend: { version: 2 },
   notesReplace: { version: 2 },
-  notesHistory: [],
-  auditList: [],
+  notesHistory: [
+    {
+      id: "note-1",
+      version: 1,
+      notes: "Current profile note",
+      created_by: "user-1",
+      created_at: "2026-08-17T00:00:00Z",
+    },
+  ],
+  auditList: [
+    {
+      action: "profile.updated",
+      entity_type: "profile",
+      entity_id: "profile-1",
+      actor_user_id: "user-1",
+      created_at: "2026-08-17T00:00:00Z",
+    },
+  ],
   binaryStatus: null,
   binaryDownload: {
     path: "/tmp/cloakbrowser",
@@ -204,8 +241,7 @@ export function createMockBridge(
       calls.push({ method, params: structuredClone(params) });
       if (method === "connectionGet") {
         const override = overrides.connectionGet as
-          | Record<string, unknown>
-          | undefined;
+          Record<string, unknown> | undefined;
         const value = AppRPCSchemas.connectionGet.result.parse({
           ...(values.connectionGet as Record<string, unknown>),
           ...override,
@@ -214,6 +250,21 @@ export function createMockBridge(
         return { ok: true, value };
       }
       if (method === "connectionSet") connected = true;
+      if (method === "usersList") {
+        const owner =
+          typeof window === "undefined" ||
+          new URLSearchParams(window.location.search).get("owner") !== "0";
+        const value = AppRPCSchemas.usersList.result.parse([
+          {
+            id: "user-1",
+            name: owner ? "Workspace owner" : "Workspace member",
+            email: "member@example.test",
+            status: "active",
+            owner,
+          },
+        ]) as BridgeResult<K>;
+        return { ok: true, value };
+      }
       if (method === "sessionsStart") {
         const profileId = (params as { profileId: string }).profileId;
         liveSessions = [
@@ -255,6 +306,16 @@ export function createMockBridge(
         return {
           ok: false,
           error: { code: "CONFLICT", message: "Profile changed remotely" },
+        };
+      }
+      if (
+        (method === "notesAppend" || method === "notesReplace") &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("notesConflict") === "1"
+      ) {
+        return {
+          ok: false,
+          error: { code: "CONFLICT", message: "Notes changed remotely" },
         };
       }
       const value = AppRPCSchemas[method].result.parse(

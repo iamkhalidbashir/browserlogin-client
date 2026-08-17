@@ -2,7 +2,11 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "../../rpc-client.js";
 
-export default function DashboardView() {
+export default function DashboardView({
+  title = "Dashboard",
+}: {
+  title?: string;
+}) {
   const bridge = useBridge();
   const queryClient = useQueryClient();
   const [confirmation, setConfirmation] = useState("");
@@ -27,7 +31,7 @@ export default function DashboardView() {
   return (
     <section>
       <p className="eyebrow">Workspace</p>
-      <h2 className="text-3xl font-semibold">Dashboard</h2>
+      <h2 className="text-3xl font-semibold">{title}</h2>
       <p className="mt-2 text-zinc-500">
         Monitor local sessions and archive-preserving stop operations.
       </p>

@@ -1,9 +1,1 @@
-import { RoutePage } from "./route-page.js";
-export default function Audit() {
-  return (
-    <RoutePage
-      title="Audit"
-      description="Inspect immutable workspace activity and profile events."
-    />
-  );
-}
+export { default } from "../features/audit/audit-notes-view.js";
