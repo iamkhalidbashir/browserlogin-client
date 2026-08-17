@@ -1,5 +1,8 @@
 import { join } from "node:path";
-import { PRODUCT_TOOLS } from "../../src/core/browser-tools/manifest.js";
+import {
+  PRODUCT_TOOLS,
+  visibleTools,
+} from "../../src/core/browser-tools/manifest.js";
 import type { RemoteTool } from "../../src/core/mcp-proxy/types.js";
 import { createRegistry } from "../../src/mcp/registry.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
@@ -23,7 +26,7 @@ const connected = await createRegistry({
     stop: async (profileId) => lifecycleCalls.push(`stop:${profileId}`),
   },
   browserRouter,
-  browserTools: PRODUCT_TOOLS,
+  browserTools: visibleTools(false),
   remoteTools,
   remoteForwarder: {
     call: async (name) => {
@@ -37,10 +40,27 @@ const connected = await createRegistry({
 const degraded = await createRegistry({
   lifecycle: { start: async () => undefined, stop: async () => undefined },
   browserRouter,
+  browserTools: visibleTools(false),
+});
+const connectedCatalog = await createRegistry({
+  lifecycle: { start: async () => undefined, stop: async () => undefined },
+  browserRouter,
+  browserTools: PRODUCT_TOOLS,
+  remoteTools,
+  remoteForwarder: { call: async () => ({ content: [] }) },
+});
+const degradedCatalog = await createRegistry({
+  lifecycle: { start: async () => undefined, stop: async () => undefined },
+  browserRouter,
   browserTools: PRODUCT_TOOLS,
 });
-if (connected.tools.length !== 43 || degraded.tools.length !== 26)
-  throw new Error("acceptance MCP tool counts do not match 43/26");
+if (
+  connected.tools.length !== 42 ||
+  degraded.tools.length !== 25 ||
+  connectedCatalog.tools.length !== 43 ||
+  degradedCatalog.tools.length !== 26
+)
+  throw new Error("acceptance MCP safe/catalog tool counts are invalid");
 const start = await connected.call("browserlogin_session_start", {
   profile_id: "profile-1",
 });
@@ -56,10 +76,12 @@ if (
 await writeJson(join(mcpEvidence, "tools-connected.json"), {
   tools: connected.tools,
   count: connected.tools.length,
+  catalogCount: connectedCatalog.tools.length,
 });
 await writeJson(join(mcpEvidence, "tools-degraded.json"), {
   tools: degraded.tools,
   count: degraded.tools.length,
+  catalogCount: degradedCatalog.tools.length,
 });
 await writeJson(join(mcpEvidence, "lifecycle.json"), {
   calls: lifecycleCalls,
@@ -69,3 +91,5 @@ await writeJson(join(mcpEvidence, "lifecycle.json"), {
 await writeJson(join(mcpEvidence, "profiles-list.json"), profiles);
 await connected.shutdown();
 await degraded.shutdown();
+await connectedCatalog.shutdown();
+await degradedCatalog.shutdown();
