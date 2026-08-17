@@ -196,11 +196,11 @@ jobs:
           mkdir -p release
           bun build --compile src/cli/index.ts --outfile "release/${{ matrix.cli_asset }}"
 
+      - name: Build web renderer
+        run: bun run build:web
+
       - name: Build unsigned Electrobun application
-        shell: bash
-        run: |
-          bun run build:web
-          hutch electrobun build --env=production
+        run: hutch electrobun build --env=production
 
       - name: Validate and stage macOS/Linux artifacts
         if: runner.os != 'Windows'
