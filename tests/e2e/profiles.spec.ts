@@ -66,7 +66,11 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   await page.getByRole("button", { name: "Launch selected" }).click();
   await expect(page.getByRole("status")).toContainText("1 session started");
 
-  const deleteButton = page.getByRole("button", { name: "Delete" });
+  await page.getByRole("button", { name: "Delete Research profile" }).click();
+  const deleteButton = page.getByRole("button", {
+    name: "Delete",
+    exact: true,
+  });
   await expect(deleteButton).toBeDisabled();
   await page.getByLabel("Delete confirmation").fill("Research profile");
   await expect(deleteButton).toBeEnabled();
@@ -89,6 +93,99 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   await expect(forceButton).toBeEnabled();
   await forceButton.click();
   await expect(page.getByText("No local sessions are running.")).toBeVisible();
+});
+
+test("editor lists real proxies and saves the selected proxy", async ({
+  page,
+}) => {
+  await page.goto("/profiles?multi=1");
+  const row = page.getByRole("row", { name: /Secondary profile/ });
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit profile" });
+  const proxySelect = dialog.getByLabel("Proxy");
+  await expect(proxySelect.locator("option", { hasText: "Local" })).toHaveCount(
+    1,
+  );
+  await expect(
+    proxySelect.locator("option", { hasText: "Backup" }),
+  ).toHaveCount(1);
+  await proxySelect.selectOption({ label: "Backup" });
+  await dialog.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const updateCall = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (call) => call.method === "profilesUpdate",
+    ),
+  );
+  expect(updateCall?.params).toMatchObject({
+    profileId: "profile-2",
+    proxy_id: "proxy-2",
+  });
+});
+
+test("delete targets the explicitly chosen row and clears after success", async ({
+  page,
+}) => {
+  await page.goto("/profiles?multi=1");
+  await page.getByRole("button", { name: "Delete Secondary profile" }).click();
+  const confirmInput = page.getByLabel("Delete confirmation");
+  await expect(confirmInput).toBeVisible();
+  await expect(page.locator("p", { hasText: "to confirm" })).toContainText(
+    "Secondary profile",
+  );
+  const deleteButton = page.getByRole("button", {
+    name: "Delete",
+    exact: true,
+  });
+  await expect(deleteButton).toBeDisabled();
+  await confirmInput.fill("Secondary profile");
+  await expect(deleteButton).toBeEnabled();
+  const listsBefore =
+    (await page.evaluate(
+      () =>
+        window.__browserloginMockCalls?.filter(
+          (call) => call.method === "profilesList",
+        ).length,
+    )) ?? 0;
+  await deleteButton.click();
+  await expect(confirmInput).toHaveCount(0);
+  const calls = (await page.evaluate(
+    () => window.__browserloginMockCalls ?? [],
+  )) as Array<{ method: string; params: unknown }>;
+  const deleteCall = calls.find((call) => call.method === "profilesDelete");
+  expect(deleteCall?.params).toMatchObject({ profileId: "profile-2" });
+  const listsAfter = calls.filter(
+    (call) => call.method === "profilesList",
+  ).length;
+  expect(listsAfter).toBeGreaterThan(listsBefore);
+});
+
+test("edit and restore target the selected profile row", async ({ page }) => {
+  await page.goto("/profiles?multi=1");
+  const row = page.getByRole("row", { name: /Secondary profile/ });
+  await row.getByRole("button", { name: "Edit" }).click();
+  const dialog = page.getByRole("dialog", { name: "Edit profile" });
+  await expect(dialog.getByLabel("Name")).toHaveValue("Secondary profile");
+  await dialog.getByLabel("Name").fill("Secondary renamed");
+  await dialog.getByRole("button", { name: "Save profile" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const updateCall = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (call) => call.method === "profilesUpdate",
+    ),
+  );
+  expect(updateCall?.params).toMatchObject({
+    profileId: "profile-2",
+    expectedConfigVersion: 0,
+    name: "Secondary renamed",
+  });
+  await row.getByRole("button", { name: "Restore" }).click();
+  const restoreCall = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (call) => call.method === "profilesRestore",
+    ),
+  );
+  expect(restoreCall?.params).toMatchObject({ profileId: "profile-2" });
 });
 
 test("edit sends optimistic version and surfaces 409 conflict", async ({

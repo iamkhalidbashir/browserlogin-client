@@ -41,8 +41,10 @@ export default function ProfilesView() {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState("");
   const [editor, setEditor] = useState<"create" | "edit" | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<ProfileForm>(defaults);
   const [selected, setSelected] = useState<string[]>([]);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteText, setDeleteText] = useState("");
   const [conflict, setConflict] = useState(false);
   const [launchStatus, setLaunchStatus] = useState("Ready");
@@ -57,6 +59,17 @@ export default function ProfilesView() {
       return result.value;
     },
   });
+  const proxies = useQuery({
+    queryKey: ["proxies"],
+    queryFn: async () => {
+      const result = await bridge.request("proxiesList", {});
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    },
+  });
+  const deleteTarget = profiles.data?.find(
+    (profile) => profile.id === deleteTargetId,
+  );
   const visible = useMemo(
     () =>
       (profiles.data ?? [])
@@ -70,10 +83,13 @@ export default function ProfilesView() {
     mutationFn: async () => {
       setConflict(false);
       if (editor === "create") return bridge.request("profilesCreate", form);
-      const current = profiles.data?.[0];
+      if (!editingId) throw new Error("No profile selected for editing");
+      const current = profiles.data?.find(
+        (profile) => profile.id === editingId,
+      );
       const result = await bridge.request("profilesUpdate", {
         ...form,
-        profileId: current?.id ?? "profile-1",
+        profileId: editingId,
         expectedConfigVersion: Number(current?.cloud.config_version ?? 0),
       });
       if (!result.ok && result.error.code === "CONFLICT") setConflict(true);
@@ -99,13 +115,14 @@ export default function ProfilesView() {
       `${ids.length} session${ids.length === 1 ? "" : "s"} started`,
     );
   };
-  const editFirst = () => {
-    const current = profiles.data?.[0];
+  const editProfile = (profileId: string) => {
+    const current = profiles.data?.find((profile) => profile.id === profileId);
     if (!current) return;
     setForm({
       ...defaults,
       name: current.name,
       seed: current.seed,
+      proxy_id: current.proxy?.id ?? null,
       platform:
         current.platform === "windows" || current.platform === "linux"
           ? current.platform
@@ -121,9 +138,20 @@ export default function ProfilesView() {
       viewport: current.viewport as { width: number; height: number },
       args: current.args,
     });
+    setEditingId(current.id);
     setEditor("edit");
   };
-  const first = profiles.data?.[0];
+  const deleteProfile = async () => {
+    if (!deleteTarget) return;
+    const result = await bridge.request("profilesDelete", {
+      profileId: deleteTarget.id,
+    });
+    if (result.ok) {
+      setDeleteTargetId(null);
+      setDeleteText("");
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+    }
+  };
   return (
     <section>
       <div className="flex items-end justify-between">
@@ -204,8 +232,31 @@ export default function ProfilesView() {
                   >
                     Launch
                   </button>
-                  <button className="table-action" onClick={editFirst}>
+                  <button
+                    className="table-action"
+                    onClick={() => editProfile(profile.id)}
+                  >
                     Edit
+                  </button>
+                  <button
+                    className="table-action"
+                    onClick={() =>
+                      void bridge.request("profilesRestore", {
+                        profileId: profile.id,
+                      })
+                    }
+                  >
+                    Restore
+                  </button>
+                  <button
+                    className="table-action"
+                    aria-label={`Delete ${profile.name}`}
+                    onClick={() => {
+                      setDeleteTargetId(profile.id);
+                      setDeleteText("");
+                    }}
+                  >
+                    Delete
                   </button>
                 </td>
               </tr>
@@ -219,11 +270,11 @@ export default function ProfilesView() {
           {launchStatus}
         </p>
       </div>
-      {first ? (
+      {deleteTarget ? (
         <div className="panel mt-4">
           <h3 className="font-medium">Delete profile</h3>
           <p className="mt-1 text-sm text-zinc-500">
-            Type <strong>{first.name}</strong> to confirm.
+            Type <strong>{deleteTarget.name}</strong> to confirm.
           </p>
           <div className="mt-3 flex gap-2">
             <input
@@ -234,10 +285,8 @@ export default function ProfilesView() {
             />
             <button
               className="button-danger"
-              disabled={deleteText !== first.name}
-              onClick={() =>
-                void bridge.request("profilesDelete", { profileId: first.id })
-              }
+              disabled={deleteText !== deleteTarget.name}
+              onClick={() => void deleteProfile()}
             >
               Delete
             </button>
@@ -308,7 +357,11 @@ export default function ProfilesView() {
                   }
                 >
                   <option value="">Direct</option>
-                  <option value="proxy-1">Local proxy</option>
+                  {proxies.data?.map((proxy) => (
+                    <option key={proxy.id} value={proxy.id}>
+                      {proxy.name}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="field">
