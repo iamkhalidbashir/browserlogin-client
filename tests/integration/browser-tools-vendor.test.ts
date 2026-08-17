@@ -1,8 +1,10 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 import { SOURCE_MANIFEST_TOOL_NAMES } from "../../src/core/browser-tools/manifest.js";
@@ -11,6 +13,7 @@ import { createF2VendorRuntime } from "../../src/core/browser-tools/vendor.js";
 const fixture = fileURLToPath(
   new URL("../fixtures/fake-vendor-child.mjs", import.meta.url),
 );
+const execFileAsync = promisify(execFile);
 
 async function withEnv<T>(
   values: Record<string, string | undefined>,
@@ -34,6 +37,43 @@ async function withEnv<T>(
 }
 
 describe("f2 vendor stdio subprocess", () => {
+  test("uses a packaged Bun helper with an empty PATH and no system Node", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-vendor-helper-"));
+    const helper = join(root, "browserlogin-browser-tools-helper");
+    const capture = join(root, "capture.jsonl");
+    try {
+      await execFileAsync(
+        process.env.BROWSERLOGIN_BUN_PATH ?? "bun",
+        ["build", "--compile", fixture, "--outfile", helper],
+        { cwd: process.cwd() },
+      );
+      const runtime = await withEnv(
+        {
+          PATH: "",
+          BROWSERLOGIN_BROWSER_TOOLS_HELPER: helper,
+        },
+        () =>
+          createF2VendorRuntime({
+            profileId: "packaged-helper",
+            relayCdpUrl: "ws://127.0.0.1:3000/token",
+            startupTimeoutMs: 5_000,
+            closeTimeoutMs: 1_000,
+            extraEnv: { FAKE_VENDOR_CAPTURE: capture },
+          }),
+      );
+      await runtime.close();
+      const captured = JSON.parse((await readFile(capture, "utf8")).trim());
+      const endpointIndex = captured.argv.indexOf("--cdp-endpoint");
+      expect(endpointIndex).toBeGreaterThanOrEqual(0);
+      expect(captured.argv[endpointIndex + 1]).toBe(
+        "ws://127.0.0.1:3000/token",
+      );
+      expect(captured.argv).not.toContain(fixture);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("captures exact argv/env, initializes, translates calls, and closes", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-vendor-"));
     const capture = join(root, "capture.jsonl");

@@ -1,5 +1,6 @@
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { accessSync, constants as fsConstants } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   StdioClientTransport,
@@ -118,6 +119,56 @@ const redactStderr = (text: string): string =>
 const resolveCliPath = (): string => {
   const packageJson = require.resolve("@playwright/mcp/package.json");
   return join(dirname(packageJson), "cli.js");
+};
+
+export const vendorHelperName = (): string => {
+  if (process.platform === "darwin" && process.arch === "arm64")
+    return "browserlogin-browser-tools-macos-arm64";
+  if (process.platform === "linux" && process.arch === "x64")
+    return "browserlogin-browser-tools-linux-x64";
+  if (process.platform === "win32" && process.arch === "x64")
+    return "browserlogin-browser-tools-windows-x64.exe";
+  throw new Error("browser tools helper platform is unsupported");
+};
+
+const executable = (path: string): boolean => {
+  try {
+    accessSync(
+      path,
+      process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const resolveVendorCommand = (
+  options: F2VendorFactoryOptions,
+  cliPath: string,
+): { command: string; prefix: string[] } => {
+  if (options.nodeCommand)
+    return { command: options.nodeCommand, prefix: [cliPath] };
+  const explicitHelper = process.env.BROWSERLOGIN_BROWSER_TOOLS_HELPER;
+  if (explicitHelper) {
+    if (!executable(explicitHelper))
+      throw new Error("packaged browser tools helper is unavailable");
+    return { command: explicitHelper, prefix: [] };
+  }
+  if (/^bun(?:\.exe)?$/i.test(basename(process.execPath)))
+    return { command: process.execPath, prefix: [cliPath] };
+  const name = vendorHelperName();
+  const candidates = [
+    join(dirname(process.execPath), name),
+    process.argv[1]
+      ? join(dirname(process.argv[1]), "vendor", name)
+      : undefined,
+    join(import.meta.dir, "vendor", name),
+    join(process.cwd(), "dist", "vendor", name),
+  ].filter((value): value is string => Boolean(value));
+  const helper = candidates.find(executable);
+  if (!helper) throw new Error("packaged browser tools helper is unavailable");
+  return { command: helper, prefix: [] };
 };
 
 function translateToolCall(
@@ -252,11 +303,11 @@ export async function createF2VendorRuntime(
 ): Promise<VendorBrowserRuntime> {
   if (!options.relayCdpUrl) throw new Error("relay CDP URL is required");
   const cliPath = options.cliPath ?? resolveCliPath();
+  const resolved = resolveVendorCommand(options, cliPath);
   const params: StdioServerParameters = {
-    command:
-      options.nodeCommand ?? process.env.BROWSERLOGIN_NODE_PATH ?? "node",
+    command: resolved.command,
     args: [
-      cliPath,
+      ...resolved.prefix,
       "--cdp-endpoint",
       options.relayCdpUrl,
       "--timeout-action",
