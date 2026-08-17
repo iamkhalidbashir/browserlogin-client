@@ -1,0 +1,655 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Version used by the failure-injection build drill
+        required: false
+        default: v0.1.0-failure-drill
+        type: string
+      fail_target:
+        description: Fail one matrix target after tests and before packaging
+        required: false
+        default: none
+        type: choice
+        options:
+          - none
+          - macos-arm64
+          - windows-x64
+          - linux-x64
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: "1.2.23"
+  HUTCH_CHANNEL: production
+  HUTCH_INSTALL_SH_SHA256: 9803e467afab4d795ebf506abbe94c3592b761188bd68b1b5edf02ad7955b92c
+  HUTCH_INSTALL_PS1_SHA256: d0a0bc6770e6021bcae24da12543cc4384270a1a0bbb8e03e9341260220092b0
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+
+jobs:
+  build:
+    name: build-${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-14
+            artifact_prefix: production-macos-arm64
+            installer: production-macos-arm64-BrowserLogin.dmg
+            update_archive: production-macos-arm64-BrowserLogin.app.tar.zst
+            metadata: production-macos-arm64-update.json
+            cli_asset: browserlogin-macos-arm64
+          - target: windows-x64
+            runner: windows-2025
+            artifact_prefix: production-win-x64
+            installer: production-win-x64-BrowserLogin-Setup.zip
+            update_archive: production-win-x64-BrowserLogin.tar.zst
+            metadata: production-win-x64-update.json
+            cli_asset: browserlogin-windows-x64.exe
+          - target: linux-x64
+            runner: ubuntu-24.04
+            artifact_prefix: production-linux-x64
+            installer: production-linux-x64-BrowserLogin-Setup.tar.gz
+            update_archive: production-linux-x64-BrowserLogin.tar.zst
+            metadata: production-linux-x64-update.json
+            cli_asset: browserlogin-linux-x64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Assert native architecture
+        shell: bash
+        run: |
+          case '${{ matrix.target }}' in
+            macos-arm64) test "$(uname -m)" = arm64 ;;
+            linux-x64) test "$(uname -m)" = x86_64 ;;
+            windows-x64) test "$PROCESSOR_ARCHITECTURE" = AMD64 ;;
+          esac
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev build-essential cmake pkg-config xvfb
+
+      - name: Install Hutch (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          installer="$RUNNER_TEMP/install-hutch.sh"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            https://hutch.blackboard.sh/hutch/install.sh --output "$installer"
+          echo "$HUTCH_INSTALL_SH_SHA256  $installer" | shasum -a 256 -c -
+          sh "$installer" --channel "$HUTCH_CHANNEL" --no-modify-path
+          echo "$HOME/.hutch/bin" >> "$GITHUB_PATH"
+
+      - name: Install Hutch (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP "install-hutch.ps1"
+          Invoke-WebRequest https://hutch.blackboard.sh/hutch/install.ps1 -OutFile $installer
+          $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:HUTCH_INSTALL_PS1_SHA256) {
+            throw "Hutch installer checksum mismatch: $actualHash"
+          }
+          & $installer -Channel $env:HUTCH_CHANNEL
+          "$HOME\.hutch\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Resolve release version
+        env:
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            release_tag="$GITHUB_REF_NAME"
+          else
+            release_tag="$MANUAL_RELEASE_TAG"
+          fi
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          [[ "$release_tag" =~ $semver ]] || { echo "release tag must be v-prefixed SemVer" >&2; exit 2; }
+          release_version="${release_tag#v}"
+          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
+
+      - name: Align package and Electrobun versions
+        shell: bash
+        run: |
+          bun - <<'TS'
+          import { readFile, writeFile } from "node:fs/promises";
+          const version = process.env.RELEASE_VERSION;
+          if (!version) throw new Error("RELEASE_VERSION is missing");
+          const packageJson = JSON.parse(await readFile("package.json", "utf8"));
+          packageJson.version = version;
+          await writeFile("package.json", `${JSON.stringify(packageJson, null, 2)}\n`);
+          const configPath = "electrobun.config.ts";
+          const before = await readFile(configPath, "utf8");
+          const after = before.replace(/version: "[^"]+",/, `version: "${version}",`);
+          if (after === before) throw new Error("Electrobun version field was not replaced");
+          await writeFile(configPath, after);
+          TS
+
+      - name: Sync exact Electrobun devkit
+        run: hutch electrobun sync
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: Integration tests
+        if: runner.os != 'Linux'
+        run: bun run test:integration
+
+      - name: Integration tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum bun run test:integration
+
+      - name: Contract tests
+        run: bun run test:contract
+
+      - name: Install Playwright Chromium
+        run: bunx playwright install --with-deps chromium
+
+      - name: Playwright E2E
+        if: runner.os != 'Linux'
+        run: bun run test:e2e
+
+      - name: Playwright E2E (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum bun run test:e2e
+
+      - name: Verify notices
+        run: bun run notices:check
+
+      - name: Inject requested matrix failure
+        if: github.event_name == 'workflow_dispatch' && inputs.fail_target == matrix.target
+        shell: bash
+        run: |
+          echo "Intentional failure for publication-gate drill: ${{ matrix.target }}" >&2
+          exit 86
+
+      - name: Build CLI
+        shell: bash
+        run: |
+          mkdir -p release
+          bun build --compile src/cli/index.ts --outfile "release/${{ matrix.cli_asset }}"
+
+      - name: Build unsigned Electrobun application
+        shell: bash
+        run: |
+          bun run build:web
+          hutch electrobun build --env=production
+
+      - name: Validate and stage macOS/Linux artifacts
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          scan_tree() {
+            python3 - "$1" <<'PY'
+          import os, re, sys
+          root = sys.argv[1]
+          prohibited = re.compile(
+              r"(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)",
+              re.IGNORECASE,
+          )
+          for base, dirs, files in os.walk(root, followlinks=False):
+              for name in dirs + files:
+                  relative = os.path.relpath(os.path.join(base, name), root)
+                  if prohibited.search(relative):
+                      raise SystemExit(f"prohibited browser payload path: {relative}")
+              for name in files:
+                  path = os.path.join(base, name)
+                  if not os.path.islink(path) and os.path.getsize(path) > 100 * 1024 * 1024:
+                      raise SystemExit(f"expanded release file exceeds 100 MiB: {path}")
+          PY
+          }
+
+          installer="artifacts/${{ matrix.installer }}"
+          update="artifacts/${{ matrix.update_archive }}"
+          metadata="artifacts/${{ matrix.metadata }}"
+          test -f "$installer"
+          test -f "$update"
+          test -f "$metadata"
+          case '${{ matrix.target }}' in
+            macos-arm64) jq -e --arg version "$RELEASE_VERSION" '.version == $version and .platform == "macos" and .arch == "arm64" and (.hash | length > 0)' "$metadata" ;;
+            linux-x64) jq -e --arg version "$RELEASE_VERSION" '.version == $version and .platform == "linux" and .arch == "x64" and (.hash | length > 0)' "$metadata" ;;
+          esac
+
+          smoke_dir="$RUNNER_TEMP/browserlogin-release-smoke"
+          mkdir -p "$smoke_dir"
+          tar -xf "$update" -C "$smoke_dir"
+          scan_tree "$smoke_dir"
+          launcher="$(find "$smoke_dir" -type f \( -path '*/bin/launcher' -o -path '*/Contents/MacOS/launcher' \) | head -1)"
+          test -n "$launcher"
+          case '${{ matrix.target }}' in
+            macos-arm64)
+              file "$launcher" | grep -q 'Mach-O 64-bit executable arm64'
+              file "release/${{ matrix.cli_asset }}" | grep -q 'Mach-O 64-bit executable arm64'
+              dmg_mount="$RUNNER_TEMP/browserlogin-release-dmg"
+              mkdir -p "$dmg_mount"
+              hdiutil attach "$installer" -readonly -nobrowse -mountpoint "$dmg_mount"
+              trap 'hdiutil detach "$dmg_mount" >/dev/null 2>&1 || true' EXIT
+              scan_tree "$dmg_mount"
+              hdiutil detach "$dmg_mount"
+              trap - EXIT
+              ;;
+            linux-x64)
+              file "$launcher" | grep -Eq 'ELF 64-bit.*x86-64'
+              file "release/${{ matrix.cli_asset }}" | grep -Eq 'ELF 64-bit.*x86-64'
+              installer_dir="$RUNNER_TEMP/browserlogin-release-installer"
+              mkdir -p "$installer_dir"
+              tar -xzf "$installer" -C "$installer_dir"
+              scan_tree "$installer_dir"
+              ;;
+          esac
+
+          cp "$installer" "$update" "$metadata" release/
+          for patch in artifacts/${{ matrix.artifact_prefix }}-*.patch; do
+            [[ -e "$patch" ]] || continue
+            cp "$patch" release/
+          done
+
+      - name: Validate and stage Windows artifacts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          function Assert-PeX64([string] $Path) {
+            $bytes = [IO.File]::ReadAllBytes($Path)
+            if ($bytes.Length -lt 64) { throw "PE file too small: $Path" }
+            if ($bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "Missing MZ signature: $Path" }
+            $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ($peOffset -lt 0 -or $peOffset + 24 -gt $bytes.Length) { throw "Invalid PE header offset: $Path" }
+            $peSignature = [Text.Encoding]::ASCII.GetString($bytes, $peOffset, 4)
+            if ($peSignature -ne "PE`0`0") { throw "Missing PE signature: $Path" }
+            $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+            if ($machine -ne 0x8664) { throw ("Expected x64 PE machine 0x8664 for {0}; got 0x{1:X4}" -f $Path, $machine) }
+          }
+
+          $installer = "artifacts/${{ matrix.installer }}"
+          $update = "artifacts/${{ matrix.update_archive }}"
+          $metadata = "artifacts/${{ matrix.metadata }}"
+          foreach ($path in @($installer, $update, $metadata)) {
+            if (-not (Test-Path $path -PathType Leaf)) { throw "Missing artifact: $path" }
+          }
+          $updateJson = Get-Content $metadata -Raw | ConvertFrom-Json
+          if ($updateJson.version -ne $env:RELEASE_VERSION -or $updateJson.platform -ne "win" -or $updateJson.arch -ne "x64" -or [string]::IsNullOrWhiteSpace($updateJson.hash)) {
+            throw "Updater metadata mismatch"
+          }
+
+          $smokeDir = Join-Path $env:RUNNER_TEMP "browserlogin-release-smoke"
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          & tar -xf $update -C $smokeDir
+          if ($LASTEXITCODE -ne 0) { throw "Could not extract Windows update archive" }
+          $launcher = Join-Path $smokeDir "BrowserLogin/bin/launcher.exe"
+          Assert-PeX64 $launcher
+          Assert-PeX64 "release/${{ matrix.cli_asset }}"
+
+          $updateListing = & tar -tf $update
+          if ($LASTEXITCODE -ne 0) { throw "Could not list Windows update archive" }
+          $installerListing = & tar -tf $installer
+          if ($LASTEXITCODE -ne 0) { throw "Could not list Windows installer archive" }
+          $archiveListing = ($updateListing + $installerListing) -join "`n"
+          if ($archiveListing -match '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)') {
+            throw "Browser executable found in Windows release archives"
+          }
+          Get-ChildItem $smokeDir -Recurse -File | ForEach-Object {
+            if ($_.Length -gt 100MB) { throw "Expanded release file exceeds 100 MiB: $($_.FullName)" }
+          }
+
+          Copy-Item $installer, $update, $metadata -Destination release
+          Get-ChildItem artifacts -File -Filter "${{ matrix.artifact_prefix }}-*.patch" | Copy-Item -Destination release
+
+      - name: Enforce release size and checksum policy
+        shell: bash
+        run: |
+          bun - <<'TS'
+          import { readdir, stat, writeFile } from "node:fs/promises";
+          import { join } from "node:path";
+          const root = "release";
+          const target = "${{ matrix.target }}";
+          const files = (await readdir(root)).sort();
+          const lines: string[] = [];
+          for (const name of files) {
+            const path = join(root, name);
+            const info = await stat(path);
+            if (!info.isFile()) continue;
+            if (info.size > 100 * 1024 * 1024) throw new Error(`release artifact exceeds 100 MiB: ${name}`);
+            const hasher = new Bun.CryptoHasher("sha256");
+            hasher.update(await Bun.file(path).arrayBuffer());
+            lines.push(`${hasher.digest("hex")}  ${name}`);
+          }
+          await writeFile(join(root, `SHA256SUMS-${target}`), `${lines.join("\n")}\n`);
+          TS
+          cat "release/SHA256SUMS-${{ matrix.target }}"
+
+      - name: Upload verified platform artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-${{ matrix.target }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-release:
+    name: publish-tagged-release
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-tag-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Download verified platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify matrix checksums and release inventory
+        shell: bash
+        run: |
+          manifests=(
+            release/SHA256SUMS-macos-arm64
+            release/SHA256SUMS-windows-x64
+            release/SHA256SUMS-linux-x64
+          )
+          for manifest in "${manifests[@]}"; do
+            test -f "$manifest"
+            (cd release && sha256sum -c "$(basename "$manifest")")
+          done
+          test "$(find release -maxdepth 1 -type f -name 'browserlogin-*' | wc -l | tr -d ' ')" = 3
+          test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup.zip' -o -name '*Setup.tar.gz' \) | wc -l | tr -d ' ')" = 3
+          test "$(find release -maxdepth 1 -type f -name 'production-*-update.json' | wc -l | tr -d ' ')" = 3
+
+      - name: Generate third-party notices
+        shell: bash
+        run: |
+          bun install --frozen-lockfile
+          bun scripts/notices.ts
+          cp NOTICES.md release/NOTICES.md
+
+      - name: Create combined checksums
+        shell: bash
+        run: |
+          rm release/SHA256SUMS-*
+          (
+            cd release
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sed 's#  \./#  #'
+          ) > release/SHA256SUMS
+          (cd release && sha256sum -c SHA256SUMS)
+
+      - name: Enforce tagged release allowlist
+        shell: bash
+        run: |
+          required=(
+            browserlogin-macos-arm64
+            browserlogin-windows-x64.exe
+            browserlogin-linux-x64
+            production-macos-arm64-BrowserLogin.dmg
+            production-macos-arm64-BrowserLogin.app.tar.zst
+            production-macos-arm64-update.json
+            production-win-x64-BrowserLogin-Setup.zip
+            production-win-x64-BrowserLogin.tar.zst
+            production-win-x64-update.json
+            production-linux-x64-BrowserLogin-Setup.tar.gz
+            production-linux-x64-BrowserLogin.tar.zst
+            production-linux-x64-update.json
+            NOTICES.md
+            SHA256SUMS
+          )
+          for name in "${required[@]}"; do test -f "release/$name"; done
+          for path in release/*; do
+            test -f "$path"
+            name="$(basename "$path")"
+            if printf '%s\n' "${required[@]}" | grep -Fxq "$name"; then continue; fi
+            if [[ "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then continue; fi
+            echo "unexpected release asset: $name" >&2
+            exit 1
+          done
+
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease+=(--prerelease); fi
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "versioned release already exists; refusing to replace immutable assets" >&2
+            exit 1
+          fi
+          release_files=(release/*)
+          gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
+            -R "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "BrowserLogin ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            "${prerelease[@]}"
+
+  publish-updater:
+    name: publish-stable-updater
+    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    needs:
+      - build
+      - publish-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.workflow }}-stable-updater
+      cancel-in-progress: false
+    steps:
+      - name: Download verified platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+
+      - name: Verify updater inventory and checksums
+        shell: bash
+        run: |
+          manifests=(
+            release/SHA256SUMS-macos-arm64
+            release/SHA256SUMS-windows-x64
+            release/SHA256SUMS-linux-x64
+          )
+          for manifest in "${manifests[@]}"; do
+            test -f "$manifest"
+            (cd release && sha256sum -c "$(basename "$manifest")")
+          done
+          expected_version="${GITHUB_REF_NAME#v}"
+          metadata=(
+            release/production-macos-arm64-update.json
+            release/production-win-x64-update.json
+            release/production-linux-x64-update.json
+          )
+          bundles=(
+            release/production-macos-arm64-BrowserLogin.app.tar.zst
+            release/production-win-x64-BrowserLogin.tar.zst
+            release/production-linux-x64-BrowserLogin.tar.zst
+          )
+          for file in "${metadata[@]}"; do
+            test -f "$file"
+            jq -e --arg version "$expected_version" '.version == $version' "$file"
+          done
+          for file in "${bundles[@]}"; do test -f "$file"; done
+
+      - name: Guard stable version and save rollback assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          rollback_dir="$RUNNER_TEMP/stable-rollback"
+          mkdir -p "$rollback_dir"
+          echo "STABLE_ROLLBACK_DIR=$rollback_dir" >> "$GITHUB_ENV"
+          if gh release view stable -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "STABLE_EXISTS=1" >> "$GITHUB_ENV"
+            gh release download stable \
+              -R "$GITHUB_REPOSITORY" \
+              --dir "$rollback_dir" \
+              --pattern 'production-macos-arm64-BrowserLogin.app.tar.zst' \
+              --pattern 'production-win-x64-BrowserLogin.tar.zst' \
+              --pattern 'production-linux-x64-BrowserLogin.tar.zst' \
+              --pattern 'production-macos-arm64-update.json' \
+              --pattern 'production-win-x64-update.json' \
+              --pattern 'production-linux-x64-update.json'
+            current_version="$(jq -r '.version' "$rollback_dir/production-macos-arm64-update.json")"
+            candidate_version="${GITHUB_REF_NAME#v}"
+            if [[ "$current_version" == "$candidate_version" ]]; then
+              echo "STABLE_ALREADY_CURRENT=1" >> "$GITHUB_ENV"
+            elif [[ "$(printf '%s\n' "$current_version" "$candidate_version" | sort -V | tail -1)" != "$candidate_version" ]]; then
+              echo "refusing to move stable backward from $current_version to $candidate_version" >&2
+              exit 1
+            fi
+          else
+            echo "STABLE_EXISTS=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Publish full bundles before metadata
+        if: env.STABLE_ALREADY_CURRENT != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          metadata=(
+            release/production-macos-arm64-update.json
+            release/production-win-x64-update.json
+            release/production-linux-x64-update.json
+          )
+          bundles=(
+            release/production-macos-arm64-BrowserLogin.app.tar.zst
+            release/production-win-x64-BrowserLogin.tar.zst
+            release/production-linux-x64-BrowserLogin.tar.zst
+          )
+          shopt -s nullglob
+          patches=(release/production-*.patch)
+          echo "STABLE_MUTATION_STARTED=1" >> "$GITHUB_ENV"
+
+          if [[ "$STABLE_EXISTS" == 0 ]]; then
+            echo "STABLE_CREATED=1" >> "$GITHUB_ENV"
+            gh release create stable \
+              -R "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "BrowserLogin stable updater channel" \
+              --notes "Rolling updater assets. Installers remain on versioned releases." \
+              --latest=false \
+              --draft
+          else
+            echo "STABLE_CREATED=0" >> "$GITHUB_ENV"
+          fi
+
+          gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/stable-assets.txt"
+
+          for file in "${metadata[@]}" "${bundles[@]}"; do
+            name="$(basename "$file")"
+            if grep -Fxq "$name" "$RUNNER_TEMP/stable-assets.txt"; then
+              gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+
+          gh release upload stable "${bundles[@]}" -R "$GITHUB_REPOSITORY"
+          for patch in "${patches[@]}"; do
+            name="$(basename "$patch")"
+            if ! grep -Fxq "$name" "$RUNNER_TEMP/stable-assets.txt"; then
+              gh release upload stable "$patch" -R "$GITHUB_REPOSITORY"
+            fi
+          done
+          gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
+          if [[ "$STABLE_EXISTS" == 0 ]]; then
+            gh release edit stable -R "$GITHUB_REPOSITORY" --draft=false
+          fi
+
+      - name: Verify published stable metadata
+        shell: bash
+        run: |
+          expected_version="${GITHUB_REF_NAME#v}"
+          verify_dir="$RUNNER_TEMP/stable-verification"
+          mkdir -p "$verify_dir"
+          for name in \
+            production-macos-arm64-BrowserLogin.app.tar.zst \
+            production-win-x64-BrowserLogin.tar.zst \
+            production-linux-x64-BrowserLogin.tar.zst \
+            production-macos-arm64-update.json \
+            production-win-x64-update.json \
+            production-linux-x64-update.json; do
+            url="https://github.com/${GITHUB_REPOSITORY}/releases/download/stable/${name}?run=${GITHUB_RUN_ID}"
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location "$url" --output "$verify_dir/$name"
+            expected_hash="$(grep -h "  ${name}$" release/SHA256SUMS-* | cut -d ' ' -f 1)"
+            test -n "$expected_hash"
+            echo "$expected_hash  $verify_dir/$name" | sha256sum -c -
+          done
+          for metadata in "$verify_dir"/*-update.json; do
+            jq -e --arg version "$expected_version" '.version == $version' "$metadata"
+          done
+
+      - name: Restore stable after publication failure
+        if: failure() && env.STABLE_MUTATION_STARTED == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          echo "::error::Stable updater publication failed after mutation began; restoring the previous stable core assets."
+          if [[ "$STABLE_CREATED" == 1 ]]; then
+            if gh release view stable -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete stable -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+            exit 1
+          fi
+
+          bundles=(
+            "$STABLE_ROLLBACK_DIR/production-macos-arm64-BrowserLogin.app.tar.zst"
+            "$STABLE_ROLLBACK_DIR/production-win-x64-BrowserLogin.tar.zst"
+            "$STABLE_ROLLBACK_DIR/production-linux-x64-BrowserLogin.tar.zst"
+          )
+          metadata=(
+            "$STABLE_ROLLBACK_DIR/production-macos-arm64-update.json"
+            "$STABLE_ROLLBACK_DIR/production-win-x64-update.json"
+            "$STABLE_ROLLBACK_DIR/production-linux-x64-update.json"
+          )
+          gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/failed-stable-assets.txt"
+          for file in "${metadata[@]}" "${bundles[@]}"; do
+            name="$(basename "$file")"
+            if grep -Fxq "$name" "$RUNNER_TEMP/failed-stable-assets.txt"; then
+              gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
+            fi
+          done
+          gh release upload stable "${bundles[@]}" -R "$GITHUB_REPOSITORY"
+          gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
+          echo "::error::Previous stable core assets restored; the release job remains failed for investigation."
