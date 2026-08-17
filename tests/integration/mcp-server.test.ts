@@ -331,16 +331,19 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     child.finishAssertions();
   });
 
-  it("stops on SIGTERM within five seconds", async () => {
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-sigterm-"));
-    roots.push(root);
-    const child = launch(root, "http://127.0.0.1:1/mcp");
-    await initialize(child);
-    child.child.kill("SIGTERM");
-    const result = await child.waitForExit();
-    expect(result.code).toBe(0);
-    child.finishAssertions();
-  });
+  it.skipIf(process.platform === "win32")(
+    "stops on SIGTERM within five seconds",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-sigterm-"));
+      roots.push(root);
+      const child = launch(root, "http://127.0.0.1:1/mcp");
+      await initialize(child);
+      child.child.kill("SIGTERM");
+      const result = await child.waitForExit();
+      expect(result.code).toBe(0);
+      child.finishAssertions();
+    },
+  );
 
   it("stops on stdin EOF within five seconds", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-eof-"));

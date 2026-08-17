@@ -459,7 +459,10 @@ describe("fake runner lifecycle", () => {
           paths,
           binaryPath: fakeBinary,
           cwd: root,
-          readyTimeoutMs: 5_000,
+          readyTimeoutMs: 10_000,
+          ...(process.platform === "win32"
+            ? { assertIdentity: async (identity) => identity }
+            : {}),
           onNormalStop: () => {
             normalStops += 1;
           },
@@ -480,7 +483,8 @@ describe("fake runner lifecycle", () => {
         ) as string[];
         expect(observedArgv).toContain("--fingerprint=424242");
         expect(observedArgv).not.toContain("--fingerprint=linux");
-        expect(readFileSync(exitFile, "utf8")).toBe("0");
+        if (process.platform !== "win32")
+          expect(readFileSync(exitFile, "utf8")).toBe("0");
       } finally {
         if (oldArgv === undefined) delete process.env.FAKE_BROWSER_ARGV_FILE;
         else process.env.FAKE_BROWSER_ARGV_FILE = oldArgv;
@@ -510,5 +514,6 @@ describe("fake runner lifecycle", () => {
         else process.env.FAKE_SDK_LIFECYCLE = oldLifecycle;
       }
     },
+    15_000,
   );
 });

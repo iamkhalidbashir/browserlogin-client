@@ -293,8 +293,9 @@ export async function main(): Promise<void> {
   }
 }
 
+const entryPath = process.argv[1]?.replaceAll("\\", "/");
 if (
-  process.argv[1]?.endsWith("/mcp/server.ts") ||
-  process.argv[1]?.endsWith("/mcp/server.js")
+  entryPath?.endsWith("/mcp/server.ts") ||
+  entryPath?.endsWith("/mcp/server.js")
 )
   void main();

@@ -27,9 +27,21 @@ async function waitForExit(
   });
 }
 
+async function taskkillTree(pid: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], {
+      stdio: "ignore",
+    });
+    killer.once("error", () => resolve());
+    killer.once("close", () => resolve());
+  });
+}
+
 async function stopTree(child: ChildProcess): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
-  if (child.pid && process.platform !== "win32") {
+  if (child.pid && process.platform === "win32") {
+    await taskkillTree(child.pid);
+  } else if (child.pid) {
     try {
       process.kill(-child.pid, "SIGTERM");
     } catch {
@@ -39,7 +51,9 @@ async function stopTree(child: ChildProcess): Promise<void> {
     child.kill("SIGTERM");
   }
   await waitForExit(child, 5_000).catch(async () => {
-    if (child.pid && process.platform !== "win32") {
+    if (child.pid && process.platform === "win32") {
+      await taskkillTree(child.pid);
+    } else if (child.pid) {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {
@@ -55,12 +69,28 @@ async function stopTree(child: ChildProcess): Promise<void> {
 afterEach(async () => {
   await Promise.all(children.splice(0).map(stopTree));
   await Promise.all(
-    roots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+    roots
+      .splice(0)
+      .map((root) =>
+        rm(root, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 200,
+        }),
+      ),
   );
   await Promise.all(
     generated
       .splice(0)
-      .map((path) => rm(path, { recursive: true, force: true })),
+      .map((path) =>
+        rm(path, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 200,
+        }),
+      ),
   );
 });
 

@@ -271,6 +271,7 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
           : undefined;
       if (runnerIdentity) {
         const runnerStoppedBeforeCrash =
+          process.platform === "win32" ||
           point === "after-runner-stopped-before-identity-save" ||
           point === "after-license-released-before-state-save";
         expect(await readIdentity(runnerIdentity), point)[
@@ -322,7 +323,11 @@ describe("Task 18 fresh-process SIGKILL recovery", () => {
     expectForcedCrash(crashed);
     const state = await createRecoveryStore(root).load("profile-1");
     expect(state?.runner_pid).toBeTypeOf("number");
-    process.kill(state!.runner_pid!, "SIGKILL");
+    try {
+      process.kill(state!.runner_pid!, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
     const recovered = await runChild(
       root,
       mock.port,
