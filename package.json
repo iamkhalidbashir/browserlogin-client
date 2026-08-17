@@ -22,7 +22,9 @@
     "test:contract": "vitest run tests/contract",
     "test:e2e": "playwright test --config playwright.config.ts",
     "test:watch": "vitest",
-    "test:onnx-fidelity": "vitest run tests/unit/bumblebee-fidelity.test.ts"
+    "test:onnx-fidelity": "vitest run tests/unit/bumblebee-fidelity.test.ts",
+    "notices": "bun scripts/notices.ts",
+    "notices:check": "bun scripts/notices.ts --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
