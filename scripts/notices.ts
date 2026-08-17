@@ -154,7 +154,7 @@ const output = await format(render(notices), { parser: "markdown" });
 
 if (process.argv.includes("--check")) {
   const existing = await readFile(outputPath, "utf8").catch(() => "");
-  if (existing !== output) {
+  if (existing.replaceAll("\r\n", "\n") !== output) {
     process.stderr.write(
       "NOTICES.md is out of date; run bun scripts/notices.ts\n",
     );

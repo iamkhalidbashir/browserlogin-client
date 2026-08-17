@@ -1,2 +1,3 @@
 tests/fixtures/onnx-corpus.json text eol=lf
 resources/models/*.json text eol=lf
+NOTICES.md text eol=lf
