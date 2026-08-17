@@ -10,7 +10,7 @@ import {
   type Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserTools } from "../core/browser-tools/factory.js";
-import { PRODUCT_TOOLS } from "../core/browser-tools/manifest.js";
+import { PRODUCT_TOOLS, visibleTools } from "../core/browser-tools/manifest.js";
 import {
   ConnectionStore,
   DEFAULT_BASE_URL,
@@ -106,6 +106,9 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
     baseUrl: resolution.baseUrl,
     credentials: async () => resolution.apiKey!,
   });
+  const runtimeHooks: {
+    stop?: (profileId: string) => Promise<void>;
+  } = {};
   const coordinator = new LifecycleCoordinator({
     root,
     api: client,
@@ -149,18 +152,18 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
         },
       };
     },
+    runtimeStop: async (profileId) => runtimeHooks.stop?.(profileId),
   });
   const browser = createBrowserTools({
     lookup: async (profileId) => {
       const state = await coordinator.store.load(profileId);
       const relayCdpUrl =
-        state?.status === "running"
-          ? `ws://127.0.0.1:${process.env.BROWSERLOGIN_CDP_RELAY_PORT ?? "0"}`
-          : undefined;
+        state?.status === "running" ? state.relay_cdp_url : undefined;
       return relayCdpUrl ? { relayCdpUrl } : undefined;
     },
     coordinatorStop: (profileId) => coordinator.stop(profileId),
   });
+  runtimeHooks.stop = browser.runtimeStop;
   const remoteClient = new RemoteMcpClient({
     credentials: async () =>
       process.env.BROWSERLOGIN_MCP_REMOTE_TOKEN ?? resolution.apiKey!,
@@ -178,10 +181,14 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
     start: (profileId) => coordinator.start(profileId),
     stop: (profileId) => coordinator.stop(profileId),
   };
+  const browserTools = visibleTools(
+    process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE === "1",
+  );
   return {
     lifecycle,
     browserRouter: browser.router,
     browserLifecycle: browser.lifecycle,
+    browserTools,
     remoteCache,
     remoteForwarder,
     close: async () => undefined,

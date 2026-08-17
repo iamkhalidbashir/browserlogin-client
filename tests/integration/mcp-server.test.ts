@@ -61,6 +61,7 @@ class StdioHarness {
     root: string,
     remoteUrl: string,
     apiKey = API_KEY,
+    extraEnv: NodeJS.ProcessEnv = {},
   ) {
     this.child = spawn(BUN, [SERVER], {
       cwd: process.cwd(),
@@ -71,6 +72,7 @@ class StdioHarness {
         BROWSERLOGIN_BASE_URL: baseUrl,
         BROWSERLOGIN_MCP_REMOTE_TOKEN: API_KEY,
         BROWSERLOGIN_MCP_REMOTE_URL: remoteUrl,
+        ...extraEnv,
       },
       stdio: "pipe",
     });
@@ -197,8 +199,18 @@ class StdioHarness {
   }
 }
 
-function launch(root: string, remoteUrl: string): StdioHarness {
-  const harness = new StdioHarness(LOCAL_API_FAILURE, root, remoteUrl);
+function launch(
+  root: string,
+  remoteUrl: string,
+  extraEnv: NodeJS.ProcessEnv = {},
+): StdioHarness {
+  const harness = new StdioHarness(
+    LOCAL_API_FAILURE,
+    root,
+    remoteUrl,
+    API_KEY,
+    extraEnv,
+  );
   children.push(harness);
   return harness;
 }
@@ -229,7 +241,7 @@ function expectErrorResult(response: RpcFrame, text: string): void {
 }
 
 describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
-  it("lists 43 tools, keeps stdout protocol-only, and handles 20 calls", async () => {
+  it("lists 42 safe-default tools, keeps stdout protocol-only, and handles 20 calls", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-ready-"));
     roots.push(root);
     const remote = await startRemoteMcpMock();
@@ -241,7 +253,10 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       const tools = (callResult(listed).tools ?? []) as Array<
         Record<string, unknown>
       >;
-      expect(tools).toHaveLength(43);
+      expect(tools).toHaveLength(42);
+      expect(tools.map((tool) => tool.name)).not.toContain(
+        "browser_run_code_unsafe",
+      );
       expect(tools.map((tool) => tool.name)).toEqual(
         expect.arrayContaining([
           ...REMOTE_TOOL_NAMES,
@@ -299,7 +314,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     }
   });
 
-  it("degrades to exactly 26 local tools within the discovery budget", async () => {
+  it("degrades to exactly 25 safe-default local tools within the discovery budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-degraded-"));
     roots.push(root);
     const child = launch(root, "http://127.0.0.1:1/mcp");
@@ -309,7 +324,25 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       (initialized.result as Record<string, unknown>).instructions,
     ).toContain("degraded local-only mode");
     const listed = await child.request(2, "tools/list");
-    expect(callResult(listed).tools as unknown[]).toHaveLength(26);
+    expect(callResult(listed).tools as unknown[]).toHaveLength(25);
+    child.child.kill("SIGTERM");
+    await child.waitForExit();
+    child.finishAssertions();
+  });
+
+  it("restores the 26-tool local catalog only with exact unsafe opt-in", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-unsafe-"));
+    roots.push(root);
+    const child = launch(root, "http://127.0.0.1:1/mcp", {
+      BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE: "1",
+    });
+    await initialize(child);
+    const listed = await child.request(2, "tools/list");
+    const tools = (callResult(listed).tools ?? []) as Array<
+      Record<string, unknown>
+    >;
+    expect(tools).toHaveLength(26);
+    expect(tools.map((tool) => tool.name)).toContain("browser_run_code_unsafe");
     child.child.kill("SIGTERM");
     await child.waitForExit();
     child.finishAssertions();
