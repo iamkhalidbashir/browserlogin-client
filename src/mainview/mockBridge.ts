@@ -1,4 +1,8 @@
-import { AppRPCSchemas, type AppRPCMethod } from "../shared/rpc-schema.js";
+import {
+  AppRPCSchemas,
+  type AppRPCMethod,
+  type RpcReply,
+} from "../shared/rpc-schema.js";
 import type { Bridge, BridgeParams, BridgeResult } from "./rpc-client.js";
 
 const profile = {
@@ -185,18 +189,89 @@ const values: Record<AppRPCMethod, unknown> = {
 export function createMockBridge(
   overrides: Partial<Record<AppRPCMethod, unknown>> = {},
 ): Bridge {
+  let connected =
+    typeof window === "undefined" ||
+    new URLSearchParams(window.location.search).get("setup") !== "1";
+  const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
+  let liveSessions: Array<Record<string, unknown>> = [];
+  if (typeof window !== "undefined") window.__browserloginMockCalls = calls;
   return {
     async request<K extends AppRPCMethod>(
       method: K,
       params: BridgeParams<K>,
-    ): Promise<{ ok: true; value: BridgeResult<K> }> {
+    ): Promise<RpcReply<BridgeResult<K>>> {
       AppRPCSchemas[method].params.parse(params);
+      calls.push({ method, params: structuredClone(params) });
+      if (method === "connectionGet") {
+        const override = overrides.connectionGet as
+          | Record<string, unknown>
+          | undefined;
+        const value = AppRPCSchemas.connectionGet.result.parse({
+          ...(values.connectionGet as Record<string, unknown>),
+          ...override,
+          hasApiKey: override?.hasApiKey ?? connected,
+        }) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "connectionSet") connected = true;
+      if (method === "sessionsStart") {
+        const profileId = (params as { profileId: string }).profileId;
+        liveSessions = [
+          ...liveSessions.filter((session) => session.profile_id !== profileId),
+          {
+            profile_id: profileId,
+            status: "running",
+            started_at: new Date().toISOString(),
+            generation: 1,
+            archive_generation: 4,
+          },
+        ];
+        return {
+          ok: true,
+          value: AppRPCSchemas.sessionsStart.result.parse(
+            liveSessions.at(-1),
+          ) as BridgeResult<K>,
+        };
+      }
+      if (method === "sessionsLive") {
+        return {
+          ok: true,
+          value: AppRPCSchemas.sessionsLive.result.parse(
+            liveSessions,
+          ) as BridgeResult<K>,
+        };
+      }
+      if (method === "sessionsStop" || method === "sessionsForceStop") {
+        const profileId = (params as { profileId: string }).profileId;
+        liveSessions = liveSessions.filter(
+          (session) => session.profile_id !== profileId,
+        );
+      }
+      if (
+        method === "profilesUpdate" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("conflict") === "1"
+      ) {
+        return {
+          ok: false,
+          error: { code: "CONFLICT", message: "Profile changed remotely" },
+        };
+      }
       const value = AppRPCSchemas[method].result.parse(
         overrides[method] ?? values[method],
       ) as BridgeResult<K>;
       return { ok: true, value };
     },
   };
+}
+
+declare global {
+  interface Window {
+    __browserloginMockCalls?: Array<{
+      method: AppRPCMethod;
+      params: unknown;
+    }>;
+  }
 }
 
 export function createDefaultBridge(): Bridge {

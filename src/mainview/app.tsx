@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
+import SetupView from "./features/setup/setup-view.js";
 
 const Dashboard = lazy(() => import("./routes/dashboard.js"));
 const Profiles = lazy(() => import("./routes/profiles.js"));
@@ -32,6 +33,7 @@ export function App() {
       return result.value;
     },
   });
+  if (connection.data && !connection.data.hasApiKey) return <SetupView />;
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
       <a className="skip-link" href="#main">
