@@ -13,5 +13,13 @@
     "skipLibCheck": true,
     "types": ["node", "bun", "vitest/globals"]
   },
-  "include": ["src", "tests", "electrobun.config.ts", "hutch.config.ts", "eslint.config.mjs", "vitest.config.ts"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "electrobun.config.ts",
+    "hutch.config.ts",
+    "eslint.config.mjs",
+    "vitest.config.ts"
+  ]
 }
