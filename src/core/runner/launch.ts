@@ -201,9 +201,13 @@ export async function readAndDeleteLaunchFile(
   try {
     const info = await fd.stat();
     if (!info.isFile()) throw new Error("launch file is not a regular file");
-    if ((info.mode & 0o077) !== 0)
+    if (process.platform !== "win32" && (info.mode & 0o077) !== 0)
       throw new Error("launch file is not private");
-    if (typeof process.getuid === "function" && info.uid !== process.getuid())
+    if (
+      process.platform !== "win32" &&
+      typeof process.getuid === "function" &&
+      info.uid !== process.getuid()
+    )
       throw new Error("launch file is not owned by the current user");
     contents = await fd.readFile("utf8");
   } finally {

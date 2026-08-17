@@ -66,7 +66,8 @@ describe("runner launch protocol", () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-"));
     const path = join(root, "launch.json");
     await createOneShotLaunchFile(path, spec);
-    expect((await stat(path)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual(spec);
     expect(await readAndDeleteLaunchFile(path)).toEqual(spec);
     await expect(stat(path)).rejects.toThrow();

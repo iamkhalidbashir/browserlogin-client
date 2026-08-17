@@ -41,11 +41,15 @@ describe("config path roots", () => {
     ).toBe("/var/lib/test/browserlogin");
     expect(
       resolveStateRoot({
+        platform: "linux",
         env: { BROWSERLOGIN_STATE_DIR: "/tmp/browserlogin" },
       }),
     ).toBe("/tmp/browserlogin");
     expect(() =>
-      resolveStateRoot({ env: { BROWSERLOGIN_STATE_DIR: "relative" } }),
+      resolveStateRoot({
+        platform: "linux",
+        env: { BROWSERLOGIN_STATE_DIR: "relative" },
+      }),
     ).toThrow("absolute");
   });
 
@@ -68,7 +72,8 @@ describe("config path roots", () => {
       "ready",
       "logs",
     ]) {
-      expect((await stat(paths[name])).mode & 0o777).toBe(0o700);
+      if (process.platform !== "win32")
+        expect((await stat(paths[name])).mode & 0o777).toBe(0o700);
     }
     await symlink(join(root, "outside"), join(root, "unsafe"));
     await expect(

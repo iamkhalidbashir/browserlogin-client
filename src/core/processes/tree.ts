@@ -126,6 +126,12 @@ export const killProcessTree = async (
           void 0;
         }
       }
+      const reapDeadline = Date.now() + 1_000;
+      while (
+        Date.now() < reapDeadline &&
+        (alive(rootPid) || ordered.some(alive))
+      )
+        await wait(20);
     }
   }
   return [rootPid, ...ordered];

@@ -102,13 +102,17 @@ describe("state paths", () => {
     ).toBe("/var/lib/test/browserlogin");
     expect(
       resolveStateRoot({
+        platform: "linux",
         env: { BROWSERLOGIN_STATE_DIR: "/tmp/browserlogin" },
       }),
     ).toBe("/tmp/browserlogin");
     expect(() =>
-      resolveStateRoot({ env: { BROWSERLOGIN_STATE_DIR: "relative" } }),
+      resolveStateRoot({
+        platform: "linux",
+        env: { BROWSERLOGIN_STATE_DIR: "relative" },
+      }),
     ).toThrow("absolute");
-    expect(Object.keys(statePaths("/tmp/browserlogin"))).toEqual(
+    expect(Object.keys(statePaths(join(tmpdir(), "browserlogin")))).toEqual(
       expect.arrayContaining([
         "root",
         "state",
@@ -147,7 +151,8 @@ describe("state paths", () => {
       "ready",
       "logs",
     ]) {
-      expect((await stat(paths[name])).mode & 0o777).toBe(0o700);
+      if (process.platform !== "win32")
+        expect((await stat(paths[name])).mode & 0o777).toBe(0o700);
     }
     const outside = join(root, "outside");
     await symlink(outside, join(root, "unsafe"));
@@ -167,7 +172,8 @@ describe("atomic config store", () => {
       base_url: "https://example.test/api/v1",
       key_ref: "keychain",
     });
-    expect((await stat(paths.connection)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(paths.connection)).mode & 0o777).toBe(0o600);
     expect(await readFile(paths.connection, "utf8")).toContain(
       '"key_ref": "keychain"',
     );

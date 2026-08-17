@@ -153,9 +153,10 @@ describe("Task 15 license relay", () => {
       "port",
       "start_time",
     ]);
-    expect(
-      (await stat(join(root, "state", "license-relay.json"))).mode & 0o777,
-    ).toBe(0o600);
+    if (process.platform !== "win32")
+      expect(
+        (await stat(join(root, "state", "license-relay.json"))).mode & 0o777,
+      ).toBe(0o600);
     expect(
       (
         await fetch(

@@ -62,7 +62,12 @@ jobs:
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
-      - run: bun run test:integration
+      - name: Run integration tests
+        if: runner.os != 'Linux'
+        run: bun run test:integration
+      - name: Run integration tests (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum bun run test:integration
       - run: bun run test:contract
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium

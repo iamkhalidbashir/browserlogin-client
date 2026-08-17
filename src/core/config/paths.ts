@@ -1,7 +1,7 @@
 import { chmod, mkdir, lstat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir, platform as hostPlatform } from "node:os";
-import { dirname, isAbsolute, join, resolve, win32 } from "node:path";
+import { dirname, isAbsolute, join, posix, win32 } from "node:path";
 
 export const STATE_DIRECTORIES = [
   "state",
@@ -38,7 +38,11 @@ function requireAbsolute(
   name: string,
   platform?: string,
 ): string {
-  const pathApi = platform === "win32" ? win32 : { isAbsolute, resolve };
+  const pathApi =
+    platform === "win32" ||
+    (platform === undefined && hostPlatform() === "win32")
+      ? win32
+      : posix;
   if (!pathApi.isAbsolute(value))
     throw new TypeError(`${name} must be absolute`);
   return pathApi.resolve(value);
@@ -46,19 +50,19 @@ function requireAbsolute(
 
 export function resolveStateRoot(options: StatePathOptions = {}): string {
   const env = options.env ?? process.env;
+  const platform = options.platform ?? hostPlatform();
   const override = env.BROWSERLOGIN_STATE_DIR;
   if (override !== undefined && override !== "") {
-    return requireAbsolute(override, "BROWSERLOGIN_STATE_DIR");
+    return requireAbsolute(override, "BROWSERLOGIN_STATE_DIR", platform);
   }
 
-  const platform = options.platform ?? hostPlatform();
   const home = requireAbsolute(
     options.home ?? env.HOME ?? homedir(),
     "home",
     platform,
   );
   if (platform === "darwin") {
-    return join(home, "Library", "Application Support", "BrowserLogin");
+    return posix.join(home, "Library", "Application Support", "BrowserLogin");
   }
   if (platform === "win32") {
     const localAppData = options.localAppData ?? env.LOCALAPPDATA;
@@ -72,10 +76,11 @@ export function resolveStateRoot(options: StatePathOptions = {}): string {
     );
   }
   const xdgState = env.XDG_STATE_HOME;
-  return join(
+  return posix.join(
     requireAbsolute(
-      xdgState ?? join(home, ".local", "state"),
+      xdgState ?? posix.join(home, ".local", "state"),
       "XDG_STATE_HOME",
+      platform,
     ),
     "browserlogin",
   );
@@ -110,7 +115,8 @@ export type PathSecurity = {
 export function posixPathSecurity(): PathSecurity {
   return {
     async secure(path, directory) {
-      await chmod(path, directory ? 0o700 : 0o600);
+      if (process.platform !== "win32")
+        await chmod(path, directory ? 0o700 : 0o600);
     },
     async verify(path, directory) {
       const info = await lstat(path);
@@ -120,9 +126,10 @@ export function posixPathSecurity(): PathSecurity {
       ) {
         throw new Error("private path has an invalid type");
       }
-      if ((info.mode & 0o077) !== 0)
+      if (process.platform !== "win32" && (info.mode & 0o077) !== 0)
         throw new Error("private path is not private");
       if (
+        process.platform !== "win32" &&
         typeof process.getuid === "function" &&
         info.uid !== process.getuid()
       ) {

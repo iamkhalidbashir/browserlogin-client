@@ -38,7 +38,8 @@ describe("atomic config store", () => {
       base_url: "https://example.test/api/v1",
       key_ref: "keychain",
     });
-    expect((await stat(paths.connection)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32")
+      expect((await stat(paths.connection)).mode & 0o777).toBe(0o600);
     expect(await readFile(paths.connection, "utf8")).toContain(
       '"key_ref": "keychain"',
     );

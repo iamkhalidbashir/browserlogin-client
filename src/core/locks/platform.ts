@@ -5,6 +5,8 @@ import { promisify } from "node:util";
 import type { LockProbe, ProcessStartTime } from "./types.js";
 
 const execFileAsync = promisify(execFile);
+let ownStartTime: ProcessStartTime | undefined;
+let ownCommandLine: string[] | undefined;
 
 const parseLinuxStartTime = (stat: string): ProcessStartTime | undefined => {
   const close = stat.lastIndexOf(")");
@@ -33,7 +35,7 @@ const powershellStartTime = async (
   pid: number,
 ): Promise<ProcessStartTime | undefined> => {
   const script =
-    "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=$env:PID_TARGET'; if ($p) { $p.CreationDate.ToUniversalTime().ToString('o') }";
+    '$p=Get-CimInstance Win32_Process -Filter "ProcessId=$env:PID_TARGET"; if ($p) { $p.CreationDate.ToUniversalTime().ToString("o") }';
   const { stdout } = await execFileAsync(
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", script],
@@ -48,13 +50,18 @@ const powershellStartTime = async (
 export const getProcessStartTime = async (
   pid: number,
 ): Promise<ProcessStartTime | undefined> => {
+  if (pid === process.pid && ownStartTime) return ownStartTime;
   try {
     if (process.platform === "linux") {
       const stat = await readFile(`/proc/${pid}/stat`, "utf8");
       return parseLinuxStartTime(stat);
     }
-    if (process.platform === "win32") return await powershellStartTime(pid);
-    return await psStartTime(pid);
+    const start =
+      process.platform === "win32"
+        ? await powershellStartTime(pid)
+        : await psStartTime(pid);
+    if (pid === process.pid) ownStartTime = start;
+    return start;
   } catch {
     return undefined;
   }
@@ -63,6 +70,7 @@ export const getProcessStartTime = async (
 export const getProcessCommandLine = async (
   pid: number,
 ): Promise<string[] | undefined> => {
+  if (pid === process.pid && ownCommandLine) return ownCommandLine;
   try {
     if (process.platform === "linux") {
       const bytes = await readFile(`/proc/${pid}/cmdline`);
@@ -70,13 +78,15 @@ export const getProcessCommandLine = async (
     }
     if (process.platform === "win32") {
       const script =
-        "$p=Get-CimInstance Win32_Process -Filter 'ProcessId=$env:PID_TARGET'; if ($p) { $p.CommandLine }";
+        '$p=Get-CimInstance Win32_Process -Filter "ProcessId=$env:PID_TARGET"; if ($p) { $p.CommandLine }';
       const { stdout } = await execFileAsync(
         "powershell.exe",
         ["-NoProfile", "-NonInteractive", "-Command", script],
         { env: { ...process.env, PID_TARGET: String(pid) } },
       );
-      return stdout.trim() ? [stdout.trim()] : undefined;
+      const command = stdout.trim() ? [stdout.trim()] : undefined;
+      if (pid === process.pid) ownCommandLine = command;
+      return command;
     }
     const { stdout } = await execFileAsync("ps", [
       "-p",
@@ -84,7 +94,9 @@ export const getProcessCommandLine = async (
       "-o",
       "command=",
     ]);
-    return stdout.trim() ? [stdout.trim()] : undefined;
+    const command = stdout.trim() ? [stdout.trim()] : undefined;
+    if (pid === process.pid) ownCommandLine = command;
+    return command;
   } catch {
     return undefined;
   }

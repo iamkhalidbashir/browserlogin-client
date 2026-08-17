@@ -23,7 +23,12 @@ async function syncDirectory(path: string): Promise<void> {
     }
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
-    if (code !== "EINVAL" && code !== "EISDIR" && code !== "ENOTSUP")
+    if (
+      code !== "EINVAL" &&
+      code !== "EISDIR" &&
+      code !== "ENOTSUP" &&
+      code !== "EPERM"
+    )
       throw error;
   }
 }
