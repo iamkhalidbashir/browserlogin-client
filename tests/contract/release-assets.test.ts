@@ -77,4 +77,13 @@ describe("release asset contract", () => {
       "candidate_patches=(release/production-*.patch)",
     );
   });
+
+  test("permits only the expected native helper above the expanded file cap", () => {
+    expect(workflowStep("Validate and stage macOS/Linux artifacts")).toContain(
+      "allowed_large.fullmatch(name)",
+    );
+    expect(workflowStep("Validate and stage Windows artifacts")).toContain(
+      '$allowedLarge = @("browserlogin-browser-tools-windows-x64.exe")',
+    );
+  });
 });
