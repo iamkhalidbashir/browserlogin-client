@@ -27,17 +27,19 @@ The screenshots use local mock data and contain no production credentials or ser
 
 Download the asset for your platform from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases). Release artifacts are unsigned until a signing/notarization process is introduced.
 
+Release filenames use the version without the tag's leading `v`: tag `v0.1.1` produces filenames containing `0.1.1`.
+
 ### macOS ARM64
 
-1. Download `BrowserLogin.dmg`, open it, and move BrowserLogin to Applications.
+1. Download `BrowserLogin-<version>-macos-arm64.dmg`, open it, and move BrowserLogin to Applications.
 2. On first launch, use Finder **right-click → Open** to approve the unsigned application. As an explicit alternative, remove quarantine metadata yourself with `xattr -cr /Applications/BrowserLogin.app` after verifying the checksum.
-3. For terminal/MCP use, download `browserlogin-macos-arm64` plus `browserlogin-browser-tools-macos-arm64`. Make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
+3. For terminal/MCP use, download `browserlogin-<version>-macos-arm64` plus `browserlogin-browser-tools-macos-arm64`. Make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
 
 ### Windows x64
 
-1. Download and extract `BrowserLogin-Setup.zip`, then run the installer.
+1. Download and extract `BrowserLogin-<version>-windows-x64-Setup.zip`, then run the installer.
 2. If SmartScreen appears, select **More info → Run anyway** after verifying the checksum.
-3. Download `browserlogin-windows-x64.exe` plus `browserlogin-browser-tools-windows-x64.exe`. Place both in the same directory, put that directory on `PATH`, and optionally rename only the CLI to `browserlogin.exe`.
+3. Download `browserlogin-<version>-windows-x64.exe` plus `browserlogin-browser-tools-windows-x64.exe`. Place both in the same directory, put that directory on `PATH`, and rename only the CLI to `browserlogin.exe`.
 
 ### Linux x64
 
@@ -48,8 +50,8 @@ Download the asset for your platform from [GitHub Releases](https://github.com/i
    sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
    ```
 
-2. Download and extract `BrowserLogin-Setup.tar.gz`, then run the included launcher.
-3. Download `browserlogin-linux-x64` plus `browserlogin-browser-tools-linux-x64`, make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
+2. Download and extract `BrowserLogin-<version>-linux-x64-Setup.tar.gz`, then run the included launcher.
+3. Download `browserlogin-<version>-linux-x64` plus `browserlogin-browser-tools-linux-x64`, make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
 
 Verify every downloaded file against the release `SHA256SUMS` before running it.
 
