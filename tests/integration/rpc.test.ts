@@ -9,6 +9,16 @@ const roots: string[] = [];
 const children: ChildProcess[] = [];
 const generated: string[] = [];
 
+async function linuxProcessSnapshot(pid: number): Promise<string> {
+  if (process.platform !== "linux") return "not-linux";
+  try {
+    return await readFile(`/proc/${pid}/stat`, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "absent";
+    throw error;
+  }
+}
+
 async function waitForExit(
   child: ChildProcess,
   timeoutMs: number,
@@ -149,12 +159,15 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
     };
     expect(ready.ready).toBe(true);
     expect(ready.pid).toBeTypeOf("number");
+    if (typeof ready.pid !== "number") throw new Error("missing ready PID");
+    const readyPid = ready.pid;
+    const initialProcessSnapshot = await linuxProcessSnapshot(readyPid);
     await stopTree(child);
     const cleanupDeadline = Date.now() + 5_000;
     let appAlive = true;
     while (Date.now() < cleanupDeadline) {
       try {
-        process.kill(ready.pid!, 0);
+        process.kill(readyPid, 0);
         await new Promise((resolve) => setTimeout(resolve, 50));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ESRCH") {
@@ -164,6 +177,10 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
         throw error;
       }
     }
-    expect(appAlive).toBe(false);
+    const finalProcessSnapshot = await linuxProcessSnapshot(readyPid);
+    expect(
+      appAlive,
+      `initial process: ${initialProcessSnapshot}; final process: ${finalProcessSnapshot}`,
+    ).toBe(false);
   });
 });
