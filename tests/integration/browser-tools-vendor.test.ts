@@ -8,7 +8,10 @@ import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import WebSocket, { WebSocketServer } from "ws";
 import { SOURCE_MANIFEST_TOOL_NAMES } from "../../src/core/browser-tools/manifest.js";
-import { createF2VendorRuntime } from "../../src/core/browser-tools/vendor.js";
+import {
+  createF2VendorRuntime,
+  vendorHelperName,
+} from "../../src/core/browser-tools/vendor.js";
 
 const fixture = fileURLToPath(
   new URL("../fixtures/fake-vendor-child.mjs", import.meta.url),
@@ -39,7 +42,7 @@ async function withEnv<T>(
 describe("f2 vendor stdio subprocess", () => {
   test("uses a packaged Bun helper with an empty PATH and no system Node", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-vendor-helper-"));
-    const helper = join(root, "browserlogin-browser-tools-helper");
+    const helper = join(root, vendorHelperName());
     const capture = join(root, "capture.jsonl");
     try {
       await execFileAsync(
