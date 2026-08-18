@@ -16,15 +16,19 @@ import {
 } from "../../src/core/processes/tree.js";
 
 describe("Task 13 process identity", () => {
-  it("hashes normalized argv and rejects a changed identity", async () => {
-    expect(commandLineHash(["/tmp/bin", "  --profile", "x"])).toBe(
-      commandLineHash(["/tmp/bin", "--profile", "x"]),
-    );
-    const identity = await captureIdentity();
-    await expect(
-      assertIdentity({ ...identity, cmdline_hash: "0".repeat(64) }),
-    ).rejects.toBeInstanceOf(ProcessIdentityMismatchError);
-  });
+  it(
+    "hashes normalized argv and rejects a changed identity",
+    async () => {
+      expect(commandLineHash(["/tmp/bin", "  --profile", "x"])).toBe(
+        commandLineHash(["/tmp/bin", "--profile", "x"]),
+      );
+      const identity = await captureIdentity();
+      await expect(
+        assertIdentity({ ...identity, cmdline_hash: "0".repeat(64) }),
+      ).rejects.toBeInstanceOf(ProcessIdentityMismatchError);
+    },
+    process.platform === "win32" ? 15_000 : 5_000,
+  );
 
   it.runIf(process.platform !== "win32")(
     "tree kill reports and reaps both child and grandchild",

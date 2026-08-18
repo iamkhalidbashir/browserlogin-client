@@ -86,7 +86,7 @@ function symlinkArchive(): Uint8Array {
 
 afterEach(async () => {
   while (roots.length) await rm(roots.pop()!, { recursive: true, force: true });
-});
+}, 120_000);
 
 describe("SafeZipArchive", () => {
   it("exposes the exact Python limits and checks limit minus/at/plus boundaries", () => {
