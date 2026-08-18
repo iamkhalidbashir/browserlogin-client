@@ -426,43 +426,81 @@ jobs:
           bun scripts/notices.ts
           cp NOTICES.md release/NOTICES.md
 
-      - name: Create combined checksums
+      - name: Stage tagged release assets
         shell: bash
         run: |
-          rm release/SHA256SUMS-*
+          release_version="${GITHUB_REF_NAME#v}"
+          tagged_release="tagged-release"
+          mkdir -p "$tagged_release"
+
+          cp release/production-macos-arm64-BrowserLogin.dmg \
+            "$tagged_release/BrowserLogin-${release_version}-macos-arm64.dmg"
+          cp release/production-win-x64-BrowserLogin-Setup.zip \
+            "$tagged_release/BrowserLogin-${release_version}-windows-x64-Setup.zip"
+          cp release/production-linux-x64-BrowserLogin-Setup.tar.gz \
+            "$tagged_release/BrowserLogin-${release_version}-linux-x64-Setup.tar.gz"
+
+          cp release/browserlogin-macos-arm64 \
+            "$tagged_release/browserlogin-${release_version}-macos-arm64"
+          cp release/browserlogin-windows-x64.exe \
+            "$tagged_release/browserlogin-${release_version}-windows-x64.exe"
+          cp release/browserlogin-linux-x64 \
+            "$tagged_release/browserlogin-${release_version}-linux-x64"
+
+          unchanged=(
+            browserlogin-browser-tools-macos-arm64
+            browserlogin-browser-tools-windows-x64.exe
+            browserlogin-browser-tools-linux-x64
+            production-macos-arm64-BrowserLogin.app.tar.zst
+            production-macos-arm64-update.json
+            production-win-x64-BrowserLogin.tar.zst
+            production-win-x64-update.json
+            production-linux-x64-BrowserLogin.tar.zst
+            production-linux-x64-update.json
+            NOTICES.md
+          )
+          for name in "${unchanged[@]}"; do cp "release/$name" "$tagged_release/$name"; done
+          shopt -s nullglob
+          patches=(release/production-*.patch)
+          if ((${#patches[@]})); then cp "${patches[@]}" "$tagged_release/"; fi
+
+      - name: Create tagged release checksums
+        shell: bash
+        run: |
           (
-            cd release
+            cd tagged-release
             find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
               | sort -z \
               | xargs -0 sha256sum \
               | sed 's#  \./#  #'
-          ) > release/SHA256SUMS
-          (cd release && sha256sum -c SHA256SUMS)
+          ) > tagged-release/SHA256SUMS
+          (cd tagged-release && sha256sum -c SHA256SUMS)
 
       - name: Enforce tagged release allowlist
         shell: bash
         run: |
+          release_version="${GITHUB_REF_NAME#v}"
           required=(
-            browserlogin-macos-arm64
-            browserlogin-windows-x64.exe
-            browserlogin-linux-x64
+            BrowserLogin-${release_version}-macos-arm64.dmg
+            BrowserLogin-${release_version}-windows-x64-Setup.zip
+            BrowserLogin-${release_version}-linux-x64-Setup.tar.gz
+            browserlogin-${release_version}-macos-arm64
+            browserlogin-${release_version}-windows-x64.exe
+            browserlogin-${release_version}-linux-x64
             browserlogin-browser-tools-macos-arm64
             browserlogin-browser-tools-windows-x64.exe
             browserlogin-browser-tools-linux-x64
-            production-macos-arm64-BrowserLogin.dmg
             production-macos-arm64-BrowserLogin.app.tar.zst
             production-macos-arm64-update.json
-            production-win-x64-BrowserLogin-Setup.zip
             production-win-x64-BrowserLogin.tar.zst
             production-win-x64-update.json
-            production-linux-x64-BrowserLogin-Setup.tar.gz
             production-linux-x64-BrowserLogin.tar.zst
             production-linux-x64-update.json
             NOTICES.md
             SHA256SUMS
           )
-          for name in "${required[@]}"; do test -f "release/$name"; done
-          for path in release/*; do
+          for name in "${required[@]}"; do test -f "tagged-release/$name"; done
+          for path in tagged-release/*; do
             test -f "$path"
             name="$(basename "$path")"
             if printf '%s\n' "${required[@]}" | grep -Fxq "$name"; then continue; fi
@@ -482,17 +520,18 @@ jobs:
             echo "versioned release already exists; refusing to replace immutable assets" >&2
             exit 1
           fi
-          release_files=(release/*)
+          release_files=(tagged-release/*)
           gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
             -R "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "BrowserLogin ${GITHUB_REF_NAME}" \
             --generate-notes \
+            --latest=false \
             "${prerelease[@]}"
 
   publish-updater:
     name: publish-stable-updater
-    if: github.event_name == 'push' && !contains(github.ref_name, '-')
+    if: github.event_name == 'push' && !contains(github.ref_name, '-') && !contains(github.ref_name, '+')
     needs:
       - build
       - publish-release
@@ -533,10 +572,15 @@ jobs:
             release/production-win-x64-BrowserLogin.tar.zst
             release/production-linux-x64-BrowserLogin.tar.zst
           )
-          for file in "${metadata[@]}"; do
-            test -f "$file"
-            jq -e --arg version "$expected_version" '.version == $version' "$file"
-          done
+          jq -e --arg version "$expected_version" \
+            '.version == $version and .platform == "macos" and .arch == "arm64"' \
+            "${metadata[0]}"
+          jq -e --arg version "$expected_version" \
+            '.version == $version and .platform == "win" and .arch == "x64"' \
+            "${metadata[1]}"
+          jq -e --arg version "$expected_version" \
+            '.version == $version and .platform == "linux" and .arch == "x64"' \
+            "${metadata[2]}"
           for file in "${bundles[@]}"; do test -f "$file"; done
 
       - name: Guard stable version and save rollback assets
@@ -549,19 +593,53 @@ jobs:
           echo "STABLE_ROLLBACK_DIR=$rollback_dir" >> "$GITHUB_ENV"
           if gh release view stable -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "STABLE_EXISTS=1" >> "$GITHUB_ENV"
+            stable_assets="$RUNNER_TEMP/stable-assets-before.txt"
+            gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$stable_assets"
+            while IFS= read -r name; do
+              case "$name" in
+                production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
+                *)
+                  if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
+                    echo "unexpected stable asset: $name" >&2
+                    exit 1
+                  fi
+                  ;;
+              esac
+            done < "$stable_assets"
             gh release download stable \
               -R "$GITHUB_REPOSITORY" \
               --dir "$rollback_dir" \
-              --pattern 'production-macos-arm64-BrowserLogin.app.tar.zst' \
-              --pattern 'production-win-x64-BrowserLogin.tar.zst' \
-              --pattern 'production-linux-x64-BrowserLogin.tar.zst' \
-              --pattern 'production-macos-arm64-update.json' \
-              --pattern 'production-win-x64-update.json' \
-              --pattern 'production-linux-x64-update.json'
+              --pattern 'production-*'
+            (
+              cd "$rollback_dir"
+              find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+                | sort -z \
+                | xargs -0 sha256sum \
+                | sed 's#  \./#  #'
+            ) > "$rollback_dir/SHA256SUMS"
+            (cd "$rollback_dir" && sha256sum -c SHA256SUMS)
+            shopt -s nullglob
+            candidate_patches=(release/production-*.patch)
+            candidate_patches_complete=1
+            for patch in "${candidate_patches[@]}"; do
+              name="$(basename "$patch")"
+              if grep -Fxq "$name" "$stable_assets"; then
+                if ! cmp -s "$patch" "$rollback_dir/$name"; then
+                  echo "stable patch collision: $name" >&2
+                  exit 1
+                fi
+              else
+                candidate_patches_complete=0
+              fi
+            done
             current_version="$(jq -r '.version' "$rollback_dir/production-macos-arm64-update.json")"
             candidate_version="${GITHUB_REF_NAME#v}"
             if [[ "$current_version" == "$candidate_version" ]]; then
-              echo "STABLE_ALREADY_CURRENT=1" >> "$GITHUB_ENV"
+              if [[ "$candidate_patches_complete" != 1 ]]; then
+                echo "candidate patch missing from stable retry; republishing stable assets"
+              else
+                echo "STABLE_ALREADY_CURRENT=1" >> "$GITHUB_ENV"
+              fi
             elif [[ "$(printf '%s\n' "$current_version" "$candidate_version" | sort -V | tail -1)" != "$candidate_version" ]]; then
               echo "refusing to move stable backward from $current_version to $candidate_version" >&2
               exit 1
@@ -617,6 +695,9 @@ jobs:
             name="$(basename "$patch")"
             if ! grep -Fxq "$name" "$RUNNER_TEMP/stable-assets.txt"; then
               gh release upload stable "$patch" -R "$GITHUB_REPOSITORY"
+            elif ! cmp -s "$patch" "$STABLE_ROLLBACK_DIR/$name"; then
+              echo "stable patch collision: $name" >&2
+              exit 1
             fi
           done
           gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
@@ -646,6 +727,28 @@ jobs:
           for metadata in "$verify_dir"/*-update.json; do
             jq -e --arg version "$expected_version" '.version == $version' "$metadata"
           done
+          shopt -s nullglob
+          candidate_patches=(release/production-*.patch)
+          for patch in "${candidate_patches[@]}"; do
+            name="$(basename "$patch")"
+            url="https://github.com/${GITHUB_REPOSITORY}/releases/download/stable/${name}?run=${GITHUB_RUN_ID}"
+            curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location "$url" --output "$verify_dir/$name"
+            expected_hash="$(grep -h "  ${name}$" release/SHA256SUMS-* | cut -d ' ' -f 1)"
+            test -n "$expected_hash"
+            echo "$expected_hash  $verify_dir/$name" | sha256sum -c -
+          done
+          gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$verify_dir/assets.txt"
+          while IFS= read -r name; do
+            case "$name" in
+              production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
+              *)
+                if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
+                  echo "unexpected stable asset: $name" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done < "$verify_dir/assets.txt"
 
       - name: Restore stable after publication failure
         if: failure() && env.STABLE_MUTATION_STARTED == '1'
@@ -671,13 +774,28 @@ jobs:
             "$STABLE_ROLLBACK_DIR/production-win-x64-update.json"
             "$STABLE_ROLLBACK_DIR/production-linux-x64-update.json"
           )
+          shopt -s nullglob
+          patches=("$STABLE_ROLLBACK_DIR"/production-*.patch)
           gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/failed-stable-assets.txt"
-          for file in "${metadata[@]}" "${bundles[@]}"; do
-            name="$(basename "$file")"
-            if grep -Fxq "$name" "$RUNNER_TEMP/failed-stable-assets.txt"; then
+          while IFS= read -r name; do
+            if [[ "$name" == production-* ]]; then
               gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
             fi
-          done
-          gh release upload stable "${bundles[@]}" -R "$GITHUB_REPOSITORY"
+          done < "$RUNNER_TEMP/failed-stable-assets.txt"
+          gh release upload stable "${bundles[@]}" "${patches[@]}" -R "$GITHUB_REPOSITORY"
           gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
+          restored_verification="$RUNNER_TEMP/restored-verification"
+          mkdir -p "$restored_verification"
+          gh release download stable -R "$GITHUB_REPOSITORY" --dir "$restored_verification" --pattern 'production-*'
+          cp "$STABLE_ROLLBACK_DIR/SHA256SUMS" "$restored_verification/SHA256SUMS"
+          (cd "$restored_verification" && sha256sum -c SHA256SUMS)
           echo "::error::Previous stable core assets restored; the release job remains failed for investigation."
+
+      - name: Mark promoted release as latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --latest
+          latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
+          test "$latest_tag" = "$GITHUB_REF_NAME"
