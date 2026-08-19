@@ -12,6 +12,7 @@ const DISPOSABLE_CACHE_DIRS = [
   "Default/DawnCache",
   "Default/DawnGraphiteCache",
   "Default/DawnWebGPUCache",
+  "Default/Sync Data",
   "ShaderCache",
   "GrShaderCache",
   "GraphiteDawnCache",

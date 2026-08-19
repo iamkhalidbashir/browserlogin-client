@@ -225,9 +225,14 @@ describe("SafeZipArchive", () => {
     const root = await temporaryRoot();
     const source = join(root, "source");
     await mkdir(join(source, "Default", "Cache"), { recursive: true });
+    await mkdir(join(source, "Default", "Sync Data"), { recursive: true });
     await mkdir(join(source, "Default"), { recursive: true });
     await writeFile(join(source, "profile.json"), "DATA");
     await writeFile(join(source, "Default", "Cache", "discard.me"), "cache");
+    await writeFile(
+      join(source, "Default", "Sync Data", "LevelDB"),
+      "sync-state",
+    );
     await writeFile(join(source, "SingletonLock"), "runtime");
     const first = join(root, "one.zip");
     const second = join(root, "two.zip");
