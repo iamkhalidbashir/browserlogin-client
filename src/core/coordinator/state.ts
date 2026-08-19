@@ -12,6 +12,7 @@ import {
 import { connectionTransitionLock, profileLock } from "../locks/names.js";
 import { withLock } from "../locks/locks.js";
 import { StateError } from "../../shared/errors.js";
+import { migrateLegacyRecoveryState } from "./legacy-state.js";
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const RUN_ID = /^[0-9a-f]{32}$/;
@@ -192,7 +193,9 @@ export function createRecoveryStore(
     async load(profileId: string): Promise<RecoveryState | null> {
       const value = await readJson<unknown>(pathFor(profileId), security);
       if (value === null) return null;
-      const state = validateRecoveryState(value);
+      const state = validateRecoveryState(
+        migrateLegacyRecoveryState(root, value),
+      );
       if (state.profile_id !== profileId)
         throw new StateError("recovery profile identity mismatch");
       return state;

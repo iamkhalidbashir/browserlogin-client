@@ -401,6 +401,45 @@ describe("Task 18 recovery state", () => {
     expect(fixture.counts().uploads).toBe(0);
   });
 
+  it("force-stops a persisted Python upload-pending session", async () => {
+    const fixture = await setup();
+    await fixture.coordinator.store.ensure();
+    await writeFile(
+      profileStatePath(fixture.root, "profile-1"),
+      JSON.stringify({
+        profile_id: "profile-1",
+        run_id: "0123456789abcdef0123456789abcdef",
+        start_key: "start-key",
+        stop_key: null,
+        remote_session_id: "session-1",
+        archive: {
+          profile_id: "profile-1",
+          generation: 1,
+          size: 10,
+          sha256: SHA,
+          format: "zip",
+        },
+        pending_archive_artifact: join(fixture.root, "artifacts", "legacy.zip"),
+        launch_file: null,
+        runner_pid: null,
+        runner_create_time: null,
+        license_acquired: false,
+        archive_materialized: true,
+        browser_launched: false,
+        uploaded_storage_id: null,
+        stop_payload: null,
+        status: "upload-pending",
+      }),
+      { mode: 0o600 },
+    );
+
+    const result = await fixture.coordinator.forceStop("profile-1");
+
+    expect(result.status).toBe("stopped");
+    expect(fixture.counts().uploads).toBe(0);
+    expect(await fixture.coordinator.store.load("profile-1")).toBeNull();
+  });
+
   it("releases a paid lease after force-stop intent teardown", async () => {
     const fixture = await setup({ paid: true });
     await fixture.coordinator.start("profile-1");
