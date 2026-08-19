@@ -105,7 +105,14 @@ const childEnv = (
       process.env[key] === undefined ? [] : [[key, process.env[key] as string]],
     ),
   );
-  return { ...selected, ...extraEnv, PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" };
+  return {
+    ...selected,
+    PWTEST_SOCKETS_DIR:
+      process.env.PWTEST_SOCKETS_DIR ??
+      (process.platform === "win32" ? (process.env.TEMP ?? ".") : "/tmp"),
+    ...extraEnv,
+    PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1",
+  };
 };
 
 const redactStderr = (text: string): string =>
@@ -156,7 +163,10 @@ const resolveVendorCommand = (
     return { command: explicitHelper, prefix: [] };
   }
   if (/^bun(?:\.exe)?$/i.test(basename(process.execPath)))
-    return { command: process.execPath, prefix: [cliPath] };
+    return {
+      command: process.env.BROWSERLOGIN_NODE_PATH ?? "node",
+      prefix: [cliPath],
+    };
   const name = vendorHelperName();
   const candidates = [
     join(dirname(process.execPath), name),
