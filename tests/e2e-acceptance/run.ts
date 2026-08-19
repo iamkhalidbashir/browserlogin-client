@@ -158,13 +158,13 @@ const rows: Row[] = [
     "one start/upload/commit and work marker archived",
   ],
   [
-    "42 safe-default / 43 catalog tools",
+    "44 safe-default / 45 catalog tools",
     "MCP",
     "mcp/tools-connected.json",
     "unsafe hidden by default; exact opt-in catalog recorded",
   ],
   [
-    "25 safe-default / 26 catalog degraded tools",
+    "27 safe-default / 28 catalog degraded tools",
     "MCP",
     "mcp/tools-degraded.json",
     "local-only safe/catalog counts recorded",

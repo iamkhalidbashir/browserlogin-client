@@ -34,9 +34,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
     apiKey: "bl_test_key_value",
   });
 
-  // downloadDelayMs is a mock-only query param that slows binaryDownload
-  // so the progress state stays visible long enough to screenshot.
-  await page.goto("/profiles?downloadDelayMs=750");
+  await page.goto("/profiles?binary=missing");
   await expect(
     page.getByRole("button", { name: "Launch", exact: true }),
   ).toBeVisible();
@@ -46,23 +44,42 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   });
 
   await page.getByRole("button", { name: "Launch", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Initialize it from Settings first",
+  );
   await expect(
-    page.getByText("Downloading and verifying…", { exact: true }),
+    page.getByRole("link", {
+      name: "Open Settings to initialize CloakBrowser",
+    }),
   ).toBeVisible();
   await page.screenshot({
-    path: join(evidence, "03-launch-download.png"),
+    path: join(evidence, "03-launch-requires-init.png"),
     fullPage: true,
   });
+
+  await page.goto("/settings?downloadDelayMs=750");
+  await page.getByRole("button", { name: "Install latest Free" }).click();
+  await expect(page.getByRole("status")).toContainText("installed and active");
+  const initializationMethods = await page.evaluate(
+    () => window.__browserloginMockCalls?.map((call) => call.method) ?? [],
+  );
+  expect(initializationMethods).toContain("binaryDownload");
+  await page.screenshot({
+    path: join(evidence, "04-browser-initialized.png"),
+    fullPage: true,
+  });
+
+  await page.goto("/profiles");
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("1 session started");
   const methods = await page.evaluate(
     () => window.__browserloginMockCalls?.map((call) => call.method) ?? [],
   );
   const binaryStatusIndex = methods.indexOf("binaryStatus");
-  const binaryDownloadIndex = methods.indexOf("binaryDownload");
   const sessionsStartIndex = methods.indexOf("sessionsStart");
   expect(binaryStatusIndex).toBeGreaterThanOrEqual(0);
-  expect(binaryDownloadIndex).toBeGreaterThan(binaryStatusIndex);
-  expect(sessionsStartIndex).toBeGreaterThan(binaryDownloadIndex);
+  expect(methods).not.toContain("binaryDownload");
+  expect(sessionsStartIndex).toBeGreaterThan(binaryStatusIndex);
 
   // Visible running session on the dashboard.
   await page.getByRole("link", { name: "Dashboard" }).click();
@@ -71,7 +88,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
     page.getByRole("button", { name: "Stop and archive" }),
   ).toBeVisible();
   await page.screenshot({
-    path: join(evidence, "04-running-session.png"),
+    path: join(evidence, "05-running-session.png"),
     fullPage: true,
   });
 
@@ -85,7 +102,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   );
   expect(stopCall?.params).toMatchObject({ profileId: "profile-1" });
   await page.screenshot({
-    path: join(evidence, "05-stopped-session.png"),
+    path: join(evidence, "06-stopped-session.png"),
     fullPage: true,
   });
 
