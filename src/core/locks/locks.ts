@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, unlink } from "node:fs/promises";
+import { mkdir, open, readFile, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 import { currentOwner, isMatchingLiveProcess } from "./platform.js";
 import {
@@ -10,6 +10,7 @@ import {
 } from "./types.js";
 
 const mutexes = new Map<string, Promise<void>>();
+const MALFORMED_LOCK_GRACE_MS = 30_000;
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -56,7 +57,16 @@ const removeIfOwnerMatches = async (
 
 const reclaimStale = async (lockPath: string): Promise<boolean> => {
   const record = await readOwner(lockPath);
-  if (!record) return false;
+  if (!record) {
+    try {
+      const info = await stat(lockPath);
+      if (Date.now() - info.mtimeMs < MALFORMED_LOCK_GRACE_MS) return false;
+      const bytes = await readFile(lockPath, "utf8");
+      return await removeIfOwnerMatches(lockPath, bytes);
+    } catch {
+      return false;
+    }
+  }
   const live = await isMatchingLiveProcess(
     record.owner.pid,
     record.owner.process_start_time,

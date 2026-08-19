@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -90,6 +97,29 @@ describe("Task 13 locks", () => {
     await mkdir(directory, { recursive: true });
     await writeFile(dead, JSON.stringify(owner), { mode: 0o600 });
     await withLock(dead, async () => undefined, { timeoutMs: 500, pollMs: 1 });
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("reclaims old empty legacy locks but keeps fresh malformed locks", async () => {
+    const directory = await temp();
+    const oldLock = join(directory, "old-empty.lock");
+    const freshLock = join(directory, "fresh-empty.lock");
+    await writeFile(oldLock, "", { mode: 0o600 });
+    await writeFile(freshLock, "", { mode: 0o600 });
+    const old = new Date(Date.now() - 60_000);
+    await utimes(oldLock, old, old);
+
+    await withLock(oldLock, async () => undefined, {
+      timeoutMs: 500,
+      pollMs: 1,
+    });
+    await expect(
+      withLock(freshLock, async () => undefined, {
+        timeoutMs: 20,
+        pollMs: 1,
+      }),
+    ).rejects.toBeInstanceOf(LockTimeoutError);
+
     await rm(directory, { recursive: true, force: true });
   });
 
