@@ -165,7 +165,7 @@ function validateSchemaDepth(value: unknown, depth = 0): void {
 function parseRemoteTools(value: unknown): RemoteTool[] {
   const result = z
     .object({
-      structuredContent: z.object({ result: z.array(z.unknown()) }),
+      tools: z.array(z.unknown()),
     })
     .safeParse(value);
   if (!result.success)
@@ -173,7 +173,7 @@ function parseRemoteTools(value: unknown): RemoteTool[] {
       "REMOTE_PROTOCOL_ERROR",
       "Remote MCP tools/list response was invalid.",
     );
-  return result.data.structuredContent.result.map((raw) => {
+  return result.data.tools.map((raw) => {
     const parsed = RemoteToolSchema.safeParse(raw);
     if (
       !parsed.success ||

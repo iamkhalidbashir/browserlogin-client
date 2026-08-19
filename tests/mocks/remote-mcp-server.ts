@@ -116,7 +116,7 @@ export async function startRemoteMcpMock(
       return sendJson(response, 200, {
         jsonrpc: "2.0",
         id,
-        result: { structuredContent: { result: tools } },
+        result: { tools },
       });
     }
     if (method === "tools/call") {

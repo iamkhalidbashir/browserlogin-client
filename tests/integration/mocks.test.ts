@@ -50,7 +50,7 @@ describe("Task 2 local mock servers", () => {
     expect((await initialized.json() as { result: { protocolVersion: string } }).result.protocolVersion).toBe("2025-06-18");
     expect((await post({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
     const listed = await post({ jsonrpc: "2.0", id: 2, method: "tools/list" });
-    const toolNames = ((await listed.json() as { result: { structuredContent: { result: Array<{ name: string }> } } }).result.structuredContent.result).map(tool => tool.name);
+    const toolNames = ((await listed.json() as { result: { tools: Array<{ name: string }> } }).result.tools).map(tool => tool.name);
     expect(toolNames).toHaveLength(17);
     expect((await post({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "profiles_list", arguments: {} } })).status).toBe(200);
     expect((await fetch(server.url)).status).toBe(405);

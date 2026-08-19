@@ -180,8 +180,9 @@ describe("Task 22 remote MCP proxy", () => {
   it("lets local tools win collisions and warns with only the colliding name", async () => {
     const warning = vi.fn();
     const merged = mergeRemoteTools(
-      ["browserlogin_session_start"],
+      ["browser_session_start", "browserlogin_session_start"],
       [
+        { name: "browser_session_start", inputSchema: { type: "object" } },
         { name: "browserlogin_session_start", inputSchema: { type: "object" } },
         ...REMOTE_TOOL_NAMES.map((name) => ({
           name,
@@ -190,13 +191,17 @@ describe("Task 22 remote MCP proxy", () => {
       ],
       warning,
     );
+    expect(merged.some((tool) => tool.name === "browser_session_start")).toBe(
+      false,
+    );
     expect(
       merged.some((tool) => tool.name === "browserlogin_session_start"),
     ).toBe(false);
     expect(warning).toHaveBeenCalledWith(
-      expect.stringContaining("browserlogin_session_start"),
+      expect.stringContaining("browser_session_start"),
     );
-    expect(warning.mock.calls[0]?.[0]).toMatch(/browserlogin_session_start$/);
+    expect(warning.mock.calls[0]?.[0]).toMatch(/browser_session_start$/);
+    expect(warning.mock.calls[1]?.[0]).toMatch(/browserlogin_session_start$/);
     const forwarder = new RemoteMcpForwarder(
       { callTool: () => Promise.resolve({}) } as never,
       new Set(["local"]),
