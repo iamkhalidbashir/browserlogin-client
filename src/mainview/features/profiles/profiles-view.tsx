@@ -48,6 +48,7 @@ export default function ProfilesView() {
   const [deleteText, setDeleteText] = useState("");
   const [conflict, setConflict] = useState(false);
   const [launchStatus, setLaunchStatus] = useState("Ready");
+  const [initializationRequired, setInitializationRequired] = useState(false);
   const protectedArg = form.args.find((value) =>
     /^--(?:fingerprint|user-data-dir|remote-debugging)/.test(value),
   );
@@ -103,11 +104,19 @@ export default function ProfilesView() {
     },
   });
   const launch = async (ids: string[]) => {
+    setInitializationRequired(false);
     setLaunchStatus("Checking binary…");
     const binary = await bridge.request("binaryStatus", {});
-    if (binary.ok && binary.value === null) {
-      setLaunchStatus("Downloading and verifying…");
-      await bridge.request("binaryDownload", { advancedEnabled: false });
+    if (!binary.ok) {
+      setLaunchStatus(binary.error.message);
+      return;
+    }
+    if (binary.value === null) {
+      setInitializationRequired(true);
+      setLaunchStatus(
+        "CloakBrowser is not installed. Initialize it from Settings first.",
+      );
+      return;
     }
     for (const profileId of ids)
       await bridge.request("sessionsStart", { profileId });
@@ -264,11 +273,25 @@ export default function ProfilesView() {
           </tbody>
         </table>
       </div>
-      <div className="panel mt-4">
+      <div
+        className={initializationRequired ? "runtime-warning" : "panel mt-4"}
+      >
         <h3 className="font-medium">Launch progress</h3>
-        <p className="mt-2 text-sm text-zinc-500" role="status">
+        <p
+          className={
+            initializationRequired
+              ? "mt-2 text-sm"
+              : "mt-2 text-sm text-zinc-500"
+          }
+          role="status"
+        >
           {launchStatus}
         </p>
+        {initializationRequired ? (
+          <a className="table-action mt-2 inline-block" href="/settings">
+            Open Settings to initialize CloakBrowser
+          </a>
+        ) : null}
       </div>
       {deleteTarget ? (
         <div className="panel mt-4">

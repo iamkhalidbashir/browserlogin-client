@@ -59,8 +59,9 @@ test("creates, launches, multi-selects, and protects deletion", async ({
     window.__browserloginMockCalls?.map((call) => call.method),
   );
   expect(launchMethods).toEqual(
-    expect.arrayContaining(["binaryStatus", "binaryDownload", "sessionsStart"]),
+    expect.arrayContaining(["binaryStatus", "sessionsStart"]),
   );
+  expect(launchMethods).not.toContain("binaryDownload");
 
   await page.getByLabel("Select Research profile").check();
   await page.getByRole("button", { name: "Launch selected" }).click();
@@ -93,6 +94,32 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   await expect(forceButton).toBeEnabled();
   await forceButton.click();
   await expect(page.getByText("No local sessions are running.")).toBeVisible();
+});
+
+test("launch directs an uninitialized browser to Settings without downloading", async ({
+  page,
+}) => {
+  await page.goto("/profiles?binary=missing");
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Initialize it from Settings first",
+  );
+  await expect(
+    page.getByRole("link", {
+      name: "Open Settings to initialize CloakBrowser",
+    }),
+  ).toHaveAttribute("href", "/settings");
+  await mkdir(evidence, { recursive: true });
+  await page.screenshot({
+    path: join(evidence, "profiles-binary-required.png"),
+    fullPage: true,
+  });
+  const methods = await page.evaluate(() =>
+    window.__browserloginMockCalls?.map((call) => call.method),
+  );
+  expect(methods).toContain("binaryStatus");
+  expect(methods).not.toContain("binaryDownload");
+  expect(methods).not.toContain("sessionsStart");
 });
 
 test("editor lists real proxies and saves the selected proxy", async ({
