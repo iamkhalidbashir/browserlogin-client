@@ -23,6 +23,9 @@ export default function SettingsView() {
   const [advanced, setAdvanced] = useState(false);
   const [customUrl, setCustomUrl] = useState("");
   const [updateState, setUpdateState] = useState("Current");
+  const [binaryAction, setBinaryAction] = useState<
+    "free" | "license" | "custom" | null
+  >(null);
   const [message, setMessage] = useState("");
   const [logFilter, setLogFilter] = useState("");
   const [autoCheck, setAutoCheck] = useState(true);
@@ -59,6 +62,15 @@ export default function SettingsView() {
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     },
+  });
+  const binaryProgress = useQuery({
+    queryKey: ["binary-progress"],
+    queryFn: async () => {
+      const result = await bridge.request("binaryProgress", {});
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    },
+    refetchInterval: binaryAction ? 500 : false,
   });
   const logs = useQuery({
     queryKey: ["logs"],
@@ -113,6 +125,24 @@ export default function SettingsView() {
       autoCheckUpdates: autoCheck,
     });
     setMessage(result.ok ? "Download settings saved." : result.error.message);
+  };
+  const installBinary = async (source: "free" | "license" | "custom") => {
+    setBinaryAction(source);
+    setMessage("Downloading and verifying CloakBrowser…");
+    const result = await bridge.request("binaryDownload", {
+      advancedEnabled: source === "custom" ? advanced : false,
+      source,
+      ...(source === "custom" && customUrl ? { customUrl } : {}),
+    });
+    setBinaryAction(null);
+    if (!result.ok) {
+      setMessage(result.error.message);
+      return;
+    }
+    setMessage(
+      `CloakBrowser ${result.value.version ?? "custom"} is installed and active.`,
+    );
+    await Promise.all([binary.refetch(), binaryProgress.refetch()]);
   };
   const checkUpdate = async () => {
     setUpdateState("Checking…");
@@ -218,15 +248,21 @@ export default function SettingsView() {
           </div>
         </article>
         <article className="panel">
-          <h3 className="font-medium">Download source</h3>
-          <label className="check-field mt-3">
-            <input
-              type="checkbox"
-              checked={advanced}
-              onChange={(event) => setAdvanced(event.target.checked)}
-            />
-            Advanced: I understand custom sources are unverified trust
-          </label>
+          <h3 className="font-medium">CloakBrowser runtime</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Install or replace the active browser from the latest Free release,
+            your licensed channel, or an explicit custom source.
+          </p>
+          <div className={advanced ? "runtime-warning" : "mt-3"}>
+            <label className="check-field">
+              <input
+                type="checkbox"
+                checked={advanced}
+                onChange={(event) => setAdvanced(event.target.checked)}
+              />
+              Advanced: I understand that custom sources are unverified.
+            </label>
+          </div>
           <label className="field mt-3">
             <span>Custom URL</span>
             <input
@@ -242,7 +278,7 @@ export default function SettingsView() {
             </p>
           ) : null}
           <button
-            className="button-primary mt-4"
+            className="button-secondary mt-4"
             disabled={!validCustom || (Boolean(customUrl) && !advanced)}
             onClick={() => void saveSource()}
           >
@@ -254,6 +290,44 @@ export default function SettingsView() {
               ? `${binary.data.version ?? "custom"} · ${binary.data.pro ? "Pro" : "Free"} · active`
               : "No active binary"}
           </p>
+          <div className="mt-4 grid gap-2">
+            <button
+              className="button-primary"
+              disabled={binaryAction !== null}
+              onClick={() => void installBinary("free")}
+            >
+              Install latest Free
+            </button>
+            <button
+              className="button-secondary"
+              disabled={binaryAction !== null || !license.data?.hasLicense}
+              onClick={() => void installBinary("license")}
+            >
+              Install licensed release
+            </button>
+            <button
+              className="button-secondary"
+              disabled={
+                binaryAction !== null || !advanced || !customUrl || !validCustom
+              }
+              onClick={() => void installBinary("custom")}
+            >
+              Install from custom URL
+            </button>
+          </div>
+          {binaryAction ? (
+            <div className="mt-3" aria-live="polite">
+              <progress
+                aria-label="CloakBrowser download progress"
+                className="w-full"
+                max={binaryProgress.data?.total ?? 1}
+                value={binaryProgress.data?.downloaded ?? 0}
+              />
+              <p className="mt-1 text-xs text-zinc-500">
+                Downloading {binaryAction} runtime…
+              </p>
+            </div>
+          ) : null}
         </article>
         <article className="panel">
           <h3 className="font-medium">CLI integration</h3>
@@ -269,7 +343,7 @@ export default function SettingsView() {
           </button>
         </article>
         <article className="panel">
-          <h3 className="font-medium">Updates</h3>
+          <h3 className="font-medium">Application updates</h3>
           <p className="mt-1 text-sm text-zinc-500">
             Channel: stable · {updateState}
           </p>

@@ -16,6 +16,7 @@ test("license is write-only and custom source requires explicit advanced consent
   await expect(
     page.getByText("Plan tier: Pro configured", { exact: false }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Install licensed release" }).click();
   await expect(page.locator("body")).not.toContainText("license-secret-value");
   await page.getByRole("button", { name: "Clear", exact: true }).click();
   await expect(
@@ -25,12 +26,14 @@ test("license is write-only and custom source requires explicit advanced consent
   const custom = page.getByLabel("Custom URL");
   await expect(custom).toBeDisabled();
   await page
-    .getByLabel("Advanced: I understand custom sources are unverified trust")
+    .getByLabel("Advanced: I understand that custom sources are unverified.")
     .check();
   await custom.fill("http://downloads.example.test");
   await expect(page.getByRole("alert")).toContainText("Use HTTPS");
   await custom.fill("https://downloads.example.test");
   await page.getByRole("button", { name: "Save source" }).click();
+  await page.getByRole("button", { name: "Install latest Free" }).click();
+  await page.getByRole("button", { name: "Install from custom URL" }).click();
   const call = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
       (item) => item.method === "settingsSet",
@@ -41,6 +44,22 @@ test("license is write-only and custom source requires explicit advanced consent
     customDownloadUrl: "https://downloads.example.test",
     advancedEnabled: true,
   });
+  const downloadCalls = await page.evaluate(() =>
+    window.__browserloginMockCalls?.filter(
+      (item) => item.method === "binaryDownload",
+    ),
+  );
+  expect(downloadCalls?.map((item) => item.params)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ source: "license" }),
+      expect.objectContaining({ source: "free" }),
+      expect.objectContaining({
+        source: "custom",
+        customUrl: "https://downloads.example.test",
+        advancedEnabled: true,
+      }),
+    ]),
+  );
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
     path: join(evidence, "task-29-settings.png"),

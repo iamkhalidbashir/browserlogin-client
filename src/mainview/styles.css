@@ -168,6 +168,17 @@ button:disabled {
   padding: 0.75rem;
   color: #fde68a;
 }
+.runtime-warning {
+  margin-top: 1rem;
+  border: 1px solid #d97706;
+  border-radius: 0.6rem;
+  background: #451a03;
+  padding: 0.75rem;
+  color: #fef3c7;
+}
+.runtime-warning .table-action {
+  color: #fbbf24;
+}
 .eyebrow {
   margin-bottom: 0.5rem;
   color: #34d399;

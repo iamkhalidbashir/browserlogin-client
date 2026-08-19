@@ -181,7 +181,14 @@ const values: Record<AppRPCMethod, unknown> = {
       created_at: "2026-08-17T00:00:00Z",
     },
   ],
-  binaryStatus: null,
+  binaryStatus: {
+    path: "/tmp/cloakbrowser",
+    version: "1.0.0",
+    platform: "darwin-arm64",
+    pro: false,
+    source: "official",
+    trust: "verified",
+  },
   binaryDownload: {
     path: "/tmp/cloakbrowser",
     pro: false,
@@ -266,6 +273,13 @@ export function createMockBridge(
       }
       if (method === "connectionSet") connected = true;
       if (method === "connectionClear") connected = false;
+      if (
+        method === "binaryStatus" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("binary") === "missing"
+      ) {
+        return { ok: true, value: null as BridgeResult<K> };
+      }
       if (method === "binaryDownload" && downloadDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, downloadDelayMs));
       }
