@@ -7,11 +7,12 @@ import {
   readdir,
   rename,
   rm,
+  symlink,
 } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { createGunzip } from "node:zlib";
-import { join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { atomicWriteJson } from "../config/store.js";
 import { SafeZipArchive } from "../archive/index.js";
 import { lockName } from "../locks/index.js";
@@ -76,7 +77,16 @@ async function makeExecutable(root: string, platform: string): Promise<void> {
 }
 
 function tarName(block: Buffer): string {
-  return block.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+  const name = block.subarray(0, 100).toString("utf8").replace(/\0.*$/, "");
+  const prefix = block
+    .subarray(345, 500)
+    .toString("utf8")
+    .replace(/\0.*$/, "");
+  return prefix ? `${prefix}/${name}` : name;
+}
+
+function tarLinkName(block: Buffer): string {
+  return block.subarray(157, 257).toString("utf8").replace(/\0.*$/, "");
 }
 
 function tarNumber(block: Buffer, offset: number, length: number): number {
@@ -97,6 +107,7 @@ async function extractTarGz(
     string,
     { handle: Awaited<ReturnType<typeof open>>; remaining: number }
   >();
+  const links: Array<{ readonly name: string; readonly target: string }> = [];
   let current: { name: string; size: number; mode: number } | undefined;
   const stream = createReadStream(archive).pipe(createGunzip());
   for await (const chunk of stream) {
@@ -108,8 +119,8 @@ async function extractTarGz(
         buffered = buffered.subarray(512);
         if (header.every((byte) => byte === 0)) break;
         const type = String.fromCharCode(header[156] ?? 0);
-        if (type !== "0" && type !== "\0" && type !== "5")
-          throw new Error("tar symlink or special entry rejected");
+        if (type !== "0" && type !== "\0" && type !== "2" && type !== "5")
+          throw new Error("tar special entry rejected");
         const name = tarName(header).replaceAll("\\", "/");
         if (
           !name ||
@@ -119,6 +130,23 @@ async function extractTarGz(
           throw new Error("unsafe tar path");
         const size = tarNumber(header, 124, 12);
         const mode = tarNumber(header, 100, 8);
+        if (type === "2") {
+          const target = tarLinkName(header).replaceAll("\\", "/");
+          const path = join(destination, ...name.split("/"));
+          const resolvedTarget = resolve(dirname(path), target);
+          const relativeTarget = relative(destination, resolvedTarget);
+          if (
+            size !== 0 ||
+            !target ||
+            isAbsolute(target) ||
+            relativeTarget === ".." ||
+            relativeTarget.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+            isAbsolute(relativeTarget)
+          )
+            throw new Error("unsafe tar symlink target");
+          links.push({ name, target });
+          continue;
+        }
         if (type === "5") {
           await mkdir(
             join(destination, ...name.replace(/\/$/, "").split("/")),
@@ -155,6 +183,11 @@ async function extractTarGz(
     }
   }
   if (current || output.size) throw new Error("truncated tar archive");
+  for (const link of links) {
+    const path = join(destination, ...link.name.split("/"));
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await symlink(link.target, path);
+  }
 }
 
 async function retainVersions(root: string, current: string): Promise<void> {
