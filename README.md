@@ -116,6 +116,8 @@ The complete catalog contains 26 lifecycle/browser tools in degraded local-only 
 
 The canonical local lifecycle tools are `browser_session_start` and `browser_session_stop`, exposed by OpenCode as `browserlogin_browser_session_start` and `browserlogin_browser_session_stop`. The v0.1.0 names `browserlogin_session_start` and `browserlogin_session_stop` remain callable as hidden local compatibility names for one release. Both name generations are always handled locally and are never forwarded to the cloud MCP.
 
+MCP lifecycle start never downloads a browser implicitly. If CloakBrowser is not installed, `browser_session_start` returns an initialization-required error; call `browser_init` with `source: "free"` (or `"license"` when a license is configured) using a long client timeout, and inspect `browser_init_status` for progress before retrying start. The Settings screen can install or replace the active runtime from the latest verified Free release, the licensed release channel, or an explicitly confirmed custom URL.
+
 ## State and environment
 
 Default state roots:

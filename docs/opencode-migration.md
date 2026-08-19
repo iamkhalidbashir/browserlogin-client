@@ -64,6 +64,8 @@ Remote tools are proxied without renaming and retain their input schemas. Succes
 
 Local lifecycle tools are advertised as `browser_session_start` and `browser_session_stop`. In OpenCode, the server namespace exposes them as `browserlogin_browser_session_start` and `browserlogin_browser_session_stop`. The v0.1.0 names `browserlogin_session_start` and `browserlogin_session_stop` are hidden from discovery but remain callable as local compatibility names for one release. They are reserved by the local registry and never forwarded to BrowserSessionMCP.
 
+Browser installation is explicit. `browser_session_start` fails fast with an initialization-required error when no verified active runtime exists. Run `browser_init` with `source: "free"` or `source: "license"` and allow a long tool timeout; `browser_init_status` reports download progress and readiness. This prevents ordinary lifecycle calls from silently spending their timeout downloading a large browser archive.
+
 Verify with:
 
 ```sh
