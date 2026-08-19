@@ -11,7 +11,7 @@ import type { JsonObject, RemoteTool } from "../core/mcp-proxy/types.js";
 import { mergeRemoteTools } from "../core/mcp-proxy/forward.js";
 
 export const START_TOOL: Tool = {
-  name: "browserlogin_session_start",
+  name: "browser_session_start",
   description: "Start the local BrowserLogin lifecycle for a profile.",
   inputSchema: {
     type: "object",
@@ -22,26 +22,41 @@ export const START_TOOL: Tool = {
 };
 
 export const STOP_TOOL: Tool = {
-  name: "browserlogin_session_stop",
+  name: "browser_session_stop",
   description:
-    "Stop the local BrowserLogin lifecycle for a profile and commit its encrypted archive.",
+    "Stop the local BrowserLogin lifecycle for a profile. Set force to true to stop without committing an archive.",
   inputSchema: {
     type: "object",
-    properties: { profile_id: { type: "string" } },
+    properties: {
+      profile_id: { type: "string" },
+      force: { type: "boolean" },
+    },
     required: ["profile_id"],
     additionalProperties: false,
   },
 };
 
+export const LOCAL_COMPAT_START_TOOL_NAME = "browserlogin_session_start";
+export const LOCAL_COMPAT_STOP_TOOL_NAME = "browserlogin_session_stop";
+const START_TOOL_NAMES = new Set([
+  START_TOOL.name,
+  LOCAL_COMPAT_START_TOOL_NAME,
+]);
+const STOP_TOOL_NAMES = new Set([STOP_TOOL.name, LOCAL_COMPAT_STOP_TOOL_NAME]);
+
 export type LifecycleOperations = {
   start(profileId: string): Promise<unknown>;
   stop(profileId: string): Promise<unknown>;
+  forceStop(profileId: string): Promise<unknown>;
 };
 
 export type RegistryDependencies = {
   lifecycle: LifecycleOperations;
   browserRouter: Pick<BrowserToolsRouter, "call">;
-  browserLifecycle?: Pick<BrowserToolsLifecycle, "stop" | "shutdown">;
+  browserLifecycle?: Pick<
+    BrowserToolsLifecycle,
+    "stop" | "forceStop" | "shutdown"
+  >;
   remoteCache?: Pick<
     RemoteMcpDiscoveryCache,
     "discover" | "status" | "shutdown"
@@ -86,6 +101,8 @@ export function localToolNames(
   return new Set([
     START_TOOL.name,
     STOP_TOOL.name,
+    LOCAL_COMPAT_START_TOOL_NAME,
+    LOCAL_COMPAT_STOP_TOOL_NAME,
     ...browserTools.map((tool) => tool.name),
   ]);
 }
@@ -108,7 +125,10 @@ export async function createRegistry(
     ...browserTools.map(asMcpTool),
     ...mergedRemote.map(asMcpTool),
   ]);
-  const names = new Set(tools.map((tool) => tool.name));
+  const names = new Set([
+    ...localNames,
+    ...mergedRemote.map((tool) => tool.name),
+  ]);
 
   return {
     tools,
@@ -117,7 +137,7 @@ export async function createRegistry(
       if (!names.has(name))
         return textResult("Tool request could not be completed.", true);
       try {
-        if (name === START_TOOL.name) {
+        if (START_TOOL_NAMES.has(name)) {
           const profileId = arguments_.profile_id;
           if (typeof profileId !== "string" || profileId.length === 0)
             return textResult(
@@ -129,18 +149,30 @@ export async function createRegistry(
           );
           return textResult("BrowserLogin session started.");
         }
-        if (name === STOP_TOOL.name) {
+        if (STOP_TOOL_NAMES.has(name)) {
           const profileId = arguments_.profile_id;
+          const force = arguments_.force;
           if (typeof profileId !== "string" || profileId.length === 0)
             return textResult(
               "Lifecycle request could not be completed.",
               true,
             );
-          await Promise.resolve().then(
-            () =>
+          if (force !== undefined && typeof force !== "boolean")
+            return textResult(
+              "Lifecycle request could not be completed.",
+              true,
+            );
+          await Promise.resolve().then(() => {
+            if (force === true)
+              return (
+                dependencies.browserLifecycle?.forceStop(profileId) ??
+                dependencies.lifecycle.forceStop(profileId)
+              );
+            return (
               dependencies.browserLifecycle?.stop(profileId) ??
-              dependencies.lifecycle.stop(profileId),
-          );
+              dependencies.lifecycle.stop(profileId)
+            );
+          });
           return textResult("BrowserLogin session stopped.");
         }
         if (localNames.has(name)) {
@@ -158,7 +190,7 @@ export async function createRegistry(
         )) as unknown as CallToolResult;
       } catch {
         return textResult(
-          name.startsWith("browserlogin_session")
+          START_TOOL_NAMES.has(name) || STOP_TOOL_NAMES.has(name)
             ? "Lifecycle request could not be completed."
             : name.startsWith("browser_")
               ? "Browser control request could not be completed."

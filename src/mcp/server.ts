@@ -10,7 +10,7 @@ import {
   type Implementation,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createBrowserTools } from "../core/browser-tools/factory.js";
-import { PRODUCT_TOOLS, visibleTools } from "../core/browser-tools/manifest.js";
+import { visibleTools } from "../core/browser-tools/manifest.js";
 import {
   ConnectionStore,
   DEFAULT_BASE_URL,
@@ -29,6 +29,7 @@ import { VERSION } from "../shared/version.js";
 import {
   argumentsForCall,
   createRegistry,
+  localToolNames,
   type LifecycleOperations,
   type RegistryDependencies,
   type UnifiedRegistry,
@@ -162,6 +163,7 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
       return relayCdpUrl ? { relayCdpUrl } : undefined;
     },
     coordinatorStop: (profileId) => coordinator.stop(profileId),
+    coordinatorForceStop: (profileId) => coordinator.forceStop(profileId),
   });
   runtimeHooks.stop = browser.runtimeStop;
   const remoteClient = new RemoteMcpClient({
@@ -171,15 +173,12 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
   const remoteCache = new RemoteMcpDiscoveryCache(remoteClient);
   const remoteForwarder = new RemoteMcpForwarder(
     remoteClient,
-    new Set([
-      "browserlogin_session_start",
-      "browserlogin_session_stop",
-      ...PRODUCT_TOOLS.map((tool) => tool.name),
-    ]),
+    localToolNames(),
   );
   const lifecycle: LifecycleOperations = {
     start: (profileId) => coordinator.start(profileId),
     stop: (profileId) => coordinator.stop(profileId),
+    forceStop: (profileId) => coordinator.forceStop(profileId),
   };
   const browserTools = visibleTools(
     process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE === "1",

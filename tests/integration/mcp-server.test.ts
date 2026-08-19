@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
+import { createRegistry, STOP_TOOL } from "../../src/mcp/registry.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { startRemoteMcpMock } from "../mocks/remote-mcp-server.js";
 
@@ -241,7 +242,37 @@ function expectErrorResult(response: RpcFrame, text: string): void {
 }
 
 describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
-  it("lists 42 safe-default tools, keeps stdout protocol-only, and handles 20 calls", async () => {
+  it("routes force session stop locally without using normal stop", async () => {
+    const calls: string[] = [];
+    const registry = await createRegistry({
+      lifecycle: {
+        start: async () => undefined,
+        stop: async (profileId) => calls.push(`stop:${profileId}`),
+        forceStop: async (profileId) => calls.push(`force:${profileId}`),
+      },
+      browserRouter: { call: async () => ({ content: [] }) },
+      browserLifecycle: {
+        stop: async (profileId) => calls.push(`browser-stop:${profileId}`),
+        forceStop: async (profileId) =>
+          calls.push(`browser-force:${profileId}`),
+        shutdown: async () => undefined,
+      },
+      browserTools: [],
+    });
+
+    expect(STOP_TOOL.inputSchema.properties).toHaveProperty("force", {
+      type: "boolean",
+    });
+    const result = await registry.call("browser_session_stop", {
+      profile_id: "profile-force",
+      force: true,
+    });
+
+    expect(result.isError).not.toBe(true);
+    expect(calls).toEqual(["browser-force:profile-force"]);
+  });
+
+  it("lists canonical lifecycle tools and keeps local compatibility names callable but hidden", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-ready-"));
     roots.push(root);
     const remote = await startRemoteMcpMock();
@@ -260,6 +291,12 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       expect(tools.map((tool) => tool.name)).toEqual(
         expect.arrayContaining([
           ...REMOTE_TOOL_NAMES,
+          "browser_session_start",
+          "browser_session_stop",
+        ]),
+      );
+      expect(tools.map((tool) => tool.name)).not.toEqual(
+        expect.arrayContaining([
           "browserlogin_session_start",
           "browserlogin_session_stop",
         ]),
@@ -267,8 +304,8 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
 
       let id = 3;
       const calls = [
-        ["browserlogin_session_start", { profile_id: "profile-1" }],
-        ["browserlogin_session_stop", { profile_id: "profile-1" }],
+        ["browser_session_start", { profile_id: "profile-1" }],
+        ["browser_session_stop", { profile_id: "profile-1" }],
         ["browser_snapshot", { profile: "profile-1" }],
         ...REMOTE_TOOL_NAMES.map((remoteName) => [remoteName, {}]),
       ] as const;
@@ -295,6 +332,18 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
         }),
         "PROFILE_NOT_RUNNING",
       );
+      for (const name of [
+        "browserlogin_session_start",
+        "browserlogin_session_stop",
+      ]) {
+        expectErrorResult(
+          await child.request(id++, "tools/call", {
+            name,
+            arguments: { profile_id: "profile-1" },
+          }),
+          "Lifecycle request could not be completed.",
+        );
+      }
       for (const [name, arguments_] of calls.slice(3)) {
         const response = await child.request(id++, "tools/call", {
           name,
