@@ -25,6 +25,10 @@ import { RemoteMcpClient } from "../core/mcp-proxy/client.js";
 import { RemoteMcpDiscoveryCache } from "../core/mcp-proxy/cache.js";
 import { RemoteMcpForwarder } from "../core/mcp-proxy/forward.js";
 import { BrowserLoginClient } from "../core/api/client.js";
+import {
+  BrowserInitializationRequiredError,
+  readActiveBinary,
+} from "../core/binary/index.js";
 import { VERSION } from "../shared/version.js";
 import {
   argumentsForCall,
@@ -34,6 +38,7 @@ import {
   type RegistryDependencies,
   type UnifiedRegistry,
 } from "./registry.js";
+import { BrowserInitializer } from "./binary-initialization.js";
 
 const SETUP_MESSAGE = "BrowserLogin connection setup is required";
 const LOG_LIMIT = 256 * 1024;
@@ -110,20 +115,20 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
   const runtimeHooks: {
     stop?: (profileId: string) => Promise<void>;
   } = {};
+  const binaryInitialization = new BrowserInitializer({
+    root,
+    licenseKey: resolution.licenseKey,
+  });
   const coordinator = new LifecycleCoordinator({
     root,
     api: client,
     profile: async (profileId) => {
+      const binary = await readActiveBinary(root, { env: process.env });
+      if (!binary) throw new BrowserInitializationRequiredError();
       const profile = await client.getProfile(profileId);
       return {
         profile,
-        binary: await import("../core/binary/index.js").then(
-          ({ ensureBinary }) =>
-            ensureBinary({
-              licenseKey: resolution.licenseKey ?? undefined,
-              cacheDirectory: root,
-            }),
-        ),
+        binary,
         launchSpec: {
           profile_id: profile.id,
           seed: profile.seed,
@@ -185,6 +190,7 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
   );
   return {
     lifecycle,
+    binaryInitialization,
     browserRouter: browser.router,
     browserLifecycle: browser.lifecycle,
     browserTools,

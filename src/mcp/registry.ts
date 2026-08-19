@@ -9,6 +9,19 @@ import type {
 } from "../core/mcp-proxy/index.js";
 import type { JsonObject, RemoteTool } from "../core/mcp-proxy/types.js";
 import { mergeRemoteTools } from "../core/mcp-proxy/forward.js";
+import { BrowserInitializationRequiredError } from "../core/binary/index.js";
+import {
+  BROWSER_INIT_STATUS_TOOL,
+  BROWSER_INIT_TOOL,
+  BrowserLicenseRequiredError,
+  type BrowserInitializationOperations,
+  type BrowserInitializationSource,
+} from "./binary-initialization.js";
+
+export {
+  BROWSER_INIT_STATUS_TOOL,
+  BROWSER_INIT_TOOL,
+} from "./binary-initialization.js";
 
 export const START_TOOL: Tool = {
   name: "browser_session_start",
@@ -52,6 +65,7 @@ export type LifecycleOperations = {
 
 export type RegistryDependencies = {
   lifecycle: LifecycleOperations;
+  binaryInitialization?: BrowserInitializationOperations;
   browserRouter: Pick<BrowserToolsRouter, "call">;
   browserLifecycle?: Pick<
     BrowserToolsLifecycle,
@@ -101,6 +115,8 @@ export function localToolNames(
   return new Set([
     START_TOOL.name,
     STOP_TOOL.name,
+    BROWSER_INIT_TOOL.name,
+    BROWSER_INIT_STATUS_TOOL.name,
     LOCAL_COMPAT_START_TOOL_NAME,
     LOCAL_COMPAT_STOP_TOOL_NAME,
     ...browserTools.map((tool) => tool.name),
@@ -122,6 +138,8 @@ export async function createRegistry(
   const tools = Object.freeze([
     START_TOOL,
     STOP_TOOL,
+    BROWSER_INIT_TOOL,
+    BROWSER_INIT_STATUS_TOOL,
     ...browserTools.map(asMcpTool),
     ...mergedRemote.map(asMcpTool),
   ]);
@@ -148,6 +166,33 @@ export async function createRegistry(
             dependencies.lifecycle.start(profileId),
           );
           return textResult("BrowserLogin session started.");
+        }
+        if (name === BROWSER_INIT_TOOL.name) {
+          const source = arguments_.source ?? "free";
+          if (source !== "free" && source !== "license")
+            return textResult(
+              "CloakBrowser initialization request is invalid.",
+              true,
+            );
+          if (!dependencies.binaryInitialization)
+            return textResult(
+              "CloakBrowser initialization is unavailable.",
+              true,
+            );
+          const result = await dependencies.binaryInitialization.initialize(
+            source satisfies BrowserInitializationSource,
+          );
+          return textResult(JSON.stringify(result));
+        }
+        if (name === BROWSER_INIT_STATUS_TOOL.name) {
+          if (!dependencies.binaryInitialization)
+            return textResult(
+              "CloakBrowser initialization is unavailable.",
+              true,
+            );
+          return textResult(
+            JSON.stringify(await dependencies.binaryInitialization.status()),
+          );
         }
         if (STOP_TOOL_NAMES.has(name)) {
           const profileId = arguments_.profile_id;
@@ -188,7 +233,11 @@ export async function createRegistry(
           arguments_,
           signal,
         )) as unknown as CallToolResult;
-      } catch {
+      } catch (error) {
+        if (error instanceof BrowserInitializationRequiredError)
+          return textResult(error.message, true);
+        if (error instanceof BrowserLicenseRequiredError)
+          return textResult(error.message, true);
         return textResult(
           START_TOOL_NAMES.has(name) || STOP_TOOL_NAMES.has(name)
             ? "Lifecycle request could not be completed."

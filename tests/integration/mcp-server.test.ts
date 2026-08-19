@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRegistry, STOP_TOOL } from "../../src/mcp/registry.js";
+import {
+  BROWSER_INIT_STATUS_TOOL,
+  BROWSER_INIT_TOOL,
+  createRegistry,
+  STOP_TOOL,
+} from "../../src/mcp/registry.js";
+import { BrowserInitializationRequiredError } from "../../src/core/binary/index.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { startRemoteMcpMock } from "../mocks/remote-mcp-server.js";
 
@@ -242,6 +248,70 @@ function expectErrorResult(response: RpcFrame, text: string): void {
 }
 
 describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
+  it("fails start fast when initialization is required and routes explicit binary init", async () => {
+    const calls: string[] = [];
+    const registry = await createRegistry({
+      lifecycle: {
+        start: async () => {
+          throw new BrowserInitializationRequiredError();
+        },
+        stop: async () => undefined,
+        forceStop: async () => undefined,
+      },
+      binaryInitialization: {
+        initialize: async (source) => {
+          calls.push(`init:${source}`);
+          return {
+            state: "ready" as const,
+            downloaded: 10,
+            total: 10,
+            binary: {
+              path: "/tmp/cloakbrowser",
+              version: undefined,
+              platform: undefined,
+              pro: source === "license",
+              sha256: undefined,
+              binarySha256: undefined,
+              source: "official" as const,
+              trust: "verified" as const,
+            },
+          };
+        },
+        status: async () => ({
+          state: "not-installed" as const,
+          downloaded: 0,
+          total: null,
+          binary: null,
+        }),
+      },
+      browserRouter: { call: async () => ({ content: [] }) },
+      browserTools: [],
+    });
+
+    expect(BROWSER_INIT_TOOL.inputSchema.properties).toHaveProperty("source");
+    expect(BROWSER_INIT_STATUS_TOOL.inputSchema.required).toEqual([]);
+    expect(
+      await registry.call("browser_session_start", {
+        profile_id: "profile-init",
+      }),
+    ).toMatchObject({
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text: "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start.",
+        },
+      ],
+    });
+    expect(
+      await registry.call("browser_init", { source: "free" }),
+    ).not.toMatchObject({ isError: true });
+    expect(await registry.call("browser_init_status", {})).not.toMatchObject({
+      isError: true,
+    });
+    expect(calls).toEqual(["init:free"]);
+  });
+
   it("routes force session stop locally without using normal stop", async () => {
     const calls: string[] = [];
     const registry = await createRegistry({
@@ -284,7 +354,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       const tools = (callResult(listed).tools ?? []) as Array<
         Record<string, unknown>
       >;
-      expect(tools).toHaveLength(42);
+      expect(tools).toHaveLength(44);
       expect(tools.map((tool) => tool.name)).not.toContain(
         "browser_run_code_unsafe",
       );
@@ -293,6 +363,8 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
           ...REMOTE_TOOL_NAMES,
           "browser_session_start",
           "browser_session_stop",
+          "browser_init",
+          "browser_init_status",
         ]),
       );
       expect(tools.map((tool) => tool.name)).not.toEqual(
@@ -316,7 +388,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
           name: calls[0]![0],
           arguments: calls[0]![1],
         }),
-        "Lifecycle request could not be completed.",
+        "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start.",
       );
       expectErrorResult(
         await child.request(id++, "tools/call", {
@@ -341,7 +413,9 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
             name,
             arguments: { profile_id: "profile-1" },
           }),
-          "Lifecycle request could not be completed.",
+          name === "browserlogin_session_start"
+            ? "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start."
+            : "Lifecycle request could not be completed.",
         );
       }
       for (const [name, arguments_] of calls.slice(3)) {
@@ -373,7 +447,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       (initialized.result as Record<string, unknown>).instructions,
     ).toContain("degraded local-only mode");
     const listed = await child.request(2, "tools/list");
-    expect(callResult(listed).tools as unknown[]).toHaveLength(25);
+    expect(callResult(listed).tools as unknown[]).toHaveLength(27);
     child.child.kill("SIGTERM");
     await child.waitForExit();
     child.finishAssertions();
@@ -390,7 +464,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     const tools = (callResult(listed).tools ?? []) as Array<
       Record<string, unknown>
     >;
-    expect(tools).toHaveLength(26);
+    expect(tools).toHaveLength(28);
     expect(tools.map((tool) => tool.name)).toContain("browser_run_code_unsafe");
     child.child.kill("SIGTERM");
     await child.waitForExit();
