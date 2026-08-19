@@ -40,6 +40,17 @@ export class BinaryManagerError extends Error {
   }
 }
 
+export class BrowserInitializationRequiredError extends Error {
+  readonly code = "BROWSER_INIT_REQUIRED";
+
+  constructor() {
+    super(
+      "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start.",
+    );
+    this.name = "BrowserInitializationRequiredError";
+  }
+}
+
 export type BinaryFetch = typeof fetch;
 export type BinaryPlatformInput = {
   platform?: NodeJS.Platform | string;
@@ -79,6 +90,7 @@ export type EnsureBinaryOptions = VersionResolutionOptions & {
   progress?: (event: ProgressEvent) => void;
   diskSpace?: (path: string) => Promise<{ available: number }>;
   healthCallback?: (info: BinaryInfo) => Promise<boolean> | boolean;
+  totalTimeoutMs?: number;
 };
 
 export type InstallOptions = {

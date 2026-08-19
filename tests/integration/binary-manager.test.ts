@@ -20,6 +20,7 @@ import {
   resolvePlatform,
   resolveVersion,
   BinaryManagerError,
+  readActiveBinary,
 } from "../../src/core/binary/index.js";
 import { lockName } from "../../src/core/locks/index.js";
 import { setTestOfficialSigningPublicKey } from "../../src/core/binary/test-seam.js";
@@ -172,6 +173,9 @@ describe("Task 14 binary manager", () => {
     const source = await serverFor(fixtureArchive());
     const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-"));
     const progress: Array<{ done: boolean }> = [];
+    await expect(
+      readActiveBinary(root, { platform: "win32", arch: "x64" }),
+    ).resolves.toBeUndefined();
     const info = await ensureBinary({
       cacheDirectory: root,
       downloadUrl: source.url,
@@ -186,6 +190,14 @@ describe("Task 14 binary manager", () => {
     expect(info.trust).toBe("unverified-custom");
     expect(await readFile(info.path, "utf8")).toContain("TEST-ONLY");
     expect(progress.at(-1)?.done).toBe(true);
+    await expect(
+      readActiveBinary(root, { platform: "win32", arch: "x64" }),
+    ).resolves.toMatchObject({
+      path: info.path,
+      version: source.version,
+      source: "custom",
+      trust: "unverified-custom",
+    });
     expect(
       JSON.parse(
         await readFile(join(root, "browser-runtime", "current.json"), "utf8"),

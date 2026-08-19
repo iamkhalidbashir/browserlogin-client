@@ -23,6 +23,7 @@ import {
 } from "./types.js";
 
 export * from "./download.js";
+export * from "./active.js";
 export * from "./install.js";
 export * from "./types.js";
 export * from "./verify.js";
@@ -156,6 +157,7 @@ export async function ensureBinary(
             progress: options.progress,
             fetchImpl: options.fetchImpl,
             diskSpace: options.diskSpace,
+            totalTimeoutMs: options.totalTimeoutMs,
           });
           selectedArchiveUrl = archiveUrl;
           break;
