@@ -17,7 +17,11 @@ import type {
   ProfileUpdateInput,
   ProxyInput,
 } from "../core/api/client.js";
-import { ensureBinary } from "../core/binary/index.js";
+import {
+  BrowserInitializationRequiredError,
+  ensureBinary,
+  readActiveBinary,
+} from "../core/binary/index.js";
 import type { BinaryInfo } from "../core/binary/types.js";
 import { ConnectionStore } from "../core/config/connection.js";
 import { statePaths } from "../core/config/paths.js";
@@ -44,6 +48,7 @@ export type AppServiceContext = {
     "start" | "stop" | "forceStop" | "recover"
   >;
   ensureBinary?: typeof ensureBinary;
+  readActiveBinary?: typeof readActiveBinary;
 };
 
 type ProfileParams = { profileId: string };
@@ -128,19 +133,17 @@ async function resolveClient(connection: ConnectionStore): Promise<{
 function createCoordinator(
   root: string,
   client: BrowserLoginClient,
-  licenseKey: string | null,
 ): LifecycleCoordinator {
   return new LifecycleCoordinator({
     root,
     api: client,
     profile: async (profileId) => {
+      const binary = await readActiveBinary(root, { env: process.env });
+      if (!binary) throw new BrowserInitializationRequiredError();
       const profile = await client.getProfile(profileId);
       return {
         profile,
-        binary: await ensureBinary({
-          licenseKey: licenseKey ?? undefined,
-          cacheDirectory: root,
-        }),
+        binary,
         launchSpec: {
           profile_id: profile.id,
           seed: profile.seed,
@@ -188,11 +191,7 @@ export function createCoreAppRuntime(context: AppServiceContext): {
     if (context.coordinator) return context.coordinator;
     coordinatorPromise ??= (async () => {
       const resolved = await resolveClient(context.connection);
-      return createCoordinator(
-        context.root,
-        resolved.client,
-        resolved.licenseKey,
-      );
+      return createCoordinator(context.root, resolved.client);
     })();
     return coordinatorPromise;
   };
@@ -339,20 +338,52 @@ export function createCoreAppRuntime(context: AppServiceContext): {
       (await client()).listNoteHistory((raw as ProfileParams).profileId),
     auditList: async (raw) =>
       (await client()).listAudit((raw as Partial<ProfileParams>).profileId),
-    binaryStatus: async () => lastBinary,
+    binaryStatus: async () => {
+      if (!lastBinary)
+        lastBinary =
+          (await (context.readActiveBinary ?? readActiveBinary)(context.root, {
+            env: process.env,
+          })) ?? null;
+      return lastBinary;
+    },
     binaryDownload: async (raw) => {
-      const params = raw as { advancedEnabled: boolean; pro?: boolean };
+      const params = raw as {
+        advancedEnabled: boolean;
+        pro?: boolean;
+        source?: "free" | "license" | "custom";
+        customUrl?: string;
+      };
       const settings = await readSettings(context.root, context.keychain);
-      if (settings.download_source === "custom" && !params.advancedEnabled)
+      const source =
+        params.source ??
+        (params.pro
+          ? "license"
+          : settings.download_source === "custom"
+            ? "custom"
+            : "free");
+      if (source === "custom" && !params.advancedEnabled)
         throw Object.assign(new Error("advanced confirmation required"), {
           code: "ADVANCED_CONFIRMATION_REQUIRED",
         });
       const licenseKey = await context.keychain.getLicenseKey();
+      if (source === "license" && !licenseKey)
+        throw Object.assign(new Error("license required"), {
+          code: "LICENSE_REQUIRED",
+        });
+      const customUrl =
+        source === "custom"
+          ? (params.customUrl ?? settings.custom_download_url ?? undefined)
+          : undefined;
+      if (source === "custom" && !customUrl)
+        throw Object.assign(new Error("custom URL required"), {
+          code: "CUSTOM_URL_REQUIRED",
+        });
       lastBinary = await (context.ensureBinary ?? ensureBinary)({
         cacheDirectory: context.root,
-        licenseKey: licenseKey ?? undefined,
-        pro: params.pro,
-        downloadUrl: settings.custom_download_url ?? undefined,
+        ...(source === "license" && licenseKey ? { licenseKey } : {}),
+        pro: source === "license",
+        ...(customUrl ? { downloadUrl: customUrl } : {}),
+        totalTimeoutMs: 60 * 60 * 1000,
         progress: (event) => {
           progress = {
             downloaded: event.downloaded,

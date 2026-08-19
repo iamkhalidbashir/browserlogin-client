@@ -216,6 +216,17 @@ export const AppRPCSchemas = {
       .object({
         advancedEnabled: z.boolean().default(false),
         pro: z.boolean().optional(),
+        source: z.enum(["free", "license", "custom"]).optional(),
+        customUrl: z
+          .string()
+          .url()
+          .refine(
+            (value) =>
+              value.startsWith("https://") ||
+              /^http:\/\/127\.0\.0\.1(?::\d+)?(?:\/|$)/.test(value),
+            "must use HTTPS or loopback HTTP",
+          )
+          .optional(),
       })
       .strict(),
     result: binaryInfo,

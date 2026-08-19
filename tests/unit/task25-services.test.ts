@@ -148,7 +148,10 @@ describe("Task 25 core service composition", () => {
       };
     }) as typeof ensureBinary;
     const { services } = await fixture({ ensureBinary: fakeEnsureBinary });
-    const download = services.binaryDownload?.({ advancedEnabled: false });
+    const download = services.binaryDownload?.({
+      advancedEnabled: false,
+      source: "free",
+    });
     await vi.waitFor(async () => {
       await expect(services.binaryProgress?.({})).resolves.toEqual({
         downloaded: 5,
@@ -162,6 +165,60 @@ describe("Task 25 core service composition", () => {
       downloaded: 10,
       total: 10,
       done: true,
+    });
+  });
+
+  test("selects free, licensed, and custom binary replacement sources", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const fakeEnsureBinary = vi.fn(async (options) => {
+      calls.push(options);
+      return {
+        path: "/tmp/cloakbrowser",
+        version: "1.0.0",
+        platform: "darwin-arm64" as const,
+        pro: options.pro ?? false,
+        sha256: "a".repeat(64),
+        binarySha256: "b".repeat(64),
+        source: options.downloadUrl
+          ? ("custom" as const)
+          : ("official" as const),
+        trust: options.downloadUrl
+          ? ("unverified-custom" as const)
+          : ("verified" as const),
+      };
+    }) as typeof ensureBinary;
+    const { services } = await fixture({ ensureBinary: fakeEnsureBinary });
+
+    await services.binaryDownload?.({
+      advancedEnabled: false,
+      source: "free",
+    });
+    await services.licenseSet?.({ licenseKey: "license-value" });
+    await services.binaryDownload?.({
+      advancedEnabled: false,
+      source: "license",
+    });
+    await services.binaryDownload?.({
+      advancedEnabled: true,
+      source: "custom",
+      customUrl: "https://downloads.example.test",
+    });
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0]).toMatchObject({
+      pro: false,
+      totalTimeoutMs: 3_600_000,
+    });
+    expect(calls[0]).not.toHaveProperty("licenseKey");
+    expect(calls[1]).toMatchObject({
+      pro: true,
+      licenseKey: "license-value",
+      totalTimeoutMs: 3_600_000,
+    });
+    expect(calls[2]).toMatchObject({
+      pro: false,
+      downloadUrl: "https://downloads.example.test",
+      totalTimeoutMs: 3_600_000,
     });
   });
 
