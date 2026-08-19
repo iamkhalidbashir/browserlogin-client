@@ -493,8 +493,9 @@ describe("CDP input relay", () => {
       if (message.method === "Target.setAutoAttach")
         socket.send(JSON.stringify({ id: message.id, result: {} }));
       if (
-        typeof message.id === "string" &&
-        message.id.startsWith("__browserlogin_")
+        message.method === "Input.insertText" &&
+        typeof message.id === "number" &&
+        message.id < 0
       )
         setTimeout(
           () => socket.send(JSON.stringify({ id: message.id, result: {} })),

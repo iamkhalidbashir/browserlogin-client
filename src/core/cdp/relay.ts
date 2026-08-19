@@ -87,8 +87,8 @@ type Client = {
   sessionTargets: Map<string, string>;
   targetSessions: Map<string, Set<string>>;
   operations: Set<Operation>;
-  internalIds: Set<string>;
-  tombstones: Map<string, ReturnType<typeof setTimeout>>;
+  internalIds: Set<number>;
+  tombstones: Map<number, ReturnType<typeof setTimeout>>;
 };
 
 const MAX_INTERNAL_TOMBSTONES = 64;
@@ -161,8 +161,8 @@ const parseTimeout = (
   return value;
 };
 
-const isInternalId = (value: unknown): value is string =>
-  typeof value === "string" && value.startsWith("__browserlogin_");
+const isInternalId = (client: Client, value: unknown): value is number =>
+  typeof value === "number" && client.internalIds.has(value);
 
 const response = (id: number | string, sessionId?: string): JsonRecord => ({
   id,
@@ -293,20 +293,21 @@ const closeClient = (client: Client, code = 1000): void => {
   client.socket.close(code);
 };
 
-const addTombstone = (client: Client, id: string): void => {
+const addTombstone = (client: Client, id: number): void => {
   const previous = client.tombstones.get(id);
   if (previous !== undefined) clearTimeout(previous);
-  const timer = setTimeout(
-    () => client.tombstones.delete(id),
-    INTERNAL_TOMBSTONE_MS,
-  );
+  const timer = setTimeout(() => {
+    client.tombstones.delete(id);
+    client.internalIds.delete(id);
+  }, INTERNAL_TOMBSTONE_MS);
   client.tombstones.set(id, timer);
   while (client.tombstones.size > MAX_INTERNAL_TOMBSTONES) {
     const oldest = client.tombstones.keys().next().value;
-    if (typeof oldest !== "string") break;
+    if (typeof oldest !== "number") break;
     const oldestTimer = client.tombstones.get(oldest);
     if (oldestTimer !== undefined) clearTimeout(oldestTimer);
     client.tombstones.delete(oldest);
+    client.internalIds.delete(oldest);
   }
 };
 
@@ -355,10 +356,7 @@ const sendAndWait = (
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       client.pending.delete(id);
-      if (isInternalId(id)) {
-        client.internalIds.delete(id);
-        addTombstone(client, id);
-      }
+      if (isInternalId(client, id)) addTombstone(client, id);
       reject(new Error("CDP upstream response timed out"));
     }, timeoutMs);
     client.pending.set(id, { resolve, reject, timer });
@@ -536,12 +534,13 @@ const handleUpstreamMessage = (client: Client, frame: Frame): void => {
     if (pending) {
       clearTimeout(pending.timer);
       client.pending.delete(message.id);
-      if (isInternalId(message.id)) client.internalIds.delete(message.id);
+      if (isInternalId(client, message.id))
+        client.internalIds.delete(message.id);
       pending.resolve(message);
     }
     return;
   }
-  if (isInternalId(message.id)) {
+  if (isInternalId(client, message.id)) {
     client.internalIds.delete(message.id);
     const tombstoneTimer = client.tombstones.get(message.id);
     if (tombstoneTimer !== undefined) {
@@ -574,10 +573,10 @@ const newClient = (): Client => ({
   tombstones: new Map(),
 });
 
-const internalId = (client: Client): string => {
-  let id = `__browserlogin_${randomBytes(16).toString("hex")}`;
-  while (client.internalIds.has(id))
-    id = `__browserlogin_${randomBytes(16).toString("hex")}`;
+const internalId = (client: Client): number => {
+  let id = -1 - (randomBytes(4).readUInt32BE(0) & 0x3fffffff);
+  while (client.internalIds.has(id) || client.pending.has(id))
+    id = -1 - (randomBytes(4).readUInt32BE(0) & 0x3fffffff);
   client.internalIds.add(id);
   return id;
 };
