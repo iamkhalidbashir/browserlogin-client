@@ -8,6 +8,7 @@ import type { VendorBrowserRuntimeFactory } from "./types";
 export type BrowserToolsFactoryOptions = {
   lookup: RunningProfileLookup;
   coordinatorStop: (profileId: string) => Promise<unknown>;
+  coordinatorForceStop: (profileId: string) => Promise<unknown>;
   vendorFactory?: VendorBrowserRuntimeFactory;
   processTarget?: Pick<NodeJS.Process, "once">;
 };
@@ -18,7 +19,11 @@ export function createBrowserTools(options: BrowserToolsFactoryOptions) {
       ((profileId, relayCdpUrl) =>
         createF2VendorRuntime({ profileId, relayCdpUrl })),
   );
-  const lifecycle = new BrowserToolsLifecycle(pool, options.coordinatorStop);
+  const lifecycle = new BrowserToolsLifecycle(
+    pool,
+    options.coordinatorStop,
+    options.coordinatorForceStop,
+  );
   pool.installProcessShutdownHooks(options.processTarget ?? process);
   return {
     pool,

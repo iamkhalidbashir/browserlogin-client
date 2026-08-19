@@ -250,15 +250,37 @@ describe("browser tools manifest and router", () => {
     const router = new BrowserToolsRouter(
       new ProfileResolver(async () => ({ relayCdpUrl: "ws://127.0.0.1/p1" })),
       pool,
-      new BrowserToolsLifecycle(pool, async () => {
-        stops += 1;
-        return { state: "stopped" };
-      }),
+      new BrowserToolsLifecycle(
+        pool,
+        async () => {
+          stops += 1;
+          return { state: "stopped" };
+        },
+        async () => ({ state: "stopped" }),
+      ),
     );
     await router.call("browser_snapshot", { profile: "p1" });
     await router.call("browser_close", { profile: "p1" });
     expect(stops).toBe(1);
     expect(runtimes.get("p1")?.calls.at(-1)?.name).toBe("__close__");
+  });
+
+  test("force stop closes the runtime and uses only coordinator force stop", async () => {
+    const runtime = new FakeRuntime();
+    const pool = new RuntimePool(async () => runtime);
+    const calls: string[] = [];
+    const lifecycle = new BrowserToolsLifecycle(
+      pool,
+      async (profileId) => calls.push(`stop:${profileId}`),
+      async (profileId) => calls.push(`force:${profileId}`),
+    );
+    await pool.call("p1", "ws://127.0.0.1/p1", async () => ok());
+
+    await lifecycle.forceStop("p1");
+
+    expect(calls).toEqual(["force:p1"]);
+    expect(runtime.calls.at(-1)?.name).toBe("__close__");
+    expect(pool.size).toBe(0);
   });
 });
 
@@ -343,6 +365,7 @@ describe("runtime pool cleanup", () => {
         stops += 1;
         return { state: "stopped" };
       },
+      coordinatorForceStop: async () => ({ state: "stopped" }),
       vendorFactory: async () => runtime,
       processTarget,
     });
