@@ -34,6 +34,7 @@
     "@tanstack/react-query": "^5.101.4",
     "cloakbrowser": "^0.5.7",
     "fflate": "^0.8.2",
+    "mmdb-lib": "^3.0.2",
     "onnxruntime-web": "1.27.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
