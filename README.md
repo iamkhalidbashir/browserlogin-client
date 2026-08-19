@@ -114,6 +114,8 @@ Use one local MCP entry:
 
 The complete catalog contains 26 lifecycle/browser tools in degraded local-only mode and 43 tools when remote discovery succeeds. By default, the unsafe code-execution tool is hidden, so visible counts are 25 and 42. Setting `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` restores the full 26/43 catalog. Remote tools retain their names and schemas. See [the migration guide](docs/opencode-migration.md).
 
+The canonical local lifecycle tools are `browser_session_start` and `browser_session_stop`, exposed by OpenCode as `browserlogin_browser_session_start` and `browserlogin_browser_session_stop`. The v0.1.0 names `browserlogin_session_start` and `browserlogin_session_stop` remain callable as hidden local compatibility names for one release. Both name generations are always handled locally and are never forwarded to the cloud MCP.
+
 ## State and environment
 
 Default state roots:

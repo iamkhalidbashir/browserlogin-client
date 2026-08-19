@@ -62,6 +62,8 @@ Prefer `browserlogin setup`, which stores the key through the OS keychain. Manag
 
 Remote tools are proxied without renaming and retain their input schemas. Successful discovery yields 43 tools. Remote failure yields 26 lifecycle/browser tools plus degraded-mode initialize instructions. Stdout is JSON-RPC-only; diagnostics go to stderr/private logs.
 
+Local lifecycle tools are advertised as `browser_session_start` and `browser_session_stop`. In OpenCode, the server namespace exposes them as `browserlogin_browser_session_start` and `browserlogin_browser_session_stop`. The v0.1.0 names `browserlogin_session_start` and `browserlogin_session_stop` are hidden from discovery but remain callable as local compatibility names for one release. They are reserved by the local registry and never forwarded to BrowserSessionMCP.
+
 Verify with:
 
 ```sh
