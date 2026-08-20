@@ -133,7 +133,6 @@ Default state roots:
 | `BROWSERLOGIN_API_KEY`                     | Nonempty BrowserLogin key override; never commit it.                  |
 | `BROWSERLOGIN_BASE_URL`                    | BrowserLogin API base URL override.                                   |
 | `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                           |
-| `CLOAKBROWSER_LICENSE_API`                 | Optional license API origin; at most 24 ASCII bytes including scheme. |
 | `BROWSERLOGIN_MCP_REMOTE_URL`              | Remote BrowserSessionMCP endpoint override.                           |
 | `BROWSERLOGIN_MCP_REMOTE_TOKEN`            | Remote MCP bearer override.                                           |
 | `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Expose RCE-equivalent `browser_run_code_unsafe`.                      |

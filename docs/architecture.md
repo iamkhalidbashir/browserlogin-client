@@ -14,7 +14,6 @@ flowchart TD
   Core --> Dist[Verified browser distribution]
   Core --> Runner[Per-profile runner]
   Runner --> Browser[CloakBrowser]
-  Runner --> License[Loopback license relay]
   MCP --> Remote[Remote MCP proxy]
   MCP --> CDP[Authenticated CDP relay]
   CDP --> Runner
@@ -34,7 +33,6 @@ Start uses stable idempotency keys, verifies/extracts any remote archive with tr
 
 ## Relays
 
-- The license relay binds IPv4 loopback and forwards only supported license-session POST routes. Its URL must obey the 24-byte ASCII limit.
 - Credentialed SOCKS5 uses a per-run authenticated upstream relay; Chromium receives only an unauthenticated loopback endpoint.
 - The CDP relay authenticates a one-time loopback URL, caps frames at 16 MiB, serializes input, cancels on navigation/detach, and returns generic errors.
 - Remote MCP uses stateless bounded POSTs, redirect/body limits, private-address rejection, cancellation, and auth-failure throttling.
