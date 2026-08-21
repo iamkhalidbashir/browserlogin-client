@@ -28,6 +28,21 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/core/browser-tools/*.cjs"],
+    languageOptions: {
+      globals: {
+        clearTimeout: "readonly",
+        module: "readonly",
+        process: "readonly",
+        require: "readonly",
+        setTimeout: "readonly",
+      },
+    },
+    rules: {
+      "@typescript-eslint/no-require-imports": "off",
+    },
+  },
+  {
     files: ["**/*.ts", "**/*.tsx"],
     languageOptions: {
       parserOptions: {

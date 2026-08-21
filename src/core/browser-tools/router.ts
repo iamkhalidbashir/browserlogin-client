@@ -208,4 +208,5 @@ export class BrowserToolsRouter {
       await runtime.callTool("browser_press_key", { key: "Enter" }),
     );
   }
+
 }

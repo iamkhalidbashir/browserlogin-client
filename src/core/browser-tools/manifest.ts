@@ -71,11 +71,37 @@ if (
     "source Playwright manifest changed; update the checked-in snapshot",
   );
 
-export const PRODUCT_TOOLS: readonly VendorTool[] = sourceTools.map((tool) => ({
-  name: tool.name,
-  ...(tool.description ? { description: tool.description } : {}),
-  inputSchema: withProfile(tool.inputSchema),
-}));
+const modalWatchTool: VendorTool = {
+  name: "browser_modal_watch",
+  description:
+    "Temporarily let the agent handle the next file upload or JavaScript dialog.",
+  inputSchema: withProfile({
+    type: "object",
+    properties: {
+      kind: {
+        type: "string",
+        enum: ["file_upload", "dialog"],
+      },
+      timeout_ms: {
+        type: "integer",
+        minimum: 1,
+        maximum: 300_000,
+        default: 30_000,
+      },
+    },
+    required: ["kind"],
+    additionalProperties: false,
+  }),
+};
+
+export const PRODUCT_TOOLS: readonly VendorTool[] = [
+  ...sourceTools.map((tool) => ({
+    name: tool.name,
+    ...(tool.description ? { description: tool.description } : {}),
+    inputSchema: withProfile(tool.inputSchema),
+  })),
+  modalWatchTool,
+];
 
 export function visibleTools(allowUnsafe: boolean): VendorTool[] {
   return PRODUCT_TOOLS.filter(
@@ -87,7 +113,5 @@ export function visibleTools(allowUnsafe: boolean): VendorTool[] {
 }
 
 export function isManifestTool(name: string): boolean {
-  return SOURCE_MANIFEST_TOOL_NAMES.includes(
-    name as (typeof SOURCE_MANIFEST_TOOL_NAMES)[number],
-  );
+  return PRODUCT_TOOLS.some((tool) => tool.name === name);
 }

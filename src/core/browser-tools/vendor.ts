@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
 import { accessSync, constants as fsConstants } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   StdioClientTransport,
@@ -15,7 +15,6 @@ import type {
 import { PRODUCT_TOOLS } from "./manifest";
 import { SOURCE_MANIFEST_TOOL_NAMES } from "./manifest";
 
-const require = createRequire(import.meta.url);
 const DEFAULT_ACTION_TIMEOUT_MS = 30_000;
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 90_000;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
@@ -124,8 +123,7 @@ const redactStderr = (text: string): string =>
     );
 
 const resolveCliPath = (): string => {
-  const packageJson = require.resolve("@playwright/mcp/package.json");
-  return join(dirname(packageJson), "cli.js");
+  return fileURLToPath(new URL("./vendor-entry.cjs", import.meta.url));
 };
 
 export const vendorHelperName = (): string => {
@@ -136,6 +134,14 @@ export const vendorHelperName = (): string => {
   if (process.platform === "win32" && process.arch === "x64")
     return "browserlogin-browser-tools-windows-x64.exe";
   throw new Error("browser tools helper platform is unsupported");
+};
+
+export const vendorOutputDirectory = (
+  env: NodeJS.ProcessEnv = process.env,
+): string => {
+  const home = env.HOME ?? env.USERPROFILE;
+  if (!home) throw new Error("user home directory is unavailable");
+  return join(home, "Downloads");
 };
 
 const executable = (path: string): boolean => {
@@ -324,6 +330,8 @@ export async function createF2VendorRuntime(
       String(options.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS),
       "--timeout-navigation",
       String(options.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS),
+      "--output-dir",
+      vendorOutputDirectory(),
     ],
     env: childEnv(options.extraEnv),
     stderr: "pipe",

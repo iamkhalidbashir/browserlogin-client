@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -15,6 +15,12 @@ import {
 
 const fixture = fileURLToPath(
   new URL("../fixtures/fake-vendor-child.mjs", import.meta.url),
+);
+const userModalInitPage = fileURLToPath(
+  new URL(
+    "../../src/core/browser-tools/user-modal-init-page.cjs",
+    import.meta.url,
+  ),
 );
 const execFileAsync = promisify(execFile);
 
@@ -40,6 +46,32 @@ async function withEnv<T>(
 }
 
 describe("f2 vendor stdio subprocess", () => {
+  test("keeps modals user-owned until a timed agent watcher is enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-user-modal-"));
+    const initPage = join(root, "user-modal-init.cjs");
+    try {
+      const { stdout: source } = await execFileAsync(process.execPath, [
+        "-e",
+        `process.stdout.write(require(${JSON.stringify(userModalInitPage)}).source)`,
+      ]);
+      await writeFile(initPage, source);
+      const { stdout } = await execFileAsync(process.execPath, [
+        "-e",
+        `const { default: initialize } = require(${JSON.stringify(initPage)}); const events = new Map([['filechooser', [() => {}]], ['dialog', [() => {}]], ['dialogclosed', [() => {}]]]); const removed = []; const page = { listeners: (event) => [...(events.get(event) ?? [])], removeAllListeners: (event) => { removed.push(event); events.set(event, []); }, on: (event, listener) => { events.set(event, [...(events.get(event) ?? []), listener]); }, removeListener: (event, listener) => { events.set(event, (events.get(event) ?? []).filter((item) => item !== listener)); } }; globalThis.__browserloginModalControllers = new WeakMap(); (async () => { await initialize({ page }); const watcher = globalThis.__browserloginModalControllers.get(page); const userDialogListeners = events.get('dialog').length; watcher.watch('filechooser', 12000); const fileWatchListeners = events.get('filechooser').length; watcher.release('filechooser'); const fileAfterRelease = events.get('filechooser').length; watcher.watch('dialog', 12000); const dialogWatchListeners = events.get('dialog').length; watcher.release('dialog'); const dialogAfterRelease = events.get('dialog').length; process.stdout.write(JSON.stringify({ removed, userDialogListeners, fileWatchListeners, fileAfterRelease, dialogWatchListeners, dialogAfterRelease })); })().catch((error) => { process.stderr.write(String(error)); process.exitCode = 1; });`,
+      ]);
+      expect(JSON.parse(stdout)).toEqual({
+        removed: ["filechooser", "dialog", "dialogclosed"],
+        userDialogListeners: 1,
+        fileWatchListeners: 1,
+        fileAfterRelease: 0,
+        dialogWatchListeners: 2,
+        dialogAfterRelease: 1,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("uses a packaged Bun helper with an empty PATH and no system Node", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-vendor-helper-"));
     const helper = join(root, vendorHelperName());
@@ -84,6 +116,7 @@ describe("f2 vendor stdio subprocess", () => {
     try {
       const runtime = await withEnv(
         {
+          HOME: join(root, "home"),
           BROWSERLOGIN_API_KEY: "parent-secret",
           CLOAKBROWSER_API_KEY: "parent-secret",
           CLOAKBROWSER_LICENSE_KEY: "parent-secret",
@@ -128,6 +161,8 @@ describe("f2 vendor stdio subprocess", () => {
         "30000",
         "--timeout-navigation",
         "90000",
+        "--output-dir",
+        join(root, "home", "Downloads"),
       ]);
       expect(captured.env.PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD).toBe("1");
       const capturedText = await readFile(capture, "utf8");
@@ -236,7 +271,10 @@ describe("f2 vendor stdio subprocess", () => {
         },
       });
       await runtime.close();
-      expect(names).toEqual([...SOURCE_MANIFEST_TOOL_NAMES]);
+      expect(names).toEqual(
+        expect.arrayContaining([...SOURCE_MANIFEST_TOOL_NAMES]),
+      );
+      expect(names).toContain("browser_modal_watch");
     } finally {
       server.close();
       await new Promise<void>((resolve) => httpServer.close(() => resolve()));

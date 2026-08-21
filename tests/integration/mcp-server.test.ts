@@ -354,7 +354,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       const tools = (callResult(listed).tools ?? []) as Array<
         Record<string, unknown>
       >;
-      expect(tools).toHaveLength(44);
+      expect(tools).toHaveLength(45);
       expect(tools.map((tool) => tool.name)).not.toContain(
         "browser_run_code_unsafe",
       );
@@ -365,6 +365,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
           "browser_session_stop",
           "browser_init",
           "browser_init_status",
+          "browser_modal_watch",
         ]),
       );
       expect(tools.map((tool) => tool.name)).not.toEqual(
@@ -437,7 +438,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     }
   });
 
-  it("degrades to exactly 25 safe-default local tools within the discovery budget", async () => {
+  it("degrades to exactly 28 safe-default local tools within the discovery budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-degraded-"));
     roots.push(root);
     const child = launch(root, "http://127.0.0.1:1/mcp");
@@ -447,13 +448,13 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       (initialized.result as Record<string, unknown>).instructions,
     ).toContain("degraded local-only mode");
     const listed = await child.request(2, "tools/list");
-    expect(callResult(listed).tools as unknown[]).toHaveLength(27);
+    expect(callResult(listed).tools as unknown[]).toHaveLength(28);
     child.child.kill("SIGTERM");
     await child.waitForExit();
     child.finishAssertions();
   });
 
-  it("restores the 26-tool local catalog only with exact unsafe opt-in", async () => {
+  it("restores the 29-tool local catalog only with exact unsafe opt-in", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-unsafe-"));
     roots.push(root);
     const child = launch(root, "http://127.0.0.1:1/mcp", {
@@ -464,7 +465,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     const tools = (callResult(listed).tools ?? []) as Array<
       Record<string, unknown>
     >;
-    expect(tools).toHaveLength(28);
+    expect(tools).toHaveLength(29);
     expect(tools.map((tool) => tool.name)).toContain("browser_run_code_unsafe");
     child.child.kill("SIGTERM");
     await child.waitForExit();

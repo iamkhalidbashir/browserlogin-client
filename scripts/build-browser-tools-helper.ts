@@ -10,7 +10,7 @@ const child = Bun.spawn(
     process.execPath,
     "build",
     "--compile",
-    "node_modules/@playwright/mcp/cli.js",
+    "src/core/browser-tools/vendor-entry.cjs",
     "--external",
     "chromium-bidi/*",
     "--external",

@@ -67,10 +67,21 @@ function setup(
 describe("browser tools manifest and router", () => {
   test("snapshots the exact source names and clones schemas with required profile", () => {
     expect(SOURCE_MANIFEST_TOOL_COUNT).toBe(24);
-    expect(PRODUCT_TOOLS).toHaveLength(24);
-    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toEqual([
-      ...SOURCE_MANIFEST_TOOL_NAMES,
-    ]);
+    expect(PRODUCT_TOOLS).toHaveLength(25);
+    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toContain(
+      "browser_file_upload",
+    );
+    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toContain(
+      "browser_handle_dialog",
+    );
+    expect(PRODUCT_TOOLS.map((tool) => tool.name)).toContain(
+      "browser_modal_watch",
+    );
+    expect(
+      PRODUCT_TOOLS.slice(0, SOURCE_MANIFEST_TOOL_COUNT).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual([...SOURCE_MANIFEST_TOOL_NAMES]);
     for (const tool of PRODUCT_TOOLS) {
       expect(tool.inputSchema.required).toContain("profile");
       expect(tool.inputSchema.properties).toHaveProperty("profile");
@@ -84,9 +95,9 @@ describe("browser tools manifest and router", () => {
     );
   });
 
-  test("exposes 23 safe tools and exactly 24 with the exact unsafe flag", async () => {
+  test("exposes 24 safe tools and exactly 25 with the exact unsafe flag", async () => {
     const { router } = setup(new Map());
-    expect(router.listTools()).toHaveLength(23);
+    expect(router.listTools()).toHaveLength(24);
     expect(router.listTools().map((tool) => tool.name)).not.toContain(
       UNSAFE_TOOL_NAME,
     );
@@ -98,7 +109,7 @@ describe("browser tools manifest and router", () => {
     ).resolves.not.toMatchObject({ isError: true });
     const previous = process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
     process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = "1";
-    expect(setup(new Map()).router.listTools()).toHaveLength(24);
+    expect(setup(new Map()).router.listTools()).toHaveLength(25);
     if (previous === undefined)
       delete process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE;
     else process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE = previous;
@@ -150,6 +161,23 @@ describe("browser tools manifest and router", () => {
     expect(runtimes.get("p1")?.calls.map((call) => call.args.slowly)).toEqual([
       true,
     ]);
+  });
+
+  test("forwards a timed agent modal watcher without exposing user modal state", async () => {
+    const runtimes = new Map<string, FakeRuntime>();
+    const { router } = setup(runtimes);
+
+    await router.call("browser_modal_watch", {
+      profile: "p1",
+      kind: "file_upload",
+      timeout_ms: 12_000,
+    });
+
+    const call = runtimes.get("p1")?.calls.at(-1);
+    expect(call).toEqual({
+      name: "browser_modal_watch",
+      args: { kind: "file_upload", timeout_ms: 12_000 },
+    });
   });
 
   test("implements fill and select shims with Python call order", async () => {

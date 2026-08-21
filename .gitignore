@@ -9,4 +9,5 @@ artifacts/
 .bin/
 coverage/
 playwright-report/
+.playwright-mcp/
 .omo/
