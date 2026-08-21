@@ -17,7 +17,7 @@ function workflowStep(name: string): string {
 }
 
 describe("release asset contract", () => {
-  test("stages versioned public downloads without renaming updater inputs", () => {
+  test("stages versioned public downloads without updater artifacts", () => {
     expect(publishRelease).toContain('tagged_release="tagged-release"');
     expect(publishRelease).toContain(
       "BrowserLogin-${release_version}-macos-arm64.dmg",
@@ -37,7 +37,7 @@ describe("release asset contract", () => {
     expect(publishRelease).toContain(
       "browserlogin-${release_version}-linux-x64",
     );
-    expect(publishRelease).toContain(
+    expect(publishRelease).not.toContain(
       "production-macos-arm64-BrowserLogin.app.tar.zst",
     );
     expect(publishRelease).toContain("release_files=(tagged-release/*)");
