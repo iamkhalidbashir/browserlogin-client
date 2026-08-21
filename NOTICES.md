@@ -8,7 +8,7 @@ and the installed package metadata in `node_modules`. Run
 The table records package metadata; the authoritative license terms remain in
 each dependency's distributed license file and source repository.
 
-## Runtime dependencies (12)
+## Runtime dependencies (13)
 
 | Package                   | Declared range | Installed | License    | Source                                                             |
 | ------------------------- | -------------- | --------- | ---------- | ------------------------------------------------------------------ |
@@ -17,6 +17,7 @@ each dependency's distributed license file and source repository.
 | @tanstack/react-query     | ^5.101.4       | 5.101.4   | MIT        | [link](https://tanstack.com/query)                                 |
 | cloakbrowser              | ^0.5.7         | 0.5.7     | MIT        | [link](https://github.com/CloakHQ/cloakbrowser#javascript--nodejs) |
 | fflate                    | ^0.8.2         | 0.8.3     | MIT        | [link](https://101arrowz.github.io/fflate)                         |
+| mmdb-lib                  | ^3.0.2         | 3.0.3     | MIT        | [link](https://github.com/runk/mmdb-lib)                           |
 | onnxruntime-web           | 1.27.0         | 1.27.0    | MIT        | [link](https://github.com/Microsoft/onnxruntime)                   |
 | react                     | ^19.2.8        | 19.2.8    | MIT        | [link](https://react.dev/)                                         |
 | react-dom                 | ^19.2.8        | 19.2.8    | MIT        | [link](https://react.dev/)                                         |
@@ -49,6 +50,6 @@ each dependency's distributed license file and source repository.
 
 ## Coverage
 
-- Runtime direct dependencies: 12/12
+- Runtime direct dependencies: 13/13
 - Development direct dependencies: 17/17
-- Total direct dependencies: 29/29
+- Total direct dependencies: 30/30
