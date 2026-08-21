@@ -750,6 +750,8 @@ jobs:
           fi
 
       - name: Verify published stable metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           expected_version="${GITHUB_REF_NAME#v}"
