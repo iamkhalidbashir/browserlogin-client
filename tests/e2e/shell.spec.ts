@@ -55,6 +55,21 @@ test("primary navigation and content are keyboard reachable", async ({
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 });
 
+test("status refreshed notification is announced and auto-dismisses", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/dashboard");
+
+  // When
+  await page.getByRole("button", { name: "Refresh status" }).click();
+
+  // Then
+  const status = page.getByRole("status", { name: "Status notification" });
+  await expect(status).toContainText("Status refreshed");
+  await expect(status).toHaveCount(0, { timeout: 6_000 });
+});
+
 test("system dark mode renders a dark application surface", async ({
   page,
 }) => {

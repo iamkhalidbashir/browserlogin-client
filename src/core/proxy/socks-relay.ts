@@ -25,7 +25,17 @@ type RelayOptions = {
   connectTimeout?: number;
   idleTimeout?: number;
   maxConnections?: number;
+  onDiagnostic?: (phase: SocksRelayPhase) => void;
 };
+
+export type SocksRelayPhase =
+  | "client-greeting"
+  | "client-request"
+  | "upstream-connect"
+  | "upstream-method"
+  | "upstream-authentication"
+  | "upstream-request"
+  | "tunnel";
 
 const INVALID = "SOCKS relay request failed";
 const SOCKS_FAILURE = Buffer.from([5, 1, 0, 1, 0, 0, 0, 0, 0, 0]);
@@ -155,6 +165,7 @@ export class Socks5Relay {
       connectTimeout: options.connectTimeout ?? 10_000,
       idleTimeout: options.idleTimeout ?? 600_000,
       maxConnections: options.maxConnections ?? 128,
+      onDiagnostic: options.onDiagnostic ?? (() => undefined),
     };
     if (this.options.maxConnections < 1)
       throw new RangeError("maxConnections must be positive");
@@ -231,6 +242,7 @@ export class Socks5Relay {
     let upstream: Socket | undefined;
     const deadline = Date.now() + this.options.handshakeTimeout;
     let protocolReady = false;
+    let phase: SocksRelayPhase = "client-greeting";
     try {
       client.setTimeout(this.options.handshakeTimeout, () => client.destroy());
       const greeting = await readExact(client, 2, deadline);
@@ -242,6 +254,7 @@ export class Socks5Relay {
       }
       client.write(Buffer.from([5, 0]));
       protocolReady = true;
+      phase = "client-request";
       const request = await readExact(client, 4, deadline);
       if (request[0] !== 5 || request[2] !== 0)
         throw new SocksRelayError(INVALID);
@@ -252,14 +265,17 @@ export class Socks5Relay {
         return;
       }
 
+      phase = "upstream-connect";
       upstream = await this.connectUpstream();
       this.sockets.add(upstream);
       upstream.setTimeout(this.options.handshakeTimeout, () =>
         upstream?.destroy(),
       );
+      phase = "upstream-method";
       upstream.write(Buffer.from([5, 1, 2]));
       if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([5, 2])))
         throw new SocksRelayError(INVALID);
+      phase = "upstream-authentication";
       upstream.write(
         Buffer.concat([
           Buffer.from([1, this.username.length]),
@@ -270,6 +286,7 @@ export class Socks5Relay {
       );
       if (!(await readExact(upstream, 2, deadline)).equals(Buffer.from([1, 0])))
         throw new SocksRelayError(INVALID);
+      phase = "upstream-request";
       upstream.write(Buffer.concat([request, frameAddress(address), port]));
       const replyHead = await readExact(upstream, 4, deadline);
       if (replyHead[0] !== 5 || replyHead[2] !== 0 || replyHead[1] > 8)
@@ -279,7 +296,10 @@ export class Socks5Relay {
       client.write(
         Buffer.concat([replyHead, frameAddress(replyAddress), replyPort]),
       );
-      if (replyHead[1] !== 0) return;
+      if (replyHead[1] !== 0) {
+        this.options.onDiagnostic?.(phase);
+        return;
+      }
       client.setTimeout(this.options.idleTimeout, () => {
         client.destroy();
         upstream?.destroy();
@@ -288,8 +308,10 @@ export class Socks5Relay {
         client.destroy();
         upstream?.destroy();
       });
+      phase = "tunnel";
       await this.tunnel(client, upstream);
     } catch {
+      this.options.onDiagnostic?.(phase);
       if (protocolReady) await sendFailure(client);
     } finally {
       if (upstream) this.sockets.delete(upstream);

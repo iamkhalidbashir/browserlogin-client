@@ -339,8 +339,8 @@ describe("shared API contracts", () => {
 
   it("keeps connection configuration secret-free and applies settings defaults", () => {
     const parsed = ConnectionConfigSchema.parse({
-      schema_version: 2,
-      base_url: connection.valid.base_url,
+      schema_version: 3,
+      app_origin: connection.valid.app_origin,
       has_api_key: true,
     });
     expect(parsed).not.toHaveProperty("api_key");

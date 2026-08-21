@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "../../rpc-client.js";
+import {
+  ProfileTable,
+  type ProfileAction,
+} from "./profile-table.js";
 
 type ProfileForm = {
   name: string;
@@ -48,6 +52,9 @@ export default function ProfilesView() {
   const [deleteText, setDeleteText] = useState("");
   const [conflict, setConflict] = useState(false);
   const [launchStatus, setLaunchStatus] = useState("Ready");
+  const [pendingActions, setPendingActions] = useState<
+    Record<string, ProfileAction>
+  >({});
   const [initializationRequired, setInitializationRequired] = useState(false);
   const protectedArg = form.args.find((value) =>
     /^--(?:fingerprint|user-data-dir|remote-debugging)/.test(value),
@@ -104,25 +111,63 @@ export default function ProfilesView() {
     },
   });
   const launch = async (ids: string[]) => {
+    setPendingActions((current) => ({
+      ...current,
+      ...Object.fromEntries(ids.map((id) => [id, "launch" as const])),
+    }));
     setInitializationRequired(false);
-    setLaunchStatus("Checking binary…");
-    const binary = await bridge.request("binaryStatus", {});
-    if (!binary.ok) {
-      setLaunchStatus(binary.error.message);
-      return;
-    }
-    if (binary.value === null) {
-      setInitializationRequired(true);
+    try {
+      setLaunchStatus("Checking binary…");
+      const binary = await bridge.request("binaryStatus", {});
+      if (!binary.ok) {
+        setLaunchStatus(binary.error.message);
+        return;
+      }
+      if (binary.value === null) {
+        setInitializationRequired(true);
+        setLaunchStatus(
+          "CloakBrowser is not installed. Initialize it from Settings first.",
+        );
+        return;
+      }
+      for (const profileId of ids) {
+        const result = await bridge.request("sessionsStart", { profileId });
+        if (!result.ok) {
+          setLaunchStatus(result.error.message);
+          return;
+        }
+      }
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
       setLaunchStatus(
-        "CloakBrowser is not installed. Initialize it from Settings first.",
+        `${ids.length} session${ids.length === 1 ? "" : "s"} started`,
       );
-      return;
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        for (const id of ids) delete next[id];
+        return next;
+      });
     }
-    for (const profileId of ids)
-      await bridge.request("sessionsStart", { profileId });
-    setLaunchStatus(
-      `${ids.length} session${ids.length === 1 ? "" : "s"} started`,
-    );
+  };
+  const stopProfile = async (profileId: string) => {
+    setPendingActions((current) => ({ ...current, [profileId]: "stop" }));
+    try {
+      const result = await bridge.request("sessionsStop", { profileId });
+      setLaunchStatus(
+        result.ok ? "Profile stopped and archived" : result.error.message,
+      );
+      if (result.ok)
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+          queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        ]);
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        delete next[profileId];
+        return next;
+      });
+    }
   };
   const editProfile = (profileId: string) => {
     const current = profiles.data?.find((profile) => profile.id === profileId);
@@ -152,18 +197,76 @@ export default function ProfilesView() {
   };
   const deleteProfile = async () => {
     if (!deleteTarget) return;
-    const result = await bridge.request("profilesDelete", {
-      profileId: deleteTarget.id,
-    });
-    if (result.ok) {
-      setDeleteTargetId(null);
-      setDeleteText("");
+    setPendingActions((current) => ({
+      ...current,
+      [deleteTarget.id]: "delete",
+    }));
+    try {
+      const result = await bridge.request("profilesDelete", {
+        profileId: deleteTarget.id,
+      });
+      if (result.ok) {
+        setDeleteTargetId(null);
+        setDeleteText("");
+        await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      } else setLaunchStatus(result.error.message);
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        delete next[deleteTarget.id];
+        return next;
+      });
+    }
+  };
+  const restoreProfile = async (profileId: string) => {
+    setPendingActions((current) => ({
+      ...current,
+      [profileId]: "restore",
+    }));
+    try {
+      const result = await bridge.request("profilesRestore", { profileId });
+      setLaunchStatus(result.ok ? "Profile restored" : result.error.message);
+      if (result.ok)
+        await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        delete next[profileId];
+        return next;
+      });
+    }
+  };
+  const rotateProfileProxy = async (profileId: string) => {
+    const profile = profiles.data?.find((candidate) => candidate.id === profileId);
+    if (!profile?.proxy) return;
+    setPendingActions((current) => ({
+      ...current,
+      [profileId]: "rotate",
+    }));
+    try {
+      const result = await bridge.request("proxiesChangeIp", {
+        proxyId: profile.proxy.id,
+      });
+      if (!result.ok) setLaunchStatus(result.error.message);
+      else if (result.value.ip_verified && result.value.ip)
+        setLaunchStatus(`Proxy IP rotated to ${result.value.ip}`);
+      else
+        setLaunchStatus(
+          "Proxy rotation acknowledged; new IP could not be verified",
+        );
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      await queryClient.invalidateQueries({ queryKey: ["proxies"] });
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        delete next[profileId];
+        return next;
+      });
     }
   };
   return (
     <section>
-      <div className="flex items-end justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Workspace</p>
           <h2 className="text-3xl font-semibold">Profiles</h2>
@@ -181,7 +284,7 @@ export default function ProfilesView() {
           Create profile
         </button>
       </div>
-      <div className="mt-6 flex gap-3">
+      <div className="mt-6 flex flex-wrap gap-3">
         <input
           className="input max-w-sm"
           aria-label="Filter profiles"
@@ -197,86 +300,31 @@ export default function ProfilesView() {
           Launch selected
         </button>
       </div>
-      <div className="panel mt-4 overflow-x-auto">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Name</th>
-              <th>Platform</th>
-              <th>Proxy</th>
-              <th>Archive</th>
-              <th>Cloud session</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((profile) => (
-              <tr key={profile.id}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${profile.name}`}
-                    checked={selected.includes(profile.id)}
-                    onChange={(event) =>
-                      setSelected(
-                        event.target.checked
-                          ? [...selected, profile.id]
-                          : selected.filter((id) => id !== profile.id),
-                      )
-                    }
-                  />
-                </td>
-                <td>{profile.name}</td>
-                <td>{profile.platform}</td>
-                <td>{profile.proxy?.name ?? "Direct"}</td>
-                <td>{String(profile.cloud.archive_generation ?? 0)}</td>
-                <td>
-                  {profile.cloud.current_session_id ? "Running" : "Stopped"}
-                </td>
-                <td className="space-x-2">
-                  <button
-                    className="table-action"
-                    onClick={() => void launch([profile.id])}
-                  >
-                    Launch
-                  </button>
-                  <button
-                    className="table-action"
-                    onClick={() => editProfile(profile.id)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    className="table-action"
-                    onClick={() =>
-                      void bridge.request("profilesRestore", {
-                        profileId: profile.id,
-                      })
-                    }
-                  >
-                    Restore
-                  </button>
-                  <button
-                    className="table-action"
-                    aria-label={`Delete ${profile.name}`}
-                    onClick={() => {
-                      setDeleteTargetId(profile.id);
-                      setDeleteText("");
-                    }}
-                  >
-                    Delete
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ProfileTable
+        profiles={visible}
+        selected={selected}
+        pendingActions={pendingActions}
+        onSelectionChange={(profileId, checked) =>
+          setSelected(
+            checked
+              ? [...selected, profileId]
+              : selected.filter((id) => id !== profileId),
+          )
+        }
+        onLaunch={(profileId) => void launch([profileId])}
+        onStop={(profileId) => void stopProfile(profileId)}
+        onEdit={editProfile}
+        onRestore={(profileId) => void restoreProfile(profileId)}
+        onRotate={(profileId) => void rotateProfileProxy(profileId)}
+        onDelete={(profileId) => {
+          setDeleteTargetId(profileId);
+          setDeleteText("");
+        }}
+      />
       <div
         className={initializationRequired ? "runtime-warning" : "panel mt-4"}
       >
-        <h3 className="font-medium">Launch progress</h3>
+        <h3 className="font-medium">Profile activity</h3>
         <p
           className={
             initializationRequired
@@ -308,10 +356,15 @@ export default function ProfilesView() {
             />
             <button
               className="button-danger"
-              disabled={deleteText !== deleteTarget.name}
+              disabled={
+                deleteText !== deleteTarget.name ||
+                pendingActions[deleteTarget.id] === "delete"
+              }
               onClick={() => void deleteProfile()}
             >
-              Delete
+              {pendingActions[deleteTarget.id] === "delete"
+                ? "Deleting…"
+                : "Delete"}
             </button>
           </div>
         </div>

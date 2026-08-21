@@ -20,7 +20,7 @@ describe("Task 26 mock and real RPC contract", () => {
 
   test("fails loudly when a mock response drifts", async () => {
     const bridge = createMockBridge({
-      connectionGet: { baseUrl: "not-a-url", hasApiKey: true },
+      connectionGet: { appOrigin: "not-a-url", hasApiKey: true },
     });
     await expect(bridge.request("connectionGet", {})).rejects.toThrow();
   });

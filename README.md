@@ -67,7 +67,7 @@ browserlogin status --json
 browserlogin stop PROFILE_ID
 ```
 
-`setup` stores the base URL plus a keychain marker in the private state root; the API key goes to the platform keychain backend. For managed environments, set `BROWSERLOGIN_API_KEY` (optionally `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY`) and run:
+`setup` stores the HTTPS application origin plus a keychain marker in the private state root; the API key goes to the platform keychain backend. REST uses `${origin}/api/v1` and remote MCP uses `${origin}/mcp/browserSessionMCP`. For managed environments, set `BROWSERLOGIN_API_KEY` (optionally `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY`) and run:
 
 ```sh
 browserlogin setup --api-key-env
@@ -131,10 +131,9 @@ Default state roots:
 | Variable                                   | Meaning                                                               |
 | ------------------------------------------ | --------------------------------------------------------------------- |
 | `BROWSERLOGIN_API_KEY`                     | Nonempty BrowserLogin key override; never commit it.                  |
-| `BROWSERLOGIN_BASE_URL`                    | BrowserLogin API base URL override.                                   |
+| `BROWSERLOGIN_BASE_URL`                    | Canonical HTTPS BrowserLogin application origin.                      |
+| `BROWSERLOGIN_API_BASE_URL`                | Legacy exact REST root (`${origin}/api/v1`) converted to the origin.  |
 | `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                           |
-| `BROWSERLOGIN_MCP_REMOTE_URL`              | Remote BrowserSessionMCP endpoint override.                           |
-| `BROWSERLOGIN_MCP_REMOTE_TOKEN`            | Remote MCP bearer override.                                           |
 | `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Expose RCE-equivalent `browser_run_code_unsafe`.                      |
 
 See [the architecture guide](docs/architecture.md) for the complete security and process model.

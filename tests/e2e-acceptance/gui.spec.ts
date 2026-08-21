@@ -23,7 +23,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
     fullPage: true,
   });
   await page.getByLabel("API key").fill("bl_test_key_value");
-  await page.getByRole("button", { name: "Test connection" }).click();
+  await page.getByRole("button", { name: "Save and test" }).click();
   await expect(page.getByRole("navigation")).toBeVisible();
   const connectionSet = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
@@ -120,4 +120,50 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
       2,
     ) + "\n",
   );
+});
+
+test("session force-close confirmation and pending state are isolated per row", async ({
+  page,
+}) => {
+  await page.goto("/profiles?multi=1");
+  const launchButtons = page.getByRole("button", {
+    name: "Launch",
+    exact: true,
+  });
+  await launchButtons.nth(0).click();
+  await launchButtons.nth(1).click();
+  await page.getByRole("link", { name: "Dashboard" }).click();
+
+  const firstInput = page.getByLabel("Force confirmation profile-1");
+  const secondInput = page.getByLabel("Force confirmation profile-2");
+  const forceButtons = page.getByRole("button", { name: "Force stop" });
+
+  await firstInput.fill("FORCE CLOSE profile-1");
+  await expect(forceButtons.nth(0)).toBeEnabled();
+  await expect(forceButtons.nth(1)).toBeDisabled();
+
+  await secondInput.fill("FORCE CLOSE profile-2");
+  await expect(firstInput).toHaveValue("FORCE CLOSE profile-1");
+  await expect(secondInput).toHaveValue("FORCE CLOSE profile-2");
+  await expect(forceButtons.nth(0)).toBeEnabled();
+  await expect(forceButtons.nth(1)).toBeEnabled();
+
+  await forceButtons.nth(0).click();
+  await expect(page.getByText("profile-1", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("profile-2", { exact: true })).toBeVisible();
+  await expect(secondInput).toHaveValue("FORCE CLOSE profile-2");
+  const forceCalls = await page.evaluate(() =>
+    window.__browserloginMockCalls?.filter(
+      (call) => call.method === "sessionsForceStop",
+    ),
+  );
+  expect(forceCalls).toEqual([
+    {
+      method: "sessionsForceStop",
+      params: {
+        profileId: "profile-1",
+        confirmation: "FORCE CLOSE profile-1",
+      },
+    },
+  ]);
 });

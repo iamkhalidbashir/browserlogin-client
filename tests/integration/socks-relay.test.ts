@@ -313,6 +313,36 @@ describe("authenticated SOCKS5 relay", () => {
     }
   });
 
+  it("reports a credential-free upstream phase when authentication fails", async () => {
+    // Given
+    const targetPort = await echoTarget();
+    const upstreamPort = await authenticatedUpstream(targetPort, "correct");
+    const phases: string[] = [];
+    const relay = new Socks5Relay(
+      {
+        host: "127.0.0.1",
+        port: upstreamPort,
+        username: "secret-user",
+        password: "secret-pass",
+      },
+      { onDiagnostic: (phase) => phases.push(phase) },
+    );
+    relays.push(relay);
+    await relay.start();
+
+    // When
+    const client = await connect(Number(new URL(relay.proxyUrl).port));
+    client.write(Buffer.from([5, 1, 0]));
+    await once(client, "data");
+    client.write(Buffer.from([5, 1, 0, 3, 4, 101, 99, 104, 111, 0, 80]));
+    await once(client, "data");
+
+    // Then
+    expect(phases).toEqual(["upstream-authentication"]);
+    expect(phases.join(" ")).not.toContain("secret-user");
+    expect(phases.join(" ")).not.toContain("secret-pass");
+  });
+
   it("handles twenty concurrent connections", async () => {
     const targetPort = await echoTarget();
     const upstreamPort = await authenticatedUpstream(targetPort, "secret");

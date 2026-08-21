@@ -17,7 +17,10 @@ import {
   RecoveryPendingError,
   SetupRequiredError,
   connectionStatePaths,
+  deriveRemoteMcpUrl,
+  deriveRestBaseUrl,
   resolveConnection,
+  validateAppOrigin,
 } from "../../src/core/config/connection";
 import { migrateLegacyConnection } from "../../src/core/config/migrate";
 import {
@@ -168,8 +171,8 @@ describe("atomic config store", () => {
     const paths = statePaths(join(root, "state-root"));
     await ensureStatePaths(paths);
     await atomicWriteJson(paths.connection, {
-      schema_version: 2,
-      base_url: "https://example.test/api/v1",
+      schema_version: 3,
+      app_origin: "https://example.test",
       key_ref: "keychain",
     });
     if (process.platform !== "win32")
@@ -201,6 +204,67 @@ describe("atomic config store", () => {
 });
 
 describe("connection migration and precedence", () => {
+  it("derives the documented REST and MCP endpoints from one canonical application origin", () => {
+    // Given
+    const origin = validateAppOrigin("https://BrowserLogin.test:443/");
+
+    // When / Then
+    expect(origin).toBe("https://browserlogin.test");
+    expect(deriveRestBaseUrl(origin)).toBe(
+      "https://browserlogin.test/api/v1",
+    );
+    expect(deriveRemoteMcpUrl(origin)).toBe(
+      "https://browserlogin.test/mcp/browserSessionMCP",
+    );
+    expect(() => validateAppOrigin("https://browserlogin.test/api/v1")).toThrow(
+      "application origin",
+    );
+  });
+
+  it("automatically migrates an exact schema-v2 REST root to schema v3 origin", async () => {
+    // Given
+    const root = await freshRoot();
+    const keychain = new FakeKeychain();
+    const store = new ConnectionStore(join(root, "state-root"), keychain);
+    await store.initialize();
+    await atomicWriteJson(store.paths.connection, {
+      schema_version: 2,
+      base_url: "https://browserlogin.test/api/v1/",
+      key_ref: "keychain",
+    });
+
+    // When
+    const state = await store.read();
+
+    // Then
+    expect(state).toEqual({
+      schema_version: 3,
+      app_origin: "https://browserlogin.test",
+      key_ref: "keychain",
+    });
+    expect(JSON.parse(await readFile(store.paths.connection, "utf8"))).toEqual(
+      state,
+    );
+  });
+
+  it("rejects an ambiguous schema-v2 path instead of guessing an origin", async () => {
+    // Given
+    const root = await freshRoot();
+    const store = new ConnectionStore(
+      join(root, "state-root"),
+      new FakeKeychain(),
+    );
+    await store.initialize();
+    await atomicWriteJson(store.paths.connection, {
+      schema_version: 2,
+      base_url: "https://browserlogin.test/custom/api/v1",
+      key_ref: "keychain",
+    });
+
+    // When / Then
+    await expect(store.read()).rejects.toThrow("legacy REST base URL");
+  });
+
   it("migrates api_key into the injected keychain idempotently", async () => {
     const root = await freshRoot();
     const paths = statePaths(join(root, "state-root"));
@@ -229,14 +293,14 @@ describe("connection migration and precedence", () => {
     await ensureStatePaths(paths);
     await atomicWriteJson(paths.connection, {
       schema_version: 2,
-      base_url: "https://x",
+      base_url: "https://x/api/v1",
       api_key: "bl_test_secret",
     });
     const keychain = new FakeKeychain();
     expect(await migrateLegacyConnection(paths, keychain)).toBe(true);
     expect(JSON.parse(await readFile(paths.connection, "utf8"))).toEqual({
-      schema_version: 2,
-      base_url: "https://x",
+      schema_version: 3,
+      app_origin: "https://x",
       key_ref: "keychain",
     });
     expect(keychain.setCalls).toBe(1);
@@ -258,7 +322,7 @@ describe("connection migration and precedence", () => {
     expect(keychain.setCalls).toBe(0);
     await atomicWriteJson(paths.connection, {
       schema_version: 2,
-      base_url: "https://x",
+      base_url: "https://x/api/v1",
       api_key: "invalid",
     });
     await expect(migrateLegacyConnection(paths, keychain)).rejects.toThrow();
@@ -273,8 +337,8 @@ describe("connection migration and precedence", () => {
     const keychain = new FakeKeychain();
     await ensureStatePaths(paths);
     await atomicWriteJson(paths.connection, {
-      schema_version: 2,
-      base_url: "https://saved.test/api/v1",
+      schema_version: 3,
+      app_origin: "https://saved.test",
       key_ref: "keychain",
     });
     await keychain.set(
@@ -285,7 +349,7 @@ describe("connection migration and precedence", () => {
       resolveConnection({
         paths,
         keychain,
-        baseUrl: "https://cli.test/api/v1",
+        appOrigin: "https://cli.test",
         apiKey: "bl_cli_secret",
       }),
     ).resolves.toMatchObject({ source: "cli", apiKey: "bl_cli_secret" });
@@ -294,7 +358,7 @@ describe("connection migration and precedence", () => {
         paths,
         keychain,
         env: {
-          BROWSERLOGIN_BASE_URL: "https://env.test/api/v1",
+          BROWSERLOGIN_BASE_URL: "https://env.test",
           BROWSERLOGIN_API_KEY: "bl_env_secret",
         },
       }),
@@ -311,7 +375,9 @@ describe("connection migration and precedence", () => {
       }),
     ).resolves.toMatchObject({
       source: "keychain",
-      baseUrl: "https://saved.test/api/v1",
+      appOrigin: "https://saved.test",
+      restBaseUrl: "https://saved.test/api/v1",
+      remoteMcpUrl: "https://saved.test/mcp/browserSessionMCP",
       licenseKey: null,
     });
     await rm(paths.connection, { force: true });
@@ -319,6 +385,42 @@ describe("connection migration and precedence", () => {
     await expect(
       resolveConnection({ paths, keychain, env: {} }),
     ).resolves.toMatchObject({ source: "default" });
+  });
+
+  it("converts only an exact legacy API environment root", async () => {
+    // Given
+    const root = await freshRoot();
+    const paths = connectionStatePaths({
+      env: { BROWSERLOGIN_STATE_DIR: root },
+    });
+    const keychain = new FakeKeychain();
+
+    // When / Then
+    await expect(
+      resolveConnection({
+        paths,
+        keychain,
+        env: { BROWSERLOGIN_API_BASE_URL: "https://legacy.test/api/v1/" },
+      }),
+    ).resolves.toMatchObject({
+      appOrigin: "https://legacy.test",
+      restBaseUrl: "https://legacy.test/api/v1",
+      remoteMcpUrl: "https://legacy.test/mcp/browserSessionMCP",
+    });
+    await expect(
+      resolveConnection({
+        paths,
+        keychain,
+        env: { BROWSERLOGIN_API_BASE_URL: "https://legacy.test/custom" },
+      }),
+    ).rejects.toThrow("legacy REST base URL");
+    await expect(
+      resolveConnection({
+        paths,
+        keychain,
+        env: { BROWSERLOGIN_BASE_URL: "https://legacy.test/api/v1" },
+      }),
+    ).rejects.toThrow("application origin");
   });
 
   it("resolves license keys as CLI, env, keychain, then null without using a license API URL", async () => {
@@ -377,8 +479,8 @@ describe("connection migration and precedence", () => {
       SetupRequiredError,
     );
     await atomicWriteJson(store.paths.connection, {
-      schema_version: 2,
-      base_url: "https://example.test/api/v1",
+      schema_version: 3,
+      app_origin: "https://example.test",
       key_ref: "keychain",
     });
     await atomicWriteJson(store.paths.connectionPending, {
@@ -394,7 +496,7 @@ describe("connection migration and precedence", () => {
     const root = await freshRoot();
     const keychain = new FakeKeychain();
     const store = new ConnectionStore(join(root, "state-root"), keychain);
-    await store.save("https://example.test/api/v1", "bl_setup_secret");
+    await store.save("https://example.test", "bl_setup_secret");
     expect(await readFile(store.paths.connection, "utf8")).not.toContain(
       "bl_setup_secret",
     );

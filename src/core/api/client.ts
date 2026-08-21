@@ -30,7 +30,10 @@ import {
   ConflictError,
   PreconditionError,
 } from "../../shared/errors.js";
-import { DEFAULT_BASE_URL } from "../config/connection.js";
+import {
+  DEFAULT_APP_ORIGIN,
+  deriveRestBaseUrl,
+} from "../config/connection.js";
 
 const JSON_BODY_CAP = 256 * 1024;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
@@ -49,7 +52,12 @@ const notesSchema = z
   .passthrough();
 const versionSchema = z.object({ version: z.number().int() }).passthrough();
 const changeIpSchema = z
-  .object({ id: z.string(), ip: z.string(), changed_at: z.string() })
+  .object({
+    id: z.string(),
+    ip: z.string().nullable(),
+    ip_verified: z.boolean(),
+    changed_at: z.string(),
+  })
   .passthrough();
 const uploadGrantSchema = z
   .object({
@@ -324,7 +332,9 @@ export class BrowserLoginClient {
   private readonly random: () => number;
 
   constructor(options: ClientOptions) {
-    this.baseUrl = validateBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
+    this.baseUrl = validateBaseUrl(
+      options.baseUrl ?? deriveRestBaseUrl(DEFAULT_APP_ORIGIN),
+    );
     this.credentials = options.credentials;
     this.requestFetch = options.fetch ?? fetch;
     this.connectTimeoutMs =
@@ -737,7 +747,12 @@ export class BrowserLoginClient {
   }
   async changeProxyIp(
     proxyId: string,
-  ): Promise<{ id: string; ip: string; changed_at: string }> {
+  ): Promise<{
+    id: string;
+    ip: string | null;
+    ip_verified: boolean;
+    changed_at: string;
+  }> {
     const result = await this.json(
       "POST",
       `/proxies/${validateId(proxyId, "proxy id")}/change-ip`,
@@ -747,7 +762,7 @@ export class BrowserLoginClient {
     );
     if (
       result.id !== proxyId ||
-      isIP(result.ip) === 0 ||
+      (result.ip === null ? result.ip_verified : isIP(result.ip) === 0) ||
       !/(?:Z|[+-]\d\d:\d\d)$/.test(result.changed_at) ||
       !Number.isFinite(Date.parse(result.changed_at))
     )

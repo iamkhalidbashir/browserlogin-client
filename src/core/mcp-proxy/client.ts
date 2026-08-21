@@ -7,7 +7,6 @@ import {
   JsonRpcRequestSchema,
   JsonRpcResponseSchema,
   REMOTE_MCP_BODY_CAP,
-  REMOTE_MCP_DEFAULT_URL,
   REMOTE_MCP_PROTOCOL_VERSIONS,
   RemoteToolSchema,
   isSupportedRemoteVersion,
@@ -26,7 +25,7 @@ export type RemoteFetchLike = (
 ) => Promise<Response>;
 
 export interface RemoteMcpClientOptions {
-  url?: string;
+  url: string;
   credentials: RemoteCredentialProvider;
   fetch?: RemoteFetchLike;
   connectTimeoutMs?: number;
@@ -125,7 +124,7 @@ function validateRemoteUrl(value: string): string {
     url.password ||
     url.hash ||
     url.search ||
-    ((unsafeIpv4 || unsafeIpv6) && !(loopback && url.protocol === "http:"))
+    ((unsafeIpv4 || unsafeIpv6) && !loopback)
   )
     throw new RemoteMcpError(
       "REMOTE_INVALID_URL",
@@ -201,11 +200,7 @@ export class RemoteMcpClient {
   private invalidCredentialFingerprint: string | undefined;
 
   constructor(options: RemoteMcpClientOptions) {
-    this.url = validateRemoteUrl(
-      process.env.BROWSERLOGIN_MCP_REMOTE_URL ??
-        options.url ??
-        REMOTE_MCP_DEFAULT_URL,
-    );
+    this.url = validateRemoteUrl(options.url);
     this.credentials = options.credentials;
     this.requestFetch = options.fetch ?? fetch;
     this.connectTimeoutMs = options.connectTimeoutMs ?? 10_000;

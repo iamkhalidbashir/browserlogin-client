@@ -8,15 +8,21 @@ import {
   BROWSER_INIT_TOOL,
   createRegistry,
   STOP_TOOL,
+  type UnifiedRegistry,
 } from "../../src/mcp/registry.js";
+import { createMcpServer } from "../../src/mcp/server.js";
 import { BrowserInitializationRequiredError } from "../../src/core/binary/index.js";
+import { visibleTools } from "../../src/core/browser-tools/manifest.js";
+import { RemoteMcpClient } from "../../src/core/mcp-proxy/client.js";
+import { RemoteMcpDiscoveryCache } from "../../src/core/mcp-proxy/cache.js";
+import { RemoteMcpForwarder } from "../../src/core/mcp-proxy/forward.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { startRemoteMcpMock } from "../mocks/remote-mcp-server.js";
 
 const BUN = process.env.BUN_BIN ?? "bun";
 const SERVER = join(process.cwd(), "src/mcp/server.ts");
 const API_KEY = "bl_test_key_secret";
-const LOCAL_API_FAILURE = "https://127.0.0.1:1/api/v1";
+const LOCAL_APP_FAILURE = "https://127.0.0.1:1";
 
 type RpcId = number | string | null;
 type RpcFrame = {
@@ -64,9 +70,8 @@ class StdioHarness {
   private exited = false;
 
   constructor(
-    baseUrl: string,
+    appOrigin: string,
     root: string,
-    remoteUrl: string,
     apiKey = API_KEY,
     extraEnv: NodeJS.ProcessEnv = {},
   ) {
@@ -76,9 +81,7 @@ class StdioHarness {
         ...process.env,
         BROWSERLOGIN_STATE_DIR: root,
         BROWSERLOGIN_API_KEY: apiKey,
-        BROWSERLOGIN_BASE_URL: baseUrl,
-        BROWSERLOGIN_MCP_REMOTE_TOKEN: API_KEY,
-        BROWSERLOGIN_MCP_REMOTE_URL: remoteUrl,
+        BROWSERLOGIN_BASE_URL: appOrigin,
         ...extraEnv,
       },
       stdio: "pipe",
@@ -208,13 +211,11 @@ class StdioHarness {
 
 function launch(
   root: string,
-  remoteUrl: string,
   extraEnv: NodeJS.ProcessEnv = {},
 ): StdioHarness {
   const harness = new StdioHarness(
-    LOCAL_API_FAILURE,
+    LOCAL_APP_FAILURE,
     root,
-    remoteUrl,
     API_KEY,
     extraEnv,
   );
@@ -239,8 +240,10 @@ function callResult(response: RpcFrame): Record<string, unknown> {
   return response.result as Record<string, unknown>;
 }
 
-function expectErrorResult(response: RpcFrame, text: string): void {
-  const result = callResult(response);
+function expectToolErrorResult(
+  result: Awaited<ReturnType<UnifiedRegistry["call"]>>,
+  text: string,
+): void {
   expect(result.isError).toBe(true);
   expect(result.content, JSON.stringify(result)).toEqual([
     { type: "text", text },
@@ -346,14 +349,41 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-ready-"));
     roots.push(root);
     const remote = await startRemoteMcpMock();
+    const remoteClient = new RemoteMcpClient({
+      url: remote.url,
+      credentials: async () => API_KEY,
+    });
+    const remoteCache = new RemoteMcpDiscoveryCache(remoteClient);
+    const remoteForwarder = new RemoteMcpForwarder(
+      remoteClient,
+      new Set(["browser_session_start", "browser_session_stop"]),
+    );
     try {
-      const child = launch(root, remote.url);
-      const initialized = await initialize(child);
-      expect(initialized.result).toBeTruthy();
-      const listed = await child.request(2, "tools/list");
-      const tools = (callResult(listed).tools ?? []) as Array<
-        Record<string, unknown>
-      >;
+      const active = await createMcpServer({
+        stateRoot: root,
+        log: false,
+        runtime: {
+          lifecycle: {
+            start: async () => {
+              throw new BrowserInitializationRequiredError();
+            },
+            stop: async () => {
+              throw new Error("lifecycle unavailable");
+            },
+            forceStop: async () => undefined,
+          },
+          browserRouter: {
+            call: async () => ({
+              content: [{ type: "text", text: "PROFILE_NOT_RUNNING" }],
+              isError: true,
+            }),
+          },
+          browserTools: visibleTools(false),
+          remoteCache,
+          remoteForwarder,
+        },
+      });
+      const tools = [...active.registry.tools];
       expect(tools).toHaveLength(45);
       expect(tools.map((tool) => tool.name)).not.toContain(
         "browser_run_code_unsafe",
@@ -375,7 +405,6 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
         ]),
       );
 
-      let id = 3;
       const calls = [
         ["browser_session_start", { profile_id: "profile-1" }],
         ["browser_session_stop", { profile_id: "profile-1" }],
@@ -384,55 +413,39 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
       ] as const;
       expect(calls).toHaveLength(20);
 
-      expectErrorResult(
-        await child.request(id++, "tools/call", {
-          name: calls[0]![0],
-          arguments: calls[0]![1],
-        }),
+      expectToolErrorResult(
+        await active.registry.call(calls[0]![0], calls[0]![1]),
         "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start.",
       );
-      expectErrorResult(
-        await child.request(id++, "tools/call", {
-          name: calls[1]![0],
-          arguments: calls[1]![1],
-        }),
+      expectToolErrorResult(
+        await active.registry.call(calls[1]![0], calls[1]![1]),
         "Lifecycle request could not be completed.",
       );
-      expectErrorResult(
-        await child.request(id++, "tools/call", {
-          name: calls[2]![0],
-          arguments: calls[2]![1],
-        }),
+      expectToolErrorResult(
+        await active.registry.call(calls[2]![0], calls[2]![1]),
         "PROFILE_NOT_RUNNING",
       );
       for (const name of [
         "browserlogin_session_start",
         "browserlogin_session_stop",
       ]) {
-        expectErrorResult(
-          await child.request(id++, "tools/call", {
-            name,
-            arguments: { profile_id: "profile-1" },
+        expectToolErrorResult(
+          await active.registry.call(name, {
+            profile_id: "profile-1",
           }),
           name === "browserlogin_session_start"
             ? "CloakBrowser is not initialized. Call browser_init, then retry browser_session_start."
             : "Lifecycle request could not be completed.",
         );
       }
-      for (const [name, arguments_] of calls.slice(3)) {
-        const response = await child.request(id++, "tools/call", {
-          name,
-          arguments: arguments_,
-        });
-        const result = callResult(response);
+      for (const name of REMOTE_TOOL_NAMES) {
+        const result = await active.registry.call(name, {});
         expect(result.isError).toBe(false);
         expect(result.structuredContent).toEqual({
           result: { tool: name, ok: true },
         });
       }
-      child.child.stdin.end();
-      await child.waitForExit();
-      child.finishAssertions();
+      await active.close();
     } finally {
       await remote.close();
     }
@@ -441,7 +454,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
   it("degrades to exactly 28 safe-default local tools within the discovery budget", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-degraded-"));
     roots.push(root);
-    const child = launch(root, "http://127.0.0.1:1/mcp");
+    const child = launch(root);
     const initialized = await initialize(child);
     expect(initialized.result).toBeTruthy();
     expect(
@@ -457,7 +470,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
   it("restores the 29-tool local catalog only with exact unsafe opt-in", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-unsafe-"));
     roots.push(root);
-    const child = launch(root, "http://127.0.0.1:1/mcp", {
+    const child = launch(root, {
       BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE: "1",
     });
     await initialize(child);
@@ -476,10 +489,9 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-empty-"));
     roots.push(root);
     const child = new StdioHarness(
-      LOCAL_API_FAILURE,
+      LOCAL_APP_FAILURE,
       root,
-      "http://127.0.0.1:1/mcp",
-      "",
+      "invalid-test-key",
     );
     children.push(child);
     const result = await child.waitForExit();
@@ -493,7 +505,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
     async () => {
       const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-sigterm-"));
       roots.push(root);
-      const child = launch(root, "http://127.0.0.1:1/mcp");
+      const child = launch(root);
       await initialize(child);
       child.child.kill("SIGTERM");
       const result = await child.waitForExit();
@@ -505,7 +517,7 @@ describe("Task 23 unified stdio MCP server", { timeout: 15_000 }, () => {
   it("stops on stdin EOF within five seconds", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-mcp-eof-"));
     roots.push(root);
-    const child = launch(root, "http://127.0.0.1:1/mcp");
+    const child = launch(root);
     await initialize(child);
     child.child.stdin.end();
     const result = await child.waitForExit();

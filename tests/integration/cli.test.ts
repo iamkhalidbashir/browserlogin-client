@@ -33,7 +33,7 @@ beforeAll(async () => {
       sessionsStop: { status: "stopped" },
       sessionsForceStop: { status: "force-stopped" },
       connectionGet: {
-        baseUrl: "https://example.test/api/v1",
+        appOrigin: "https://example.test",
         hasApiKey: true,
         hasLicense: false,
       },
@@ -129,7 +129,7 @@ describe("Task 24 compiled browserlogin CLI", () => {
     const mcp = await run(["mcp"], {
       BROWSERLOGIN_TEST_MODE: "0",
       BROWSERLOGIN_CLI_FIXTURE: "",
-      BROWSERLOGIN_API_KEY: "",
+      BROWSERLOGIN_API_KEY: "invalid-test-key",
     });
     expect(mcp.code).toBe(2);
     expect(mcp.stderr).toBe("BrowserLogin connection setup is required\n");

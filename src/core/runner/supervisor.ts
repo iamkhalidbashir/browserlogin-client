@@ -1,5 +1,4 @@
 import { unlink } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { assertIdentity, type ProcessIdentity } from "../processes/identity.js";
 import { killProcessTree } from "../processes/tree.js";
 import {
@@ -17,6 +16,12 @@ import type {
   RunnerSupervisorOptions,
   SpawnedRunner,
 } from "./types.js";
+import { RUNNER_NORMAL_CLOSE_EXIT_CODE } from "./types.js";
+import {
+  runnerEntrypoint,
+  runnerExitedBeforeReady,
+  spawnRunnerProcess,
+} from "./process.js";
 
 const assertLicenseApi = (value: string): string => {
   if (
@@ -25,48 +30,6 @@ const assertLicenseApi = (value: string): string => {
   )
     throw new Error("license API URL must be at most 24 ASCII bytes");
   return value;
-};
-
-const defaultSpawn = async (
-  argv: readonly string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv },
-): Promise<SpawnedRunner> => {
-  const { spawn } = await import("node:child_process");
-  const child = spawn(argv[0]!, [...argv.slice(1)], {
-    cwd: options.cwd,
-    env: options.env,
-    detached: process.platform !== "win32",
-    stdio: ["ignore", "ignore", "ignore"],
-  });
-  const completion = new Promise<ChildExit>((resolve) => {
-    child.once("exit", (code, signal) => resolve({ code, signal }));
-    child.once("error", () => resolve({ code: null, signal: null }));
-  });
-  let identity: ProcessIdentity;
-  try {
-    identity = await import("../processes/identity.js").then(
-      ({ readIdentity }) =>
-        new Promise<ProcessIdentity>((resolve, reject) => {
-          const started = Date.now();
-          const probe = async () => {
-            const value = await readIdentity({
-              pid: child.pid!,
-              process_start_time: "unknown",
-              cmdline_hash: "",
-            });
-            if (value) return resolve(value);
-            if (Date.now() - started > 2_000)
-              return reject(new Error("runner process identity unavailable"));
-            setTimeout(() => void probe(), 20);
-          };
-          void probe();
-        }),
-    );
-  } catch (error) {
-    child.kill("SIGKILL");
-    throw error;
-  }
-  return { identity, completion, sendSignal: (signal) => child.kill(signal) };
 };
 
 const cleanupArtifacts = async (
@@ -112,13 +75,13 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
       ? { CLOAKBROWSER_LICENSE_API: options.licenseApiUrl }
       : {}),
   });
-  const spawn = options.spawn ?? defaultSpawn;
+  const spawn = options.spawn ?? spawnRunnerProcess;
   const argv = [
     process.env.BROWSERLOGIN_RUNNER_COMMAND ??
       (process.versions.bun
         ? process.execPath
         : (process.env.BROWSERLOGIN_BUN_PATH ?? "bun")),
-    fileURLToPath(new URL("./child.ts", import.meta.url)),
+    runnerEntrypoint(),
     "--profile-id",
     spec.profile_id,
     "--launch-file",
@@ -149,13 +112,23 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
   } catch (error) {
     await stopRunner(runner.identity, options).catch(() => undefined);
     await cleanupArtifacts(options.paths);
+    const exit = await Promise.race([
+      runner.completion,
+      new Promise<undefined>((resolve) => setTimeout(resolve, 100)),
+    ]);
+    if (exit)
+      throw new Error(runnerExitedBeforeReady(runner.stderr?.()).message, {
+        cause: error,
+      });
     throw error;
   }
   try {
-    const ready = await waitForReady(
-      options.paths.readyFile,
-      options.readyTimeoutMs,
-    );
+    const ready = await Promise.race([
+      waitForReady(options.paths.readyFile, options.readyTimeoutMs),
+      runner.completion.then(() => {
+        throw runnerExitedBeforeReady(runner.stderr?.());
+      }),
+    ]);
     await assert(runner.identity);
     if (options.healthCallback && !(await options.healthCallback()))
       throw new Error("CloakBrowser runner health callback rejected readiness");
@@ -175,7 +148,11 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
     await options.onNormalStop?.();
   };
   const closed = runner.completion.then(async (exit) => {
-    if (!intentionalStop && exit.code === 0 && exit.signal === null)
+    if (
+      !intentionalStop &&
+      exit.code === RUNNER_NORMAL_CLOSE_EXIT_CODE &&
+      exit.signal === null
+    )
       await normalStop();
     return exit;
   });

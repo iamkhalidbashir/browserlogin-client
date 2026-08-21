@@ -34,8 +34,8 @@ describe("atomic config store", () => {
     const paths = statePaths(join(root, "state-root"));
     await ensureStatePaths(paths);
     await atomicWriteJson(paths.connection, {
-      schema_version: 2,
-      base_url: "https://example.test/api/v1",
+      schema_version: 3,
+      app_origin: "https://example.test",
       key_ref: "keychain",
     });
     if (process.platform !== "win32")
@@ -52,7 +52,7 @@ describe("atomic config store", () => {
       join(root, "state-root"),
       new FakeKeychain(),
     );
-    await store.save("https://example.test/api/v1", "bl_store_secret");
+    await store.save("https://example.test", "bl_store_secret");
     expect(await readFile(store.paths.connection, "utf8")).not.toContain(
       "bl_store_secret",
     );

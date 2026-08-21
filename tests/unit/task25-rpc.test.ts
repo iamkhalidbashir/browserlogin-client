@@ -19,7 +19,7 @@ vi.mock("electrobun/main", () => ({ BrowserView: electrobunMock }));
 const validParams: Record<AppRPCMethod, unknown> = {
   connectionGet: {},
   connectionSet: {
-    baseUrl: "https://example.test/api/v1",
+    appOrigin: "https://example.test",
     apiKey: "bl_test_key",
   },
   connectionTest: {},

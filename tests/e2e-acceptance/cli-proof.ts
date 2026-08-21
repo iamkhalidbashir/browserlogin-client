@@ -72,7 +72,7 @@ const cliEvidence = join(evidenceRoot, "cli");
 await ensureEvidenceDirectory(cliEvidence);
 const uploadedArchive = join(cliEvidence, "uploaded-profile.zip");
 let binaryPath: string | undefined;
-let setupSaved: { baseUrl: string; apiKey: string } | undefined;
+let setupSaved: { appOrigin: string; apiKey: string } | undefined;
 let uploads = 0;
 let commits = 0;
 let starts = 0;
@@ -197,12 +197,12 @@ const coordinator = new LifecycleCoordinator({
 });
 const services: AppServices = {
   connectionSet: async (raw) => {
-    setupSaved = raw as { baseUrl: string; apiKey: string };
+    setupSaved = raw as { appOrigin: string; apiKey: string };
     await writeJson(join(cliEvidence, "setup.json"), {
-      baseUrl: setupSaved.baseUrl,
+      appOrigin: setupSaved.appOrigin,
       hasApiKey: Boolean(setupSaved.apiKey),
     });
-    return { baseUrl: setupSaved.baseUrl, hasApiKey: true };
+    return { appOrigin: setupSaved.appOrigin, hasApiKey: true };
   },
   binaryStatus: async () =>
     binaryPath
@@ -244,7 +244,7 @@ const services: AppServices = {
 };
 const stdout: string[] = [];
 const stderr: string[] = [];
-const prompts = ["https://127.0.0.1:443/api/v1", "bl_test_key_value"];
+const prompts = ["https://127.0.0.1:443", "bl_test_key_value"];
 const io: CliIO = {
   stdout: (value) => stdout.push(value),
   stderr: (value) => stderr.push(value),

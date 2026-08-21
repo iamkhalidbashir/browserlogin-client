@@ -2,10 +2,14 @@ import { constants } from "node:fs";
 import { open, unlink, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { launchPersistentContext } from "cloakbrowser";
-import { resolveCdpEndpoint } from "./cdp.js";
+import { checkCdpEndpointAlive, resolveCdpEndpoint } from "./cdp.js";
 import { protectedLaunchArgs, readAndDeleteLaunchFile } from "./launch.js";
 import { waitForAuthorization, publishReady } from "./protocol.js";
-import { STOP_MARKER } from "./types.js";
+import {
+  RUNNER_CHILD_OUTCOME,
+  RUNNER_NORMAL_CLOSE_EXIT_CODE,
+  STOP_MARKER,
+} from "./types.js";
 import { routeProxy } from "../proxy/routing.js";
 import { Socks5Relay } from "../proxy/socks-relay.js";
 import { startCdpRelay, type CdpRelay } from "../cdp/relay.js";
@@ -13,6 +17,7 @@ import { BumblebeeWorker } from "../bumblebee/worker.js";
 import type {
   BrowserContextLike,
   CloakBrowserSdk,
+  RunnerChildOutcome,
   RunnerChildOptions,
 } from "./types.js";
 
@@ -41,7 +46,7 @@ const browserConnected = (context: BrowserContextLike): boolean => {
 
 export async function runRunnerChild(
   options: RunnerChildOptions,
-): Promise<void> {
+): Promise<RunnerChildOutcome> {
   try {
     await waitForAuthorization(options.paths.gateFile, options.gateTimeoutMs);
   } catch (error) {
@@ -60,15 +65,19 @@ export async function runRunnerChild(
   let cdpRelay: CdpRelay | undefined;
   let worker: BumblebeeWorker | undefined;
   let stopped = false;
+  let outcome: RunnerChildOutcome | undefined;
+  let contextCleanupError: unknown;
   let normalStopCalled = false;
   const normalStop = async (): Promise<void> => {
     if (normalStopCalled) return;
     normalStopCalled = true;
     await options.normalStop?.();
   };
-  const stop = async (): Promise<void> => {
+  const stop = async (nextOutcome: RunnerChildOutcome): Promise<void> => {
+    if (stopped) return;
     stopped = true;
-    await normalStop();
+    outcome = nextOutcome;
+    if (nextOutcome === RUNNER_CHILD_OUTCOME.BROWSER_CLOSED) await normalStop();
   };
   try {
     let proxy: unknown;
@@ -79,7 +88,10 @@ export async function runRunnerChild(
         password: spec.proxy.password ?? undefined,
       });
       if (route.mode === "relay" && route.upstream) {
-        relay = await new Socks5Relay(route.upstream).start();
+        relay = await new Socks5Relay(route.upstream, {
+          onDiagnostic: (phase) =>
+            process.stderr.write(`[socks-relay] phase=${phase}\n`),
+        }).start();
         proxy = relay.proxyUrl;
       } else proxy = route.launchProxy;
     }
@@ -97,7 +109,7 @@ export async function runRunnerChild(
       viewport: spec.viewport,
     });
     const onClose = () => {
-      void stop();
+      void stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
     };
     context.on("close", onClose);
     const browser = context.browser?.();
@@ -118,8 +130,10 @@ export async function runRunnerChild(
         version: 1,
         relayCdpUrl: cdpRelay.url,
       });
-    if (pagesAtReady === 0) await stop();
+    if (pagesAtReady === 0) await stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
     let hadPage = pagesAtReady > 0;
+    let cdpFailures = 0;
+    let nextCdpCheck = Date.now() + (options.cdpLivenessIntervalMs ?? 1_000);
     let controlFailure: unknown;
     const controlWatcher = (async () => {
       while (!stopped) {
@@ -140,12 +154,12 @@ export async function runRunnerChild(
           if (value !== STOP_MARKER)
             throw new Error("runner control file is invalid");
           await unlink(options.paths.controlFile);
-          await stop();
+          await stop(RUNNER_CHILD_OUTCOME.CONTROL_STOP);
           return;
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
             controlFailure = error;
-            await stop();
+            await stop(RUNNER_CHILD_OUTCOME.CONTROL_STOP);
             return;
           }
         }
@@ -157,14 +171,23 @@ export async function runRunnerChild(
     while (!stopped) {
       await new Promise((resolve) => setTimeout(resolve, options.pollMs ?? 50));
       if (!browserConnected(context)) {
-        await stop();
+        await stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
         break;
       }
       const pages = context.pages();
       if (pages.length > 0) hadPage = true;
       else if (hadPage) {
-        await stop();
+        await stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
         break;
+      }
+      if (Date.now() >= nextCdpCheck) {
+        nextCdpCheck = Date.now() + (options.cdpLivenessIntervalMs ?? 1_000);
+        if (await checkCdpEndpointAlive(upstreamUrl)) cdpFailures = 0;
+        else cdpFailures += 1;
+        if (cdpFailures >= (options.cdpLivenessFailureThreshold ?? 2)) {
+          await stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
+          break;
+        }
       }
     }
     await controlWatcher;
@@ -174,11 +197,20 @@ export async function runRunnerChild(
   } finally {
     await cdpRelay?.stop();
     await worker?.close();
-    if (context) await context.close();
+    if (context) {
+      try {
+        await context.close();
+      } catch (error) {
+        if (outcome !== RUNNER_CHILD_OUTCOME.BROWSER_CLOSED)
+          contextCleanupError = error;
+      }
+    }
     await relay?.close();
     await unlink(options.paths.readyFile).catch(() => undefined);
     await unlink(options.paths.controlFile).catch(() => undefined);
   }
+  if (contextCleanupError) throw contextCleanupError;
+  return outcome ?? RUNNER_CHILD_OUTCOME.CONTROL_STOP;
 }
 
 const argument = (argv: string[], name: string): string => {
@@ -200,13 +232,18 @@ if (["child.ts", "child.js"].includes(basename(process.argv[1] ?? ""))) {
       controlFile: argument(argv, "--control-file"),
       readyFile: argument(argv, "--ready-file"),
     },
-  }).catch(async (error) => {
-    const diagnostic = process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
-    if (process.env.BROWSERLOGIN_RUNNER_TEST_MODE === "1" && diagnostic)
-      await writeFile(
-        diagnostic,
-        error instanceof Error ? error.message : "runner child failed",
-      );
-    process.exitCode = 1;
-  });
+  })
+    .then((outcome) => {
+      if (outcome === RUNNER_CHILD_OUTCOME.BROWSER_CLOSED)
+        process.exitCode = RUNNER_NORMAL_CLOSE_EXIT_CODE;
+    })
+    .catch(async (error) => {
+      const diagnostic = process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE;
+      if (process.env.BROWSERLOGIN_RUNNER_TEST_MODE === "1" && diagnostic)
+        await writeFile(
+          diagnostic,
+          error instanceof Error ? error.message : "runner child failed",
+        );
+      process.exitCode = 1;
+    });
 }

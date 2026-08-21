@@ -13,10 +13,7 @@ import { createBrowserTools } from "../core/browser-tools/factory.js";
 import { visibleTools } from "../core/browser-tools/manifest.js";
 import {
   ConnectionStore,
-  DEFAULT_BASE_URL,
   SetupRequiredError,
-  validateApiKey,
-  validateBaseUrl,
 } from "../core/config/connection.js";
 import { resolveStateRoot } from "../core/config/paths.js";
 import { LifecycleCoordinator } from "../core/coordinator/index.js";
@@ -90,26 +87,18 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
   const store = new ConnectionStore(root, keychain);
   let resolution;
   try {
-    const envKey = process.env.BROWSERLOGIN_API_KEY?.trim();
-    if (envKey) {
-      resolution = {
-        baseUrl: validateBaseUrl(
-          process.env.BROWSERLOGIN_BASE_URL ?? DEFAULT_BASE_URL,
-        ),
-        apiKey: validateApiKey(envKey),
-        licenseKey: process.env.CLOAKBROWSER_LICENSE_KEY ?? null,
-        source: "env" as const,
-      };
-    } else {
-      if ((await store.read()) === null) throw new SetupRequiredError();
-      resolution = await store.resolve();
-    }
+    const envKey =
+      process.env.BROWSERLOGIN_API_KEY?.trim() ||
+      process.env.CLOAKBROWSER_API_KEY?.trim();
+    if (!envKey && (await store.read()) === null)
+      throw new SetupRequiredError();
+    resolution = await store.resolve();
   } catch {
     throw new SetupRequiredError();
   }
   if (!resolution.apiKey) throw new SetupRequiredError();
   const client = new BrowserLoginClient({
-    baseUrl: resolution.baseUrl,
+    baseUrl: resolution.restBaseUrl,
     credentials: async () => resolution.apiKey!,
   });
   const runtimeHooks: {
@@ -172,8 +161,9 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
   });
   runtimeHooks.stop = browser.runtimeStop;
   const remoteClient = new RemoteMcpClient({
+    url: resolution.remoteMcpUrl,
     credentials: async () =>
-      process.env.BROWSERLOGIN_MCP_REMOTE_TOKEN ?? resolution.apiKey!,
+      resolution.apiKey!,
   });
   const remoteCache = new RemoteMcpDiscoveryCache(remoteClient);
   const remoteForwarder = new RemoteMcpForwarder(

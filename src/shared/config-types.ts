@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const CONNECTION_SCHEMA_VERSION = 2 as const;
+export const CONNECTION_SCHEMA_VERSION = 3 as const;
 export const DEFAULT_BROWSER_CACHE_BYTES = 512 * 1024 * 1024;
 export const MAX_BROWSER_CACHE_BYTES = 8 * 1024 * 1024 * 1024;
 
@@ -9,10 +9,21 @@ const httpsUrl = z
   .url()
   .refine((value) => value.startsWith("https://"), "must use HTTPS");
 
+const appOrigin = httpsUrl.refine((value) => {
+  const parsed = new URL(value);
+  return (
+    !parsed.username &&
+    !parsed.password &&
+    !parsed.search &&
+    !parsed.hash &&
+    (parsed.pathname === "" || parsed.pathname === "/")
+  );
+}, "must be an application origin without a path");
+
 export const ConnectionConfigSchema = z
   .object({
     schema_version: z.literal(CONNECTION_SCHEMA_VERSION),
-    base_url: httpsUrl,
+    app_origin: appOrigin,
     has_api_key: z.boolean(),
   })
   .strict();

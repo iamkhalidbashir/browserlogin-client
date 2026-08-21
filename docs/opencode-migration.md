@@ -27,7 +27,7 @@ The current legacy entries have this exact structure; secrets are redacted:
     "browserSessionMCP": {
       "enabled": false,
       "type": "remote",
-      "url": "https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP",
+      "url": "https://example-1.app-csite-env.sapps.co/mcp/browserSessionMCP",
       "headers": {
         "Authorization": "<redacted>",
       },
@@ -56,7 +56,7 @@ Remove both entries and add:
 
 ## Overrides
 
-Prefer `browserlogin setup`, which stores the key through the OS keychain. Managed environments may provide a nonempty `BROWSERLOGIN_API_KEY`; optional overrides are `BROWSERLOGIN_BASE_URL`, `CLOAKBROWSER_LICENSE_KEY`, `BROWSERLOGIN_MCP_REMOTE_URL`, and `BROWSERLOGIN_MCP_REMOTE_TOKEN`. Never commit these values.
+Prefer `browserlogin setup`, which stores the key through the OS keychain. Managed environments may provide a nonempty `BROWSERLOGIN_API_KEY`; optional overrides are the canonical application origin in `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY`. The client derives REST `/api/v1` and MCP `/mcp/browserSessionMCP` from that origin. Never commit these values.
 
 ## Compatibility
 

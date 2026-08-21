@@ -13,28 +13,32 @@ import {
 } from "./paths";
 import type { PathSecurity, StatePathOptions, StatePaths } from "./paths";
 import { atomicWriteJson, configStore, readJson } from "./store";
+import {
+  KEYCHAIN_REF,
+  parseConnectionState,
+  type ConnectionState,
+} from "./connection-state.js";
+import type { ConnectionInput, ConnectionResolution } from "./connection-types.js";
+import {
+  DEFAULT_APP_ORIGIN,
+  deriveRemoteMcpUrl,
+  deriveRestBaseUrl,
+  legacyRestBaseUrlToOrigin,
+  validateAppOrigin,
+} from "./origin.js";
 
-export const DEFAULT_BASE_URL =
-  "https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/api/v1";
-export const KEYCHAIN_REF = "keychain" as const;
+export { KEYCHAIN_REF, type ConnectionState } from "./connection-state.js";
+export type { ConnectionInput, ConnectionResolution } from "./connection-types.js";
+export {
+  DEFAULT_APP_ORIGIN,
+  REMOTE_MCP_PATH,
+  REST_API_PATH,
+  deriveRemoteMcpUrl,
+  deriveRestBaseUrl,
+  legacyRestBaseUrlToOrigin,
+  validateAppOrigin,
+} from "./origin.js";
 export const PENDING_SCHEMA_VERSION = 1 as const;
-
-export type ConnectionState = {
-  schema_version: 2;
-  base_url: string;
-  key_ref: "keychain";
-};
-export type ConnectionInput = {
-  baseUrl?: string;
-  apiKey?: string;
-  licenseKey?: string;
-};
-export type ConnectionResolution = {
-  baseUrl: string;
-  apiKey: string | null;
-  licenseKey: string | null;
-  source: "cli" | "env" | "keychain" | "persisted" | "default";
-};
 
 export interface ConnectionTransitionLock {
   withLock<T>(operation: () => Promise<T>): Promise<T>;
@@ -59,47 +63,10 @@ function nonempty(value: string | undefined): string | undefined {
   return value && value.trim() !== "" ? value : undefined;
 }
 
-export function validateBaseUrl(value: string): string {
-  if (
-    value !== value.trim() ||
-    !value.startsWith("https://") ||
-    value.includes("\n") ||
-    value.includes("\r")
-  )
-    throw new TypeError("base URL must use HTTPS");
-  const parsed = new URL(value);
-  if (
-    parsed.protocol !== "https:" ||
-    !parsed.hostname ||
-    parsed.username ||
-    parsed.password ||
-    parsed.search ||
-    parsed.hash
-  )
-    throw new TypeError("invalid base URL");
-  return value;
-}
-
 export function validateApiKey(value: string): string {
   if (!/^bl_[\x21-\x7e]+$/.test(value) || !value.slice(3).includes("_"))
     throw new TypeError("invalid API key");
   return value;
-}
-
-function validateState(value: unknown): ConnectionState {
-  if (!value || typeof value !== "object")
-    throw new Error("invalid connection state");
-  const state = value as Record<string, unknown>;
-  if (
-    state.schema_version !== 2 ||
-    typeof state.base_url !== "string" ||
-    state.key_ref !== KEYCHAIN_REF
-  ) {
-    throw new Error("invalid connection state");
-  }
-  if (!state.base_url.startsWith("https://"))
-    throw new Error("invalid connection base URL");
-  return { schema_version: 2, base_url: state.base_url, key_ref: KEYCHAIN_REF };
 }
 
 class InMemoryTransitionLock implements ConnectionTransitionLock {
@@ -128,20 +95,21 @@ export async function resolveConnection(
   },
   security: PathSecurity = posixPathSecurity(),
 ): Promise<ConnectionResolution> {
-  const cliUrl = nonempty(input.baseUrl);
+  const cliOrigin = nonempty(input.appOrigin);
   const cliKey = nonempty(input.apiKey);
   const cliLicenseKey = nonempty(input.licenseKey);
   const env = input.env ?? process.env;
-  const envUrl = nonempty(
-    env.BROWSERLOGIN_BASE_URL ?? env.BROWSERLOGIN_API_BASE_URL,
-  );
+  const envOrigin = nonempty(env.BROWSERLOGIN_BASE_URL);
+  const legacyEnvRestBaseUrl = nonempty(env.BROWSERLOGIN_API_BASE_URL);
   const envKey = nonempty(env.BROWSERLOGIN_API_KEY ?? env.CLOAKBROWSER_API_KEY);
   const envLicenseKey = nonempty(env.CLOAKBROWSER_LICENSE_KEY);
   const state = await readJson<unknown>(input.paths.connection, security);
-  let persistedUrl: string | undefined;
+  let persistedOrigin: string | undefined;
   if (state) {
-    const saved = validateState(state);
-    persistedUrl = saved.base_url;
+    const saved = parseConnectionState(state);
+    persistedOrigin = saved.state.app_origin;
+    if (saved.migrated)
+      await atomicWriteJson(input.paths.connection, saved.state, security);
   }
   const keychainKey = await input.keychain.get({
     service: KEYCHAIN_SERVICE,
@@ -151,8 +119,14 @@ export async function resolveConnection(
     service: KEYCHAIN_SERVICE,
     account: KEYCHAIN_LICENSE_ACCOUNT,
   });
-  const baseUrl = validateBaseUrl(
-    cliUrl ?? envUrl ?? persistedUrl ?? DEFAULT_BASE_URL,
+  const appOrigin = validateAppOrigin(
+    cliOrigin ??
+      envOrigin ??
+      (legacyEnvRestBaseUrl
+        ? legacyRestBaseUrlToOrigin(legacyEnvRestBaseUrl)
+        : undefined) ??
+      persistedOrigin ??
+      DEFAULT_APP_ORIGIN,
   );
   const apiKey = cliKey
     ? validateApiKey(cliKey)
@@ -161,16 +135,23 @@ export async function resolveConnection(
       : keychainKey;
   const licenseKey = cliLicenseKey ?? envLicenseKey ?? keychainLicense;
   const source =
-    cliUrl || cliKey || cliLicenseKey
+    cliOrigin || cliKey || cliLicenseKey
       ? "cli"
-      : envUrl || envKey || envLicenseKey
+      : envOrigin || legacyEnvRestBaseUrl || envKey || envLicenseKey
         ? "env"
-        : persistedUrl || keychainKey || keychainLicense
+        : persistedOrigin || keychainKey || keychainLicense
           ? keychainKey || keychainLicense
             ? "keychain"
             : "persisted"
           : "default";
-  return { baseUrl, apiKey, licenseKey, source };
+  return {
+    appOrigin,
+    restBaseUrl: deriveRestBaseUrl(appOrigin),
+    remoteMcpUrl: deriveRemoteMcpUrl(appOrigin),
+    apiKey,
+    licenseKey,
+    source,
+  };
 }
 
 export class ConnectionStore {
@@ -197,7 +178,11 @@ export class ConnectionStore {
       this.paths.root,
       this.security,
     ).read<unknown>();
-    return value === null ? null : validateState(value);
+    if (value === null) return null;
+    const parsed = parseConnectionState(value);
+    if (parsed.migrated)
+      await atomicWriteJson(this.paths.connection, parsed.state, this.security);
+    return parsed.state;
   }
 
   async pending(): Promise<boolean> {
@@ -225,8 +210,8 @@ export class ConnectionStore {
     }
   }
 
-  async save(baseUrl: string, apiKey: string): Promise<void> {
-    const validatedUrl = validateBaseUrl(baseUrl);
+  async save(appOrigin: string, apiKey: string): Promise<void> {
+    const validatedOrigin = validateAppOrigin(appOrigin);
     const validatedKey = validateApiKey(apiKey);
     await this.initialize();
     await this.lock.withLock(async () => {
@@ -239,16 +224,13 @@ export class ConnectionStore {
       );
       await atomicWriteJson(
         this.paths.connection,
-        { schema_version: 2, base_url: validatedUrl, key_ref: KEYCHAIN_REF },
+        {
+          schema_version: 3,
+          app_origin: validatedOrigin,
+          key_ref: KEYCHAIN_REF,
+        },
         this.security,
       );
-      const verified = await this.read();
-      if (
-        !verified ||
-        verified.base_url !== validatedUrl ||
-        verified.key_ref !== KEYCHAIN_REF
-      )
-        throw new Error("connection verification failed");
     });
   }
 

@@ -1,9 +1,12 @@
 BrowserLogin API guide
 
 Runtime endpoints
-REST base URL: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/api/v1>
-MCP endpoint: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP>
-Browser-authenticated archive route: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/browser-archives/:profileId>
+Application origin: <https://example-1.app-csite-env.sapps.co>
+REST base URL: <https://example-1.app-csite-env.sapps.co/api/v1>
+MCP endpoint: <https://example-1.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Browser-authenticated archive route: <https://example-1.app-csite-env.sapps.co/browser-archives/:profileId>
+
+Desktop and CLI clients configure only the canonical HTTPS application origin. They derive the REST base URL by appending `/api/v1` and the remote MCP endpoint by appending `/mcp/browserSessionMCP`.
 
 Authentication and request rules
 Authorization: Bearer <BROWSERLOGIN_API_KEY>
@@ -710,7 +713,7 @@ Response:
 ]
 
 MCP contract
-Endpoint: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Endpoint: <https://example-1.app-csite-env.sapps.co/mcp/browserSessionMCP>
 Server: browserSessionMCP 2.1.0
 Transport: MCP Streamable HTTP, stateless JSON responses
 Protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05

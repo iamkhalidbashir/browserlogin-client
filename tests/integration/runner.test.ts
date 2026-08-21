@@ -10,7 +10,12 @@ import { createOneShotLaunchFile } from "../../src/core/runner/launch.js";
 import { launchRunner } from "../../src/core/runner/supervisor.js";
 import { publishReady } from "../../src/core/runner/protocol.js";
 import { readFileSync, chmodSync } from "node:fs";
-import type { ChildExit, LaunchSpec } from "../../src/core/runner/types.js";
+import {
+  RUNNER_CHILD_OUTCOME,
+  RUNNER_NORMAL_CLOSE_EXIT_CODE,
+  type ChildExit,
+  type LaunchSpec,
+} from "../../src/core/runner/types.js";
 
 const baseSpec = {
   profile_id: "fake-profile",
@@ -36,7 +41,10 @@ class FakeContext {
   private readonly listeners = new Set<() => void>();
   private pageCount = 1;
   private closed = false;
-  constructor(initialPages = 1) {
+  constructor(
+    initialPages = 1,
+    private readonly cleanupCloseError?: Error,
+  ) {
     this.pageCount = initialPages;
   }
   readonly fakeBrowser = {
@@ -53,6 +61,7 @@ class FakeContext {
     this.listeners.delete(listener);
   close = async () => {
     if (this.closed) return;
+    if (this.cleanupCloseError) throw this.cleanupCloseError;
     this.closed = true;
     for (const listener of this.listeners) listener();
   };
@@ -68,10 +77,16 @@ const listenCdp = async (
   root: string,
 ): Promise<{ server: Server; port: number }> => {
   const server = createServer((_request, response) => {
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      response.statusCode = 503;
+      response.end();
+      return;
+    }
     response.setHeader("content-type", "application/json");
     response.end(
       JSON.stringify({
-        webSocketDebuggerUrl: "ws://127.0.0.1/devtools/browser/fake",
+        webSocketDebuggerUrl: `ws://127.0.0.1:${address.port}/devtools/browser/fake`,
       }),
     );
   });
@@ -231,6 +246,136 @@ describe("fake runner lifecycle", () => {
     expect(normalStops).toBe(1);
   });
 
+  test("treats consecutive resolved CDP endpoint failures as a native browser close", async () => {
+    // Given: an SDK context that never emits close, disconnect, or page changes.
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-cdp-close-"));
+    const paths = {
+      launchFile: join(root, "launch"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = { ...baseSpec, user_data_dir: root, browser_cache_dir: root };
+    await createOneShotLaunchFile(paths.launchFile, spec);
+    await writeFile(paths.gateFile, "authorized\n");
+    const cdp = await listenCdp(root);
+    const context = new FakeContext();
+    let normalStops = 0;
+    const running = runRunnerChild({
+      paths,
+      expectedProfileId: spec.profile_id,
+      sdk: { launchPersistentContext: async () => context },
+      normalStop: () => {
+        normalStops += 1;
+      },
+      pollMs: 5,
+      cdpLivenessIntervalMs: 10,
+      cdpLivenessFailureThreshold: 2,
+    });
+    for (
+      let attempt = 0;
+      attempt < 100 &&
+      !(await readFile(paths.readyFile, "utf8").catch(() => undefined));
+      attempt += 1
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // When: the resolved CDP endpoint disappears while the SDK stays "connected".
+    await new Promise<void>((resolve, reject) =>
+      cdp.server.close((error) => (error ? reject(error) : resolve())),
+    );
+
+    // Then: the child reports a normal native close instead of remaining orphaned.
+    await expect(
+      Promise.race([
+        running,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("runner remained orphaned")), 500),
+        ),
+      ]),
+    ).resolves.toBe(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
+    expect(normalStops).toBe(1);
+  });
+
+  test("control-file stop is intentional and does not invoke normal stop", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-control-"));
+    const paths = {
+      launchFile: join(root, "launch"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = { ...baseSpec, user_data_dir: root, browser_cache_dir: root };
+    await createOneShotLaunchFile(paths.launchFile, spec);
+    await writeFile(paths.gateFile, "authorized\n");
+    const cdp = await listenCdp(root);
+    const context = new FakeContext();
+    let normalStops = 0;
+    try {
+      const running = runRunnerChild({
+        paths,
+        expectedProfileId: spec.profile_id,
+        sdk: { launchPersistentContext: async () => context },
+        normalStop: () => {
+          normalStops += 1;
+        },
+        pollMs: 5,
+      });
+      for (
+        let attempt = 0;
+        attempt < 100 &&
+        !(await readFile(paths.readyFile, "utf8").catch(() => undefined));
+        attempt += 1
+      )
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      await writeFile(paths.controlFile, "stop\n");
+
+      await expect(running).resolves.toBe(RUNNER_CHILD_OUTCOME.CONTROL_STOP);
+      expect(normalStops).toBe(0);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        cdp.server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
+  test("preserves native-close intent across benign context cleanup failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-cleanup-"));
+    const paths = {
+      launchFile: join(root, "launch"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = { ...baseSpec, user_data_dir: root, browser_cache_dir: root };
+    await createOneShotLaunchFile(paths.launchFile, spec);
+    await writeFile(paths.gateFile, "authorized\n");
+    const cdp = await listenCdp(root);
+    const context = new FakeContext(1, new Error("context already closed"));
+    try {
+      const running = runRunnerChild({
+        paths,
+        expectedProfileId: spec.profile_id,
+        sdk: { launchPersistentContext: async () => context },
+        pollMs: 5,
+      });
+      for (
+        let attempt = 0;
+        attempt < 100 &&
+        !(await readFile(paths.readyFile, "utf8").catch(() => undefined));
+        attempt += 1
+      )
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      context.disconnect();
+
+      await expect(running).resolves.toBe(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        cdp.server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   test("supervisor sends authorized gate and clears inherited keyless license variables", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-supervisor-"));
     const paths = {
@@ -320,7 +465,7 @@ describe("fake runner lifecycle", () => {
     }
   });
 
-  test("explicit stop suppresses normal-stop for a clean child exit", async () => {
+  test("explicit stop suppresses normal-stop for a native-close sentinel", async () => {
     const root = await mkdtemp(
       join(tmpdir(), "browserlogin-supervisor-intentional-stop-"),
     );
@@ -368,7 +513,56 @@ describe("fake runner lifecycle", () => {
       },
     });
     await running.stop();
-    complete({ code: 0, signal: null });
+    complete({ code: RUNNER_NORMAL_CLOSE_EXIT_CODE, signal: null });
+    await running.closed;
+    expect(normalStops).toBe(0);
+  });
+
+  test("runner errors after readiness do not trigger normal stop", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-runner-error-"));
+    const paths = {
+      launchFile: join(root, "launch"),
+      gateFile: join(root, "gate"),
+      controlFile: join(root, "control"),
+      readyFile: join(root, "ready"),
+    };
+    const spec = { ...baseSpec, user_data_dir: root, browser_cache_dir: root };
+    let complete!: (exit: ChildExit) => void;
+    let normalStops = 0;
+    const completion = new Promise<ChildExit>((resolve) => {
+      complete = resolve;
+    });
+    const running = await launchRunner({
+      spec,
+      paths,
+      binaryPath: "/tmp/fake-browser",
+      cwd: root,
+      assertIdentity: async (identity) => identity,
+      onNormalStop: () => {
+        normalStops += 1;
+      },
+      spawn: async () => {
+        void (async () => {
+          while (
+            !(await readFile(paths.gateFile, "utf8").catch(() => undefined))
+          )
+            await new Promise((resolve) => setTimeout(resolve, 2));
+          await publishReady(paths.readyFile, {
+            version: 1,
+            relayCdpUrl: "ws://127.0.0.1:43123",
+          });
+        })();
+        return {
+          identity: {
+            pid: process.pid + 1,
+            process_start_time: "fake",
+            cmdline_hash: "fake",
+          },
+          completion,
+        };
+      },
+    });
+    complete({ code: 1, signal: null });
     await running.closed;
     expect(normalStops).toBe(0);
   });
@@ -482,7 +676,10 @@ describe("fake runner lifecycle", () => {
             ),
           ),
         ]);
-        expect(exit).toEqual({ code: 0, signal: null });
+        expect(exit).toEqual({
+          code: RUNNER_NORMAL_CLOSE_EXIT_CODE,
+          signal: null,
+        });
         expect(normalStops).toBe(1);
         const observedArgv = JSON.parse(
           readFileSync(argvFile, "utf8"),

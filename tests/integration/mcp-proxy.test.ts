@@ -13,10 +13,30 @@ import {
 
 const closers: Array<() => Promise<void>> = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   while (closers.length) await closers.pop()?.();
 });
 
 describe("Task 22 remote MCP proxy", () => {
+  it("uses the derived endpoint supplied by connection resolution without an environment fallback", () => {
+    // Given
+    vi.stubEnv(
+      "BROWSERLOGIN_MCP_REMOTE_URL",
+      "https://ignored.example.test/mcp/browserSessionMCP",
+    );
+
+    // When
+    const client = new RemoteMcpClient({
+      url: "https://configured.example.test/mcp/browserSessionMCP",
+      credentials: async () => "bl_test_key_secret",
+    });
+
+    // Then
+    expect(client.url).toBe(
+      "https://configured.example.test/mcp/browserSessionMCP",
+    );
+  });
+
   it("discovers exactly 17 tools and forwards every call with stateless POST headers", async () => {
     const server = await startRemoteMcpMock();
     closers.push(server.close);

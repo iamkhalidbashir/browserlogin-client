@@ -50,6 +50,30 @@ const fetchVersion = async (
   }
 };
 
+export const checkCdpEndpointAlive = async (
+  endpoint: string,
+  timeoutMs = 750,
+): Promise<boolean> => {
+  const resolved = new URL(endpoint);
+  const versionUrl = new URL(resolved);
+  versionUrl.protocol = resolved.protocol === "wss:" ? "https:" : "http:";
+  versionUrl.pathname = "/json/version";
+  versionUrl.search = "";
+  versionUrl.hash = "";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(versionUrl, { signal: controller.signal });
+    if (!response.ok) return false;
+    const body = (await response.json()) as { webSocketDebuggerUrl?: unknown };
+    return body.webSocketDebuggerUrl === resolved.toString();
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export async function resolveCdpEndpoint(
   userDataDir: string,
   timeoutMs = 20_000,

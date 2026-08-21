@@ -3,6 +3,14 @@ import type { PathSecurity } from "../config/paths.js";
 
 export const AUTHORIZATION_MARKER = "authorized\n";
 export const STOP_MARKER = "stop\n";
+export const RUNNER_NORMAL_CLOSE_EXIT_CODE = 20;
+
+export const RUNNER_CHILD_OUTCOME = {
+  BROWSER_CLOSED: "browser-closed",
+  CONTROL_STOP: "control-stop",
+} as const;
+export type RunnerChildOutcome =
+  (typeof RUNNER_CHILD_OUTCOME)[keyof typeof RUNNER_CHILD_OUTCOME];
 
 export type RunnerReady = {
   version: 1;
@@ -48,6 +56,7 @@ export type SpawnedRunner = {
   identity: ProcessIdentity;
   completion: Promise<ChildExit>;
   sendSignal?: (signal: NodeJS.Signals) => void;
+  stderr?: () => string;
 };
 
 export type ChildExit = {
@@ -80,6 +89,8 @@ export type RunnerChildOptions = {
   cdpTimeoutMs?: number;
   gateTimeoutMs?: number;
   pollMs?: number;
+  cdpLivenessIntervalMs?: number;
+  cdpLivenessFailureThreshold?: number;
   sdk?: CloakBrowserSdk;
   normalStop?: () => Promise<void> | void;
 };

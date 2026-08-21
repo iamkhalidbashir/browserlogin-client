@@ -225,6 +225,7 @@ export async function startBrowserLoginMock() {
       return sendJson(response, 200, {
         id: "proxy-1",
         ip: "203.0.113.42",
+        ip_verified: true,
         changed_at: "2026-08-16T00:00:00.000Z",
       });
     if (method === "GET" && path === "/api-keys")

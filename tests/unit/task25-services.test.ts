@@ -36,7 +36,9 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
   } as unknown as KeychainFacade;
   const connection = {
     resolve: vi.fn(async () => ({
-      baseUrl: "https://example.test/api/v1",
+      appOrigin: "https://example.test",
+      restBaseUrl: "https://example.test/api/v1",
+      remoteMcpUrl: "https://example.test/mcp/browserSessionMCP",
       apiKey: "bl_test_key_value",
       licenseKey: license,
       source: "keychain" as const,
@@ -257,6 +259,32 @@ describe("Task 25 core service composition", () => {
       expect.objectContaining({
         profile_id: "profile-recovered",
         relay_cdp_url: "ws://127.0.0.1:43123/",
+      }),
+    ]);
+  });
+
+  test("removes a completed autonomous stop from live sessions", async () => {
+    const { services, coordinator } = await fixture();
+    await services.sessionsStart?.({ profileId: "profile-1" });
+    vi.mocked(coordinator.recover).mockResolvedValue(null);
+
+    await expect(services.sessionsLive?.({})).resolves.toEqual([]);
+    expect(coordinator.recover).toHaveBeenCalledWith("profile-1");
+  });
+
+  test("refreshes an unresolved autonomous stop from durable state", async () => {
+    const { services, coordinator } = await fixture();
+    await services.sessionsStart?.({ profileId: "profile-1" });
+    vi.mocked(coordinator.recover).mockResolvedValue({
+      profile_id: "profile-1",
+      status: "upload-ambiguous",
+      archive_generation: 4,
+    } as never);
+
+    await expect(services.sessionsLive?.({})).resolves.toEqual([
+      expect.objectContaining({
+        profile_id: "profile-1",
+        status: "upload-ambiguous",
       }),
     ]);
   });

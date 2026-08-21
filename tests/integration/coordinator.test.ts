@@ -85,6 +85,8 @@ async function setup(
   let releases = 0;
   let runtimeStops = 0;
   let conflictAttempts = 0;
+  let runnerStops = 0;
+  let normalClose: (() => Promise<void>) | undefined;
   let adoptedArchive: string | undefined;
   let remoteStopped = false;
   const stopGeneration =
@@ -184,12 +186,17 @@ async function setup(
           },
         }
       : undefined,
-    runner: async () => ({
-      identity: { pid: 4321, process_start_time: "1000", cmdline_hash: SHA },
-      relayCdpUrl: "ws://127.0.0.1:43123/",
-      stop: async () => undefined,
-      closed: new Promise(() => undefined),
-    }),
+    runner: async (runnerOptions) => {
+      normalClose = runnerOptions.onNormalStop;
+      return {
+        identity: { pid: 4321, process_start_time: "1000", cmdline_hash: SHA },
+        relayCdpUrl: "ws://127.0.0.1:43123/",
+        stop: async () => {
+          runnerStops += 1;
+        },
+        closed: new Promise(() => undefined),
+      };
+    },
     adoptArchive: async (_profileId, artifact, generation) => {
       adoptedArchive = join(root, `adopted-${generation}.zip`);
       await copyFile(artifact, adoptedArchive);
@@ -215,8 +222,13 @@ async function setup(
       stops,
       releases,
       runtimeStops,
+      runnerStops,
       adoptedArchive,
     }),
+    closeBrowser: async () => {
+      if (!normalClose) throw new Error("runner normal-close callback missing");
+      await normalClose();
+    },
   };
 }
 
@@ -278,6 +290,43 @@ describe("Task 18 recovery state", () => {
       releases: 1,
     });
     expect(await stat(counts().adoptedArchive!)).toBeTruthy();
+  });
+
+  it("archives and remotely stops exactly once after a native browser close", async () => {
+    const fixture = await setup({ paid: true });
+    await fixture.coordinator.start("profile-1");
+
+    await fixture.closeBrowser();
+
+    expect(fixture.counts()).toMatchObject({
+      uploads: 1,
+      stops: 1,
+      releases: 1,
+      runnerStops: 0,
+    });
+    expect(await fixture.coordinator.store.load("profile-1")).toBeNull();
+    expect(await stat(fixture.counts().adoptedArchive!)).toBeTruthy();
+  });
+
+  it("preserves ambiguous upload recovery after a native browser close", async () => {
+    const fixture = await setup({ upload: "ambiguous" });
+    await fixture.coordinator.start("profile-1");
+
+    await expect(fixture.closeBrowser()).rejects.toThrow(
+      "simulated upload transport loss",
+    );
+    await expect(fixture.closeBrowser()).rejects.toThrow("unresolved");
+
+    expect(fixture.counts()).toMatchObject({
+      uploads: 1,
+      stops: 0,
+      runnerStops: 0,
+    });
+    await expect(
+      fixture.coordinator.store.load("profile-1"),
+    ).resolves.toMatchObject({
+      status: "upload-ambiguous",
+    });
   });
 
   it("does not set paid-only license behavior for a keyless start", async () => {

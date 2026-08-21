@@ -121,20 +121,35 @@ const reply = <T extends z.ZodType>(value: T) =>
     }),
   ]);
 
+const appOrigin = z
+  .string()
+  .url()
+  .refine((value) => {
+    const parsed = new URL(value);
+    return (
+      parsed.protocol === "https:" &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.search &&
+      !parsed.hash &&
+      (parsed.pathname === "" || parsed.pathname === "/")
+    );
+  }, "must be an HTTPS application origin without a path");
+
 export const AppRPCSchemas = {
   connectionGet: {
     params: empty,
     result: z.object({
-      baseUrl: z.string().url(),
+      appOrigin,
       hasApiKey: z.boolean(),
       hasLicense: z.boolean(),
     }),
   },
   connectionSet: {
     params: z
-      .object({ baseUrl: z.string().url(), apiKey: secretInput })
+      .object({ appOrigin, apiKey: secretInput })
       .strict(),
-    result: z.object({ baseUrl: z.string().url(), hasApiKey: z.literal(true) }),
+    result: z.object({ appOrigin, hasApiKey: z.literal(true) }),
   },
   connectionTest: {
     params: empty,
@@ -175,7 +190,8 @@ export const AppRPCSchemas = {
     params: proxyId,
     result: z.object({
       id: z.string(),
-      ip: z.string(),
+      ip: z.string().nullable(),
+      ip_verified: z.boolean(),
       changed_at: z.string(),
     }),
   },

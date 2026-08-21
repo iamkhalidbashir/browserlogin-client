@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export const REMOTE_MCP_DEFAULT_URL =
-  "https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP";
 export const REMOTE_MCP_PROTOCOL_VERSIONS = [
   "2025-11-25",
   "2025-06-18",

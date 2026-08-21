@@ -19,8 +19,45 @@ test("setup gate blocks navigation until connection succeeds", async ({
   });
   await expect(page.getByRole("navigation")).toHaveCount(0);
   await page.getByLabel("API key").fill("bl_test_key_value");
-  await page.getByRole("button", { name: "Test connection" }).click();
+  await page.getByRole("button", { name: "Save and test" }).click();
   await expect(page.getByRole("navigation")).toBeVisible();
+});
+
+test("rejected connection test after a successful save keeps the saved connection and re-enables Save and test", async ({
+  page,
+}) => {
+  // Given: setup gate with a stale post-save read so SetupView stays mounted.
+  await page.goto("/?setup=1&connectionGet=stale&connectionTest=reject");
+  const origin = page.getByLabel("Application origin");
+  const apiKey = page.getByLabel("API key");
+  const saveButton = page.getByRole("button", { name: "Save and test" });
+  await apiKey.fill("bl_test_fake_rejected_test_key");
+
+  // When
+  await saveButton.click();
+
+  // Then: the rejection surfaces without undoing the persisted connection.
+  await expect(page.getByRole("status")).toContainText(
+    "Connection test failed: mock transport rejection.",
+  );
+  await expect(origin).toHaveValue(
+    "https://example-1.app-csite-env.sapps.co",
+  );
+  await expect(apiKey).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText(
+    "bl_test_fake_rejected_test_key",
+  );
+  const calls = await page.evaluate(() => window.__browserloginMockCalls ?? []);
+  const savedAt = calls.findIndex((item) => item.method === "connectionSet");
+  const testedAt = calls.findIndex((item) => item.method === "connectionTest");
+  expect(savedAt).toBeGreaterThanOrEqual(0);
+  expect(testedAt).toBeGreaterThan(savedAt);
+  expect(calls[savedAt]?.params).toMatchObject({
+    apiKey: "bl_test_fake_rejected_test_key",
+  });
+  await expect(saveButton).toBeVisible();
+  await apiKey.fill("bl_test_fake_retry_key");
+  await expect(saveButton).toBeEnabled();
 });
 
 test("creates, launches, multi-selects, and protects deletion", async ({
@@ -213,6 +250,46 @@ test("edit and restore target the selected profile row", async ({ page }) => {
     ),
   );
   expect(restoreCall?.params).toMatchObject({ profileId: "profile-2" });
+});
+
+test("profile row rotates its assigned proxy and handles an unverified result", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?profileProxy=1&rotateUnverified=1");
+  const row = page.getByRole("row", { name: /Research profile/ });
+
+  // When
+  await row.getByRole("button", { name: "Rotate IP" }).click();
+
+  // Then
+  await expect(page.getByRole("status")).toContainText(
+    "rotation acknowledged; new IP could not be verified",
+  );
+  const rotateCall = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (call) => call.method === "proxiesChangeIp",
+    ),
+  );
+  expect(rotateCall?.params).toMatchObject({ proxyId: "proxy-1" });
+});
+
+test("only the selected profile action is pending while a slow request runs", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?multi=1&profileActionDelayMs=700");
+  const firstRow = page.getByRole("row", { name: /Research profile/ });
+  const secondRow = page.getByRole("row", { name: /Secondary profile/ });
+
+  // When
+  await firstRow.getByRole("button", { name: "Launch" }).click();
+
+  // Then
+  await expect(firstRow.getByRole("button", { name: "Launching…" })).toBeDisabled();
+  await expect(firstRow.getByRole("button", { name: "Edit" })).toBeDisabled();
+  await expect(secondRow.getByRole("button", { name: "Launch" })).toBeEnabled();
+  await expect(firstRow.getByRole("button", { name: "Launch" })).toBeEnabled();
 });
 
 test("edit sends optimistic version and surfaces 409 conflict", async ({

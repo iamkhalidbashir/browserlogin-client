@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { NavLink, Navigate, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
@@ -25,6 +25,11 @@ const routes = [
 export function App() {
   const bridge = useBridge();
   const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 4_000);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
   const connection = useQuery({
     queryKey: ["connection"],
     queryFn: async () => {
@@ -35,22 +40,22 @@ export function App() {
   });
   if (connection.data && !connection.data.hasApiKey) return <SetupView />;
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="min-h-[100dvh] bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <div className="grid min-h-screen grid-cols-[240px_1fr]">
+      <div className="grid min-h-[100dvh] grid-cols-1 md:grid-cols-[240px_1fr]">
         <aside
-          className="border-r border-zinc-200 bg-white/80 p-5 dark:border-zinc-800 dark:bg-zinc-900/80"
+          className="border-b border-zinc-200 bg-white/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/80 md:border-b-0 md:border-r md:p-5"
           aria-label="Primary navigation"
         >
-          <div className="mb-8">
+          <div className="mb-4 md:mb-8">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-400">
               BrowserLogin
             </p>
             <h1 className="mt-2 text-xl font-semibold">Control center</h1>
           </div>
-          <nav className="space-y-1">
+          <nav className="flex gap-1 overflow-x-auto md:block md:space-y-1">
             {routes.map(([path, label]) => (
               <NavLink
                 key={path}
@@ -65,8 +70,8 @@ export function App() {
           </nav>
         </aside>
         <div className="min-w-0">
-          <header className="flex h-16 items-center justify-between border-b border-zinc-200 px-7 dark:border-zinc-800">
-            <div className="flex gap-2" aria-label="Application status">
+          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:px-7">
+            <div className="flex flex-wrap gap-2" aria-label="Application status">
               <span className="status-pill">
                 {connection.isLoading
                   ? "Connecting"
@@ -84,7 +89,7 @@ export function App() {
               Refresh status
             </button>
           </header>
-          <main id="main" className="p-7" tabIndex={-1}>
+          <main id="main" className="p-4 md:p-7" tabIndex={-1}>
             <Suspense
               fallback={
                 <div className="skeleton h-40" aria-label="Loading route" />
@@ -108,7 +113,12 @@ export function App() {
         </div>
       </div>
       {toast ? (
-        <div className="toast" role="status">
+        <div
+          className="toast"
+          role="status"
+          aria-label="Status notification"
+          aria-live="polite"
+        >
           <span>{toast}</span>
           <button
             onClick={() => setToast(null)}

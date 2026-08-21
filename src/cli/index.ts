@@ -286,13 +286,13 @@ export async function runCli(
     if (command === "setup") {
       if (parsed.apiKeyEnv) {
         io.stdout(
-          "Set BROWSERLOGIN_API_KEY and optionally CLOAKBROWSER_LICENSE_KEY.\n",
+          "Set BROWSERLOGIN_API_KEY and optionally BROWSERLOGIN_BASE_URL (the HTTPS application origin) and CLOAKBROWSER_LICENSE_KEY.\n",
         );
         return 0;
       }
-      const baseUrl = await io.prompt("BrowserLogin base URL: ");
+      const appOrigin = await io.prompt("BrowserLogin application origin: ");
       const apiKey = await io.prompt("BrowserLogin API key: ");
-      await service(services, "connectionSet", { baseUrl, apiKey });
+      await service(services, "connectionSet", { appOrigin, apiKey });
       io.stdout("BrowserLogin connection saved.\n");
       return 0;
     }
@@ -324,9 +324,7 @@ export async function runCli(
         ),
         state_dir: root,
         relay_port_4290: (await portAvailable(4290)) ? "available" : "busy",
-        remote_mcp: process.env.BROWSERLOGIN_MCP_REMOTE_URL
-          ? "configured"
-          : "default",
+        remote_mcp: "derived from application origin",
       };
       io.stdout(stableJson(checks));
       return checks.connection === "ok" ? 0 : 2;

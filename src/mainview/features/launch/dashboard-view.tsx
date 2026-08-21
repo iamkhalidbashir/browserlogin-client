@@ -9,7 +9,10 @@ export default function DashboardView({
 }) {
   const bridge = useBridge();
   const queryClient = useQueryClient();
-  const [confirmation, setConfirmation] = useState("");
+  const [confirmationByProfile, setConfirmationByProfile] = useState<
+    Record<string, string>
+  >({});
+  const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
   const sessions = useQuery({
     queryKey: ["sessions"],
     queryFn: async () => {
@@ -20,13 +23,27 @@ export default function DashboardView({
     refetchInterval: 10_000,
   });
   const stop = async (profileId: string, force: boolean) => {
-    if (force)
-      await bridge.request("sessionsForceStop", {
+    if (!force) {
+      await bridge.request("sessionsStop", { profileId });
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      return;
+    }
+    setPendingProfileId(profileId);
+    try {
+      const result = await bridge.request("sessionsForceStop", {
         profileId,
-        confirmation,
+        confirmation: confirmationByProfile[profileId] ?? "",
       });
-    else await bridge.request("sessionsStop", { profileId });
-    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      if (result.ok)
+        setConfirmationByProfile((current) => {
+          const remaining = { ...current };
+          delete remaining[profileId];
+          return remaining;
+        });
+      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    } finally {
+      setPendingProfileId(null);
+    }
   };
   return (
     <section>
@@ -42,6 +59,7 @@ export default function DashboardView({
             {sessions.data.map((session) => {
               const profileId = String(session.profile_id);
               const phrase = `FORCE CLOSE ${profileId}`;
+              const confirmation = confirmationByProfile[profileId] ?? "";
               return (
                 <article key={profileId} className="session-row">
                   <div>
@@ -63,11 +81,19 @@ export default function DashboardView({
                       aria-label={`Force confirmation ${profileId}`}
                       placeholder={phrase}
                       value={confirmation}
-                      onChange={(event) => setConfirmation(event.target.value)}
+                      onChange={(event) =>
+                        setConfirmationByProfile((current) => ({
+                          ...current,
+                          [profileId]: event.target.value,
+                        }))
+                      }
                     />
                     <button
                       className="button-danger"
-                      disabled={confirmation !== phrase}
+                      disabled={
+                        confirmation !== phrase ||
+                        pendingProfileId === profileId
+                      }
                       onClick={() => void stop(profileId, true)}
                     >
                       Force stop

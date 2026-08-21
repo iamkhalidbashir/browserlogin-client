@@ -7,7 +7,10 @@ import { createKeychainBackend } from "../keychain";
 import { atomicWriteJson, readJson } from "./store";
 import { posixPathSecurity } from "./paths";
 import type { PathSecurity, StatePaths } from "./paths";
-import { validateApiKey, validateBaseUrl } from "./connection";
+import {
+  legacyRestBaseUrlToOrigin,
+  validateApiKey,
+} from "./connection";
 
 type LegacyConnection = {
   base_url?: unknown;
@@ -26,7 +29,7 @@ export async function migrateLegacyConnection(
   if (typeof apiKey !== "string" || apiKey.length === 0) return false;
   if (typeof legacy.base_url !== "string")
     throw new Error("legacy connection is missing base_url");
-  const baseUrl = validateBaseUrl(legacy.base_url);
+  const appOrigin = legacyRestBaseUrlToOrigin(legacy.base_url);
   const validatedApiKey = validateApiKey(apiKey);
 
   await keychain.set(
@@ -35,7 +38,7 @@ export async function migrateLegacyConnection(
   );
   await atomicWriteJson(
     paths.connection,
-    { schema_version: 2, base_url: baseUrl, key_ref: "keychain" },
+    { schema_version: 3, app_origin: appOrigin, key_ref: "keychain" },
     security,
   );
   const migrated = await readJson<Record<string, unknown>>(

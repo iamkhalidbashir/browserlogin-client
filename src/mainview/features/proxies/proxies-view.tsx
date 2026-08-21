@@ -86,7 +86,9 @@ export default function ProxiesView() {
     const result = await bridge.request("proxiesChangeIp", { proxyId });
     setMessage(
       result.ok
-        ? `Proxy IP changed to ${result.value.ip}`
+        ? result.value.ip_verified && result.value.ip
+          ? `Proxy IP changed to ${result.value.ip}`
+          : "Proxy rotation acknowledged; new IP could not be verified."
         : result.error.message,
     );
   };

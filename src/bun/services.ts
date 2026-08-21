@@ -23,7 +23,10 @@ import {
   readActiveBinary,
 } from "../core/binary/index.js";
 import type { BinaryInfo } from "../core/binary/types.js";
-import { ConnectionStore } from "../core/config/connection.js";
+import {
+  ConnectionStore,
+  validateAppOrigin,
+} from "../core/config/connection.js";
 import { statePaths } from "../core/config/paths.js";
 import { atomicWriteJson, readJson } from "../core/config/store.js";
 import { LifecycleCoordinator } from "../core/coordinator/index.js";
@@ -123,7 +126,7 @@ async function resolveClient(connection: ConnectionStore): Promise<{
     });
   return {
     client: new BrowserLoginClient({
-      baseUrl: resolved.baseUrl,
+      baseUrl: resolved.restBaseUrl,
       credentials: async () => resolved.apiKey!,
     }),
     licenseKey: resolved.licenseKey,
@@ -200,16 +203,19 @@ export function createCoreAppRuntime(context: AppServiceContext): {
     connectionGet: async () => {
       const resolved = await context.connection.resolve();
       return {
-        baseUrl: resolved.baseUrl,
+        appOrigin: resolved.appOrigin,
         hasApiKey: Boolean(resolved.apiKey),
         hasLicense: Boolean(resolved.licenseKey),
       };
     },
     connectionSet: async (raw) => {
-      const params = raw as { baseUrl: string; apiKey: string };
-      await context.connection.save(params.baseUrl, params.apiKey);
+      const params = raw as { appOrigin: string; apiKey: string };
+      await context.connection.save(params.appOrigin, params.apiKey);
       coordinatorPromise = undefined;
-      return { baseUrl: params.baseUrl, hasApiKey: true as const };
+      return {
+        appOrigin: validateAppOrigin(params.appOrigin),
+        hasApiKey: true as const,
+      };
     },
     connectionTest: async () => {
       const resolved = await context.connection.resolve();
@@ -278,7 +284,20 @@ export function createCoreAppRuntime(context: AppServiceContext): {
       live.delete(params.profileId);
       return { ...state } as Record<string, unknown>;
     },
-    sessionsLive: async () => [...live.values()],
+    sessionsLive: async () => {
+      const lifecycle = await coordinator();
+      const recovered = await Promise.all(
+        [...live.keys()].map(async (profileId) => ({
+          profileId,
+          state: await lifecycle.recover(profileId),
+        })),
+      );
+      for (const { profileId, state } of recovered) {
+        if (state) live.set(profileId, { ...state } as Record<string, unknown>);
+        else live.delete(profileId);
+      }
+      return [...live.values()];
+    },
     proxiesList: async () =>
       (await (await client()).listProxies()).map(stripProxySecret),
     proxiesCreate: async (raw) =>
@@ -490,8 +509,7 @@ export function createCoreAppRuntime(context: AppServiceContext): {
         })),
       );
       for (const { profileId, state } of recovered) {
-        if (state?.status === "running")
-          live.set(profileId, { ...state } as Record<string, unknown>);
+        if (state) live.set(profileId, { ...state } as Record<string, unknown>);
         else live.delete(profileId);
       }
     },

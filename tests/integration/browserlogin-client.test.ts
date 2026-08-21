@@ -228,6 +228,33 @@ describe("BrowserLogin REST client", () => {
     }
   });
 
+  it("accepts acknowledged proxy rotation when the new IP cannot be verified", async () => {
+    // Given
+    const api = client("https://browserlogin.test/api/v1", {
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            id: "proxy-1",
+            ip: null,
+            ip_verified: false,
+            changed_at: "2026-08-21T18:00:00Z",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    });
+
+    // When
+    const result = await api.changeProxyIp("proxy-1");
+
+    // Then
+    expect(result).toEqual({
+      id: "proxy-1",
+      ip: null,
+      ip_verified: false,
+      changed_at: "2026-08-21T18:00:00Z",
+    });
+  });
+
   it.each(endpointCases)("endpoint case: %s", async (operation) => {
     const server = await startBrowserLoginMock();
     try {

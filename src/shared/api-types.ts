@@ -16,7 +16,7 @@ export const UserSchema = z
   .object({
     id: z.string(),
     name: z.string(),
-    email: z.string(),
+    email: nullableString,
     status: z.string(),
     owner: z.boolean().optional(),
     created_at: timestamp.optional(),

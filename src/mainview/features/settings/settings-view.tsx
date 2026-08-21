@@ -17,7 +17,7 @@ const snippet = JSON.stringify(
 export default function SettingsView() {
   const bridge = useBridge();
   const queryClient = useQueryClient();
-  const [baseUrl, setBaseUrl] = useState("https://example.test/api/v1");
+  const [appOrigin, setAppOrigin] = useState("https://example.test");
   const [apiKey, setApiKey] = useState("");
   const [licenseKey, setLicenseKey] = useState("");
   const [advanced, setAdvanced] = useState(false);
@@ -34,7 +34,7 @@ export default function SettingsView() {
     queryFn: async () => {
       const result = await bridge.request("connectionGet", {});
       if (!result.ok) throw new Error(result.error.message);
-      setBaseUrl(result.value.baseUrl);
+      setAppOrigin(result.value.appOrigin);
       return result.value;
     },
   });
@@ -90,7 +90,10 @@ export default function SettingsView() {
   const saveConnection = async () => {
     setMessage("Saving connection…");
     try {
-      const result = await bridge.request("connectionSet", { baseUrl, apiKey });
+      const result = await bridge.request("connectionSet", {
+        appOrigin,
+        apiKey,
+      });
       if (!result.ok) {
         setMessage(result.error.message);
         return;
@@ -200,10 +203,11 @@ export default function SettingsView() {
             API key: {connection.data?.hasApiKey ? "Set" : "Not set"}
           </p>
           <label className="field mt-4">
-            <span>Base URL</span>
+            <span>Application origin</span>
             <input
-              value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder="https://browserlogin.example"
+              value={appOrigin}
+              onChange={(event) => setAppOrigin(event.target.value)}
             />
           </label>
           <label className="field mt-3">

@@ -197,3 +197,34 @@ test("successful connection save clears the key and refreshes connection reads",
   );
   expect(methods).toContain("connectionTest");
 });
+
+test("failed connection test preserves the successfully saved application origin", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/settings?connectionTest=fail");
+  const origin = page.getByLabel("Application origin");
+  const apiKey = page.getByLabel("Re-enter API key");
+  await origin.fill("https://saved.example.test");
+  await apiKey.fill("bl_test_fake_saved_key");
+
+  // When
+  await page.getByRole("button", { name: "Save and test" }).click();
+
+  // Then
+  await expect(page.getByRole("status")).toContainText(
+    "Connection test failed.",
+  );
+  await expect(origin).toHaveValue("https://saved.example.test");
+  await expect(apiKey).toHaveValue("");
+  const calls = await page.evaluate(() => window.__browserloginMockCalls ?? []);
+  const savedAt = calls.findIndex((item) => item.method === "connectionSet");
+  const testedAt = calls.findIndex((item) => item.method === "connectionTest");
+  expect(savedAt).toBeGreaterThanOrEqual(0);
+  expect(testedAt).toBeGreaterThan(savedAt);
+  expect(
+    calls
+      .slice(savedAt + 1, testedAt)
+      .some((item) => item.method === "connectionGet"),
+  ).toBe(true);
+});

@@ -175,7 +175,10 @@ export class LifecycleCoordinator {
         await this.reconcileLocked(state);
         state = await this.store.load(profileId);
         if (state?.status === "running") return state;
-        if (state?.status === "upload-ambiguous") return state;
+        if (state?.status === "upload-ambiguous")
+          throw new BrowserLoginError(
+            "archive upload outcome is unresolved; resolve it before starting this profile again",
+          );
         if (
           state &&
           state.status !== "done" &&

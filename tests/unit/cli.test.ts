@@ -127,13 +127,13 @@ describe("Task 24 CLI", () => {
     expect(hint.stdout()).toContain("BROWSERLOGIN_API_KEY");
 
     const connectionSet = vi.fn(async () => ({
-      baseUrl: "https://example.test/api/v1",
+      appOrigin: "https://example.test",
       hasApiKey: true as const,
     }));
-    const setup = harness("https://example.test/api/v1");
+    const setup = harness("https://example.test");
     setup.io.prompt = vi
       .fn()
-      .mockResolvedValueOnce("https://example.test/api/v1")
+      .mockResolvedValueOnce("https://example.test")
       .mockResolvedValueOnce("bl_test_key_value");
     expect(
       await runCli(["setup"], {
@@ -142,7 +142,7 @@ describe("Task 24 CLI", () => {
       }),
     ).toBe(0);
     expect(connectionSet).toHaveBeenCalledWith({
-      baseUrl: "https://example.test/api/v1",
+      appOrigin: "https://example.test",
       apiKey: "bl_test_key_value",
     });
 

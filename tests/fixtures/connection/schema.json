@@ -1,12 +1,12 @@
 {
   "provenance": "browserlogin_client/connection.py:21-28,36-84,115-155,158-185",
-  "configSchemaVersion":2,
+  "configSchemaVersion":3,
   "configFile":"connection.json",
   "configMaxBytes":16384,
-  "valid":{"schema_version":2,"base_url":"https://browserlogin.test/api/v1","api_key":"bl_test_key_secret"},
-  "normalized":{"input":"https://BROWSERLOGIN.TEST:443/","output":"https://browserlogin.test:443/api/v1"},
+  "valid":{"schema_version":3,"app_origin":"https://browserlogin.test","key_ref":"keychain"},
+  "normalized":{"input":"https://BROWSERLOGIN.TEST:443/","output":"https://browserlogin.test"},
   "pending":{"schema_version":1,"status":"pending"},
   "invalidApiKeys":["test","bl_","bl__secret","bl_id_ secret","bl_id_秘密"],
-  "invalidBaseUrls":["http://browserlogin.test","https://user:pass@browserlogin.test","https://browserlogin.test?x=1","https://browserlogin.test/../api/v1","//browserlogin.test"],
+  "invalidAppOrigins":["http://browserlogin.test","https://user:pass@browserlogin.test","https://browserlogin.test?x=1","https://browserlogin.test/api/v1","//browserlogin.test"],
   "setupMessage":"BrowserLogin connection setup is required"
 }

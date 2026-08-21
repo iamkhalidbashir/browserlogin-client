@@ -27,7 +27,7 @@ const profile = {
 export const mockParams: Record<AppRPCMethod, unknown> = {
   connectionGet: {},
   connectionSet: {
-    baseUrl: "https://example.test/api/v1",
+    appOrigin: "https://example.test",
     apiKey: "bl_test_key_value",
   },
   connectionTest: {},
@@ -88,11 +88,11 @@ export const mockParams: Record<AppRPCMethod, unknown> = {
 
 const values: Record<AppRPCMethod, unknown> = {
   connectionGet: {
-    baseUrl: "https://example.test/api/v1",
+    appOrigin: "https://example.test",
     hasApiKey: true,
     hasLicense: false,
   },
-  connectionSet: { baseUrl: "https://example.test/api/v1", hasApiKey: true },
+  connectionSet: { appOrigin: "https://example.test", hasApiKey: true },
   connectionTest: { connected: true, hasApiKey: true },
   connectionClear: { hasApiKey: false },
   profilesList: [profile],
@@ -113,6 +113,7 @@ const values: Record<AppRPCMethod, unknown> = {
       host: "127.0.0.1",
       port: 8080,
       username: "workspace-user",
+      change_ip_url: "https://proxy.example.test/change-ip",
       last_ip: "203.0.113.9",
       last_ip_changed_at: "2026-08-17T00:00:00Z",
     },
@@ -135,6 +136,7 @@ const values: Record<AppRPCMethod, unknown> = {
   proxiesChangeIp: {
     id: "proxy-1",
     ip: "203.0.113.10",
+    ip_verified: true,
     changed_at: "2026-08-17T00:00:00Z",
   },
   usersList: [
@@ -238,6 +240,13 @@ export function createMockBridge(
   let connected =
     typeof window === "undefined" ||
     new URLSearchParams(window.location.search).get("setup") !== "1";
+  let currentAppOrigin = "https://example.test";
+  // Captured once at creation: the setup gate redirects "/" to "/dashboard"
+  // during first render, which drops the live query string.
+  const initialSearch =
+    typeof window === "undefined"
+      ? new URLSearchParams()
+      : new URLSearchParams(window.location.search);
   const multi =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
@@ -264,10 +273,12 @@ export function createMockBridge(
       if (method === "connectionGet") {
         const override = overrides.connectionGet as
           Record<string, unknown> | undefined;
+        const stale = initialSearch.get("connectionGet") === "stale";
         const value = AppRPCSchemas.connectionGet.result.parse({
           ...(values.connectionGet as Record<string, unknown>),
           ...override,
-          hasApiKey: override?.hasApiKey ?? connected,
+          appOrigin: override?.appOrigin ?? currentAppOrigin,
+          hasApiKey: override?.hasApiKey ?? (connected && !stale),
         }) as BridgeResult<K>;
         return { ok: true, value };
       }
@@ -301,8 +312,33 @@ export function createMockBridge(
       ) {
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
-      if (method === "connectionSet") connected = true;
+      if (method === "connectionSet") {
+        currentAppOrigin = AppRPCSchemas.connectionSet.params.parse(
+          params,
+        ).appOrigin;
+        connected = true;
+      }
       if (method === "connectionClear") connected = false;
+      if (
+        method === "connectionTest" &&
+        initialSearch.get("connectionTest") === "reject"
+      ) {
+        throw new Error("Connection test failed: mock transport rejection.");
+      }
+      if (
+        method === "connectionTest" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("connectionTest") ===
+          "fail"
+      ) {
+        return {
+          ok: true,
+          value: AppRPCSchemas.connectionTest.result.parse({
+            connected: false,
+            hasApiKey: true,
+          }) as BridgeResult<K>,
+        };
+      }
       if (
         method === "binaryStatus" &&
         typeof window !== "undefined" &&
@@ -377,6 +413,18 @@ export function createMockBridge(
         ]) as BridgeResult<K>;
         return { ok: true, value };
       }
+      if (method === "profilesList" && initialSearch.get("profileProxy") === "1") {
+        const assigned = {
+          ...profile,
+          proxy: (values.proxiesList as Array<Record<string, unknown>>)[0],
+        };
+        return {
+          ok: true,
+          value: AppRPCSchemas.profilesList.result.parse([
+            assigned,
+          ]) as BridgeResult<K>,
+        };
+      }
       if (method === "proxiesList" && multi && !overrides.proxiesList) {
         const value = AppRPCSchemas.proxiesList.result.parse([
           ...(values.proxiesList as Array<Record<string, unknown>>),
@@ -394,6 +442,12 @@ export function createMockBridge(
         return { ok: true, value };
       }
       if (method === "sessionsStart") {
+        const delay = Number.parseInt(
+          initialSearch.get("profileActionDelayMs") ?? "0",
+          10,
+        );
+        if (Number.isFinite(delay) && delay > 0)
+          await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 2_000)));
         const profileId = (params as { profileId: string }).profileId;
         liveSessions = [
           ...liveSessions.filter((session) => session.profile_id !== profileId),
@@ -410,6 +464,17 @@ export function createMockBridge(
           value: AppRPCSchemas.sessionsStart.result.parse(
             liveSessions.at(-1),
           ) as BridgeResult<K>,
+        };
+      }
+      if (method === "proxiesChangeIp" && initialSearch.get("rotateUnverified") === "1") {
+        return {
+          ok: true,
+          value: AppRPCSchemas.proxiesChangeIp.result.parse({
+            id: (params as { proxyId: string }).proxyId,
+            ip: null,
+            ip_verified: false,
+            changed_at: "2026-08-21T18:00:00Z",
+          }) as BridgeResult<K>,
         };
       }
       if (method === "sessionsLive") {
