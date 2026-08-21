@@ -33,7 +33,9 @@ describe("browser tools vendor command", () => {
     expect(JSON.parse(result.stdout.trim())).toEqual({
       command:
       process.env.BROWSERLOGIN_NODE_PATH ?? "node",
-      socketsDir: process.env.PWTEST_SOCKETS_DIR ?? "/tmp",
+      socketsDir:
+        process.env.PWTEST_SOCKETS_DIR ??
+        (process.platform === "win32" ? process.env.TEMP : "/tmp"),
     });
   });
 });

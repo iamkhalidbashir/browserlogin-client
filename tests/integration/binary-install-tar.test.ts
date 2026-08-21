@@ -77,7 +77,7 @@ function tarGz(
 }
 
 describe("CloakBrowser tar installation", () => {
-  it("installs an official macOS runtime containing relative framework symlinks", async () => {
+  it.skipIf(process.platform === "win32")("installs an official macOS runtime containing relative framework symlinks", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-tar-links-"));
     roots.push(root);
     const archive = join(root, "cloakbrowser-darwin-arm64.tar.gz");
@@ -146,7 +146,7 @@ describe("CloakBrowser tar installation", () => {
     ).rejects.toMatchObject({ code: "INSTALL_FAILED" });
   });
 
-  it("installs USTAR-prefixed framework entries inside the macOS app bundle", async () => {
+  it.skipIf(process.platform === "win32")("installs USTAR-prefixed framework entries inside the macOS app bundle", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-tar-prefix-"));
     roots.push(root);
     const archive = join(root, "cloakbrowser-darwin-arm64.tar.gz");
