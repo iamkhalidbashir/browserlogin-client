@@ -2,6 +2,7 @@ node_modules/
 dist/
 artifacts/
 .hutch/
+.cottontail-tmp/
 .env
 .env.*
 *.local
@@ -10,4 +11,6 @@ artifacts/
 coverage/
 playwright-report/
 .playwright-mcp/
+test-results/
+build/dev-macos-arm64/
 .omo/
