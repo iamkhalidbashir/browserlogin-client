@@ -4,7 +4,7 @@ export default {
   app: {
     name: "BrowserLogin",
     identifier: "co.browserlogin.app",
-    version: "0.1.5",
+    version: "0.1.6",
   },
   build: {
     mainProcess: "cottontail",
@@ -15,6 +15,7 @@ export default {
     copy: {
       "dist/mainview": "views/mainview",
       "dist/vendor": "vendor",
+      "dist/runner": "runner",
     },
     mac: {
       codesign: true,
