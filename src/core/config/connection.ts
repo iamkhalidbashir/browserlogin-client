@@ -111,14 +111,19 @@ export async function resolveConnection(
     if (saved.migrated)
       await atomicWriteJson(input.paths.connection, saved.state, security);
   }
-  const keychainKey = await input.keychain.get({
-    service: KEYCHAIN_SERVICE,
-    account: KEYCHAIN_API_ACCOUNT,
-  });
-  const keychainLicense = await input.keychain.get({
-    service: KEYCHAIN_SERVICE,
-    account: KEYCHAIN_LICENSE_ACCOUNT,
-  });
+  const useKeychain = !(cliKey || envKey || cliLicenseKey || envLicenseKey);
+  const [keychainKey, keychainLicense] = useKeychain
+    ? await Promise.all([
+        input.keychain.get({
+          service: KEYCHAIN_SERVICE,
+          account: KEYCHAIN_API_ACCOUNT,
+        }),
+        input.keychain.get({
+          service: KEYCHAIN_SERVICE,
+          account: KEYCHAIN_LICENSE_ACCOUNT,
+        }),
+      ])
+    : [null, null];
   const appOrigin = validateAppOrigin(
     cliOrigin ??
       envOrigin ??

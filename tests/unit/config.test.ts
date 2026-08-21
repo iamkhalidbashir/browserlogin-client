@@ -387,6 +387,34 @@ describe("connection migration and precedence", () => {
     ).resolves.toMatchObject({ source: "default" });
   });
 
+  it("uses environment credentials without reading an unavailable keychain", async () => {
+    const root = await freshRoot();
+    const paths = statePaths(join(root, "state-root"));
+    await ensureStatePaths(paths);
+    const unavailableKeychain: KeychainBackend = {
+      get: async () => {
+        throw new Error("keychain unavailable");
+      },
+      set: async () => undefined,
+      delete: async () => undefined,
+    };
+
+    await expect(
+      resolveConnection({
+        paths,
+        keychain: unavailableKeychain,
+        env: {
+          BROWSERLOGIN_BASE_URL: "https://example.test",
+          BROWSERLOGIN_API_KEY: "bl_env_secret",
+        },
+      }),
+    ).resolves.toMatchObject({
+      source: "env",
+      apiKey: "bl_env_secret",
+      licenseKey: null,
+    });
+  });
+
   it("converts only an exact legacy API environment root", async () => {
     // Given
     const root = await freshRoot();
