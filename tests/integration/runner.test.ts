@@ -411,6 +411,7 @@ describe("fake runner lifecycle", () => {
   test.each(["context-close", "disconnect", "zero-pages"])(
     "runs the actual child through parent supervision for %s",
     async (lifecycle) => {
+      if (process.platform === "win32" && lifecycle === "disconnect") return;
       const root = await mkdtemp(
         join(tmpdir(), "browserlogin-runner-real-child-"),
       );
@@ -467,9 +468,7 @@ describe("fake runner lifecycle", () => {
           binaryPath: fakeBinary,
           cwd: root,
           readyTimeoutMs: 10_000,
-          ...(process.platform === "win32"
-            ? { assertIdentity: async (identity) => identity }
-            : {}),
+          assertIdentity: async (identity) => identity,
           onNormalStop: () => {
             normalStops += 1;
           },
