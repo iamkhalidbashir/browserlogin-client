@@ -41,7 +41,10 @@ export function useBridge(): Bridge {
 
 export async function createElectrobunBridge(): Promise<Bridge> {
   const { Electroview } = await import("electrobun/view");
-  const rpc = Electroview.defineRPC<AppRPC>({ handlers: {} });
+  const rpc = Electroview.defineRPC<AppRPC>({
+    maxRequestTime: 30_000,
+    handlers: {},
+  });
   new Electroview({ rpc });
   return {
     async request<K extends AppRPCMethod>(

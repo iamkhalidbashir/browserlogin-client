@@ -88,15 +88,28 @@ export default function SettingsView() {
     [logs.data, logFilter],
   );
   const saveConnection = async () => {
-    const result = await bridge.request("connectionSet", { baseUrl, apiKey });
-    if (result.ok) {
+    setMessage("Saving connection…");
+    try {
+      const result = await bridge.request("connectionSet", { baseUrl, apiKey });
+      if (!result.ok) {
+        setMessage(result.error.message);
+        return;
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["connection"] }),
+        queryClient.invalidateQueries({ queryKey: ["settings-connection"] }),
+      ]);
+      setApiKey("");
       const tested = await bridge.request("connectionTest", {});
       setMessage(
         tested.ok && tested.value.connected
           ? "Connection verified."
           : "Connection test failed.",
       );
-      setApiKey("");
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Connection request failed.",
+      );
     }
   };
   const disconnect = async () => {
@@ -214,6 +227,9 @@ export default function SettingsView() {
               Disconnect
             </button>
           </div>
+          <p className="mt-3 text-sm" role="status">
+            {message}
+          </p>
         </article>
         <article className="panel">
           <h3 className="font-medium">CloakBrowser license</h3>
@@ -401,9 +417,6 @@ export default function SettingsView() {
           no telemetry.
         </p>
       </article>
-      <p className="mt-4 text-sm" role="status">
-        {message}
-      </p>
     </section>
   );
 }

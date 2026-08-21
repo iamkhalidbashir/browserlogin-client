@@ -102,3 +102,98 @@ test("CLI, update states, logs, and disconnect use narrow RPC methods", async ({
     page.getByRole("heading", { name: "Connect BrowserLogin" }),
   ).toBeVisible();
 });
+
+test("failed connection save shows the error and never runs connectionTest", async ({
+  page,
+}) => {
+  await page.goto("/settings?connectionSet=fail");
+  const apiKey = page.getByLabel("Re-enter API key");
+  await apiKey.fill("bl_test_fake_rejected_key");
+  await page.getByRole("button", { name: "Save and test" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Connection save failed: mock rejection.",
+  );
+  await expect(page.locator("body")).not.toContainText(
+    "bl_test_fake_rejected_key",
+  );
+  const methods = await page.evaluate(() =>
+    window.__browserloginMockCalls?.map((item) => item.method),
+  );
+  expect(methods).toContain("connectionSet");
+  expect(methods).not.toContain("connectionTest");
+});
+
+test("rejected connection save surfaces transport error and never runs connectionTest", async ({
+  page,
+}) => {
+  await page.goto("/settings?connectionSet=reject");
+  const apiKey = page.getByLabel("Re-enter API key");
+  await apiKey.fill("bl_test_fake_transport_key");
+  await page.getByRole("button", { name: "Save and test" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Connection request failed: mock transport rejection.",
+  );
+  await expect(page.locator("body")).not.toContainText(
+    "bl_test_fake_transport_key",
+  );
+  const methods = await page.evaluate(() =>
+    window.__browserloginMockCalls?.map((item) => item.method),
+  );
+  expect(methods).toContain("connectionSet");
+  expect(methods).not.toContain("connectionTest");
+});
+
+test("saving the connection shows pending feedback inside the Connection panel", async ({
+  page,
+}) => {
+  await page.goto("/settings?connectionSet=delay");
+  const apiKey = page.getByLabel("Re-enter API key");
+  await apiKey.fill("bl_test_fake_pending_key");
+  const panel = page.locator("article.panel", {
+    has: page.getByRole("heading", { name: "Connection" }),
+  });
+  await page.getByRole("button", { name: "Save and test" }).click();
+  await expect(panel.getByRole("status")).toContainText("Saving connection…");
+  await expect(apiKey).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText(
+    "bl_test_fake_pending_key",
+  );
+  const methods = await page.evaluate(() =>
+    window.__browserloginMockCalls?.map((item) => item.method),
+  );
+  expect(methods).toContain("connectionSet");
+  expect(methods).toContain("connectionTest");
+});
+
+test("successful connection save clears the key and refreshes connection reads", async ({
+  page,
+}) => {
+  await page.goto("/settings");
+  const apiKey = page.getByLabel("Re-enter API key");
+  await apiKey.fill("bl_test_fake_accepted_key");
+  await page.getByRole("button", { name: "Save and test" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Connection verified.",
+  );
+  await expect(apiKey).toHaveValue("");
+  await expect(page.locator("body")).not.toContainText(
+    "bl_test_fake_accepted_key",
+  );
+  await expect
+    .poll(async () => {
+      const calls = await page.evaluate(
+        () => window.__browserloginMockCalls ?? [],
+      );
+      const savedAt = calls.findIndex(
+        (item) => item.method === "connectionSet",
+      );
+      return calls
+        .slice(savedAt + 1)
+        .filter((item) => item.method === "connectionGet").length;
+    })
+    .toBe(2);
+  const methods = await page.evaluate(() =>
+    window.__browserloginMockCalls?.map((item) => item.method),
+  );
+  expect(methods).toContain("connectionTest");
+});

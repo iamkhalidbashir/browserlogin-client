@@ -20,6 +20,12 @@ export type RpcHandlerOptions = {
   emit?: (name: "binaryProgress", payload: BinaryProgress) => void;
 };
 
+type AppRPCHandlers = {
+  [K in AppRPCMethod]: (
+    params: unknown,
+  ) => Promise<RpcReply<z.output<(typeof AppRPCSchemas)[K]["result"]>>>;
+};
+
 const responseSchemas = new Map<AppRPCMethod, z.ZodType>(
   Object.entries(AppRPCSchemas).map(([name, schema]) => [
     name as AppRPCMethod,
@@ -34,13 +40,13 @@ const responseSchemas = new Map<AppRPCMethod, z.ZodType>(
 );
 
 function errorReply(name: AppRPCMethod, error: unknown): RpcReply {
-  if (error && typeof error === "object" && "code" in error) {
-    const code = String((error as { code?: unknown }).code);
+  if (error instanceof Error) {
+    const code = "code" in error ? String(error.code) : "RPC_ERROR";
     return {
       ok: false,
       error: {
         code,
-        message: `${name} could not be completed`,
+        message: error.message,
       },
     };
   }
@@ -76,7 +82,7 @@ function makeHandler(
 
 export function createRPCHandlers(
   options: RpcHandlerOptions,
-): Record<AppRPCMethod, (params: unknown) => Promise<RpcReply>> {
+): AppRPCHandlers {
   return Object.fromEntries(
     (Object.keys(AppRPCSchemas) as AppRPCMethod[]).map((name) => [
       name,
@@ -89,7 +95,7 @@ export function createRPCHandlers(
         }
       },
     ]),
-  ) as Record<AppRPCMethod, (params: unknown) => Promise<RpcReply>>;
+  ) as AppRPCHandlers;
 }
 
 export function throttleProgress(
@@ -125,8 +131,9 @@ export async function defineAppRPC(options: RpcHandlerOptions) {
   const handlers = createRPCHandlers(options);
   const { BrowserView: runtimeBrowserView } = await import("electrobun/main");
   const rpc = runtimeBrowserView.defineRPC<AppRPC>({
+    maxRequestTime: 30_000,
     handlers: {
-      requests: (method, params) => handlers[method](params),
+      requests: handlers,
     },
   });
   const emitBinaryProgress = throttleProgress((payload) => {

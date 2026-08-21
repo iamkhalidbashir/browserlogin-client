@@ -271,6 +271,36 @@ export function createMockBridge(
         }) as BridgeResult<K>;
         return { ok: true, value };
       }
+      if (
+        method === "connectionSet" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("connectionSet") ===
+          "fail"
+      ) {
+        return {
+          ok: false,
+          error: {
+            code: "CONNECTION_SAVE_FAILED",
+            message: "Connection save failed: mock rejection.",
+          },
+        };
+      }
+      if (
+        method === "connectionSet" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("connectionSet") ===
+          "reject"
+      ) {
+        throw new Error("Connection request failed: mock transport rejection.");
+      }
+      if (
+        method === "connectionSet" &&
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("connectionSet") ===
+          "delay"
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
       if (method === "connectionSet") connected = true;
       if (method === "connectionClear") connected = false;
       if (

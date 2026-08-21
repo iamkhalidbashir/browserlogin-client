@@ -4,7 +4,17 @@ import {
   type AppRPCMethod,
   parseRpcReply,
 } from "../../src/shared/rpc-schema.js";
-import { createRPCHandlers, throttleProgress } from "../../src/bun/rpc.js";
+import {
+  createRPCHandlers,
+  defineAppRPC,
+  throttleProgress,
+} from "../../src/bun/rpc.js";
+
+const electrobunMock = vi.hoisted(() => ({
+  defineRPC: vi.fn(),
+}));
+
+vi.mock("electrobun/main", () => ({ BrowserView: electrobunMock }));
 
 const validParams: Record<AppRPCMethod, unknown> = {
   connectionGet: {},
@@ -66,6 +76,29 @@ const validParams: Record<AppRPCMethod, unknown> = {
 };
 
 describe("Task 25 RPC contract", () => {
+  test("registers every RPC method as an object handler", async () => {
+    electrobunMock.defineRPC.mockReturnValue({
+      send: {
+        binaryProgress: vi.fn(),
+        updateStatus: vi.fn(),
+      },
+    });
+
+    await defineAppRPC({ services: {} });
+
+    expect(electrobunMock.defineRPC).toHaveBeenCalledWith({
+      maxRequestTime: 30_000,
+      handlers: {
+        requests: Object.fromEntries(
+          Object.keys(AppRPCSchemas).map((method) => [
+            method,
+            expect.any(Function),
+          ]),
+        ),
+      },
+    });
+  });
+
   test("maps every declared operation to its core service", async () => {
     const calls = new Set<string>();
     const services = Object.fromEntries(
