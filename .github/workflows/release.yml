@@ -117,6 +117,35 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Configure macOS signing and notarization
+        if: matrix.target == 'macos-arm64'
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+          APPLE_API_ISSUER: ${{ secrets.ELECTROBUN_APPLEAPIISSUER }}
+          APPLE_API_KEY: ${{ secrets.ELECTROBUN_APPLEAPIKEY }}
+        shell: bash
+        run: |
+          keychain="$RUNNER_TEMP/browserlogin-signing.keychain-db"
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          api_key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s' "$CERTIFICATE_BASE64" | base64 --decode > "$certificate"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$api_key"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
+          security import "$certificate" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychain -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$keychain"
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -n 's/.*\("Developer ID Application:.*"\)/\1/p' | head -n 1)"
+          test -n "$identity"
+          echo "ELECTROBUN_DEVELOPER_ID=$identity" >> "$GITHUB_ENV"
+          echo "ELECTROBUN_APPLEAPIISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          echo "ELECTROBUN_APPLEAPIKEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+          echo "ELECTROBUN_APPLEAPIKEYPATH=$api_key" >> "$GITHUB_ENV"
+
       - name: Resolve release version
         env:
           MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
@@ -206,10 +235,17 @@ jobs:
           bun run build:browser-tools-helper
           cp "dist/vendor/${{ matrix.helper_asset }}" "release/${{ matrix.helper_asset }}"
 
+      - name: Sign macOS command-line tools
+        if: matrix.target == 'macos-arm64'
+        shell: bash
+        run: |
+          codesign --force --timestamp --options runtime --sign "$ELECTROBUN_DEVELOPER_ID" "release/${{ matrix.cli_asset }}"
+          codesign --force --timestamp --options runtime --sign "$ELECTROBUN_DEVELOPER_ID" "release/${{ matrix.helper_asset }}"
+
       - name: Build web renderer
         run: bun run build:web
 
-      - name: Build unsigned Electrobun application
+      - name: Build signed and notarized Electrobun application
         run: hutch electrobun build --env=production
 
       - name: Validate and stage macOS/Linux artifacts

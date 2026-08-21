@@ -17,8 +17,8 @@ export default {
       "dist/vendor": "vendor",
     },
     mac: {
-      codesign: false,
-      notarize: false,
+      codesign: true,
+      notarize: true,
       bundleCEF: false,
     },
     linux: {
