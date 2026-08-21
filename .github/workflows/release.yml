@@ -495,18 +495,9 @@ jobs:
             browserlogin-browser-tools-macos-arm64
             browserlogin-browser-tools-windows-x64.exe
             browserlogin-browser-tools-linux-x64
-            production-macos-arm64-BrowserLogin.app.tar.zst
-            production-macos-arm64-update.json
-            production-win-x64-BrowserLogin.tar.zst
-            production-win-x64-update.json
-            production-linux-x64-BrowserLogin.tar.zst
-            production-linux-x64-update.json
             NOTICES.md
           )
           for name in "${unchanged[@]}"; do cp "release/$name" "$tagged_release/$name"; done
-          shopt -s nullglob
-          patches=(release/production-*.patch)
-          if ((${#patches[@]})); then cp "${patches[@]}" "$tagged_release/"; fi
 
       - name: Create tagged release checksums
         shell: bash
@@ -534,12 +525,6 @@ jobs:
             browserlogin-browser-tools-macos-arm64
             browserlogin-browser-tools-windows-x64.exe
             browserlogin-browser-tools-linux-x64
-            production-macos-arm64-BrowserLogin.app.tar.zst
-            production-macos-arm64-update.json
-            production-win-x64-BrowserLogin.tar.zst
-            production-win-x64-update.json
-            production-linux-x64-BrowserLogin.tar.zst
-            production-linux-x64-update.json
             NOTICES.md
             SHA256SUMS
           )
@@ -548,7 +533,6 @@ jobs:
             test -f "$path"
             name="$(basename "$path")"
             if printf '%s\n' "${required[@]}" | grep -Fxq "$name"; then continue; fi
-            if [[ "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then continue; fi
             echo "unexpected release asset: $name" >&2
             exit 1
           done
