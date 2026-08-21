@@ -4,7 +4,7 @@ export default {
   app: {
     name: "BrowserLogin",
     identifier: "co.browserlogin.app",
-    version: "0.1.0",
+    version: "0.1.1",
   },
   build: {
     mainProcess: "cottontail",
