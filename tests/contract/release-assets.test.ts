@@ -19,7 +19,7 @@ function workflowStep(name: string): string {
 
 describe("release asset contract", () => {
   test("builds Linux on the supported minimum runner", () => {
-    expect(workflow).toContain("target: linux-x64\n            runner: ubuntu-22.04");
+    expect(workflow).toContain("target: linux-x64\n            runner: ubuntu-24.04");
     expect(ciWorkflow).toContain("Verify Linux glibc baseline");
     expect(workflow).toContain("APPIMAGETOOL_X86_64_SHA256");
   });

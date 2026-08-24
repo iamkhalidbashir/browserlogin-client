@@ -43,7 +43,7 @@ Release filenames use the version without the tag's leading `v`: tag `v0.1.1` pr
 
 ### Linux x64
 
-1. On Ubuntu 22.04 or newer, install the runtime dependencies:
+1. On Ubuntu 24.04 or newer, install the runtime dependencies:
 
    ```sh
    sudo apt-get update

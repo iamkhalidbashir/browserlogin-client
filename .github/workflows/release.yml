@@ -61,7 +61,7 @@ jobs:
             cli_asset: browserlogin-windows-x64.exe
             helper_asset: browserlogin-browser-tools-windows-x64.exe
           - target: linux-x64
-            runner: ubuntu-22.04
+            runner: ubuntu-24.04
             artifact_prefix: production-linux-x64
             installer: production-linux-x64-BrowserLogin-Setup.tar.gz
             update_archive: production-linux-x64-BrowserLogin.tar.zst
@@ -332,8 +332,8 @@ jobs:
               installer_binary="$installer_dir/installer"
               file "$installer_binary" | grep -Eq 'ELF 64-bit.*x86-64'
               for elf in "$launcher" "$installer_binary" "release/${{ matrix.cli_asset }}" "release/${{ matrix.helper_asset }}"; do
-                if readelf --version-info "$elf" | grep -Eq 'Name: GLIBC_([3-9]|2\.(3[6-9]|[4-9][0-9]))'; then
-                  echo "Linux artifact requires glibc newer than Ubuntu 22.04: $elf" >&2
+                if readelf --version-info "$elf" | grep -Eq 'Name: GLIBC_([3-9]|2\.(4[0-9]|[5-9][0-9]))'; then
+                  echo "Linux artifact requires glibc newer than Ubuntu 24.04: $elf" >&2
                   exit 1
                 fi
               done
