@@ -28,6 +28,7 @@ permissions:
 env:
   BUN_VERSION: "1.2.23"
   BUN_LINUX_X64_ZIP_SHA256: cf0ed0a920799d576ffde4e0cae66d732bf23c2530407f26f59c7831dffe1f0e
+  BUN_LINUX_X64_BASELINE_ZIP_SHA256: 017f89e19b1e40aa4c11a7cf671d3990cb51cc12288a43473238a019a8cafffc
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_X86_64_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
   HUTCH_CHANNEL: production
@@ -118,6 +119,21 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
+
+      - name: Install Linux baseline Bun runtime
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          archive="$RUNNER_TEMP/bun-linux-x64-baseline.zip"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-baseline.zip" \
+            --output "$archive"
+          echo "$BUN_LINUX_X64_BASELINE_ZIP_SHA256  $archive" | sha256sum -c -
+          unzip -q "$archive" -d "$RUNNER_TEMP/bun-baseline"
+          baseline="$RUNNER_TEMP/bun-baseline/bun-linux-x64-baseline/bun"
+          chmod +x "$baseline"
+          "$baseline" --version
+          echo "ELECTROBUN_BASELINE_BUN_PATH=$baseline" >> "$GITHUB_ENV"
 
       - name: Configure macOS signing and notarization
         if: matrix.target == 'macos-arm64'

@@ -28,6 +28,17 @@ describe("release asset contract", () => {
     expect(workflow).toContain("target: linux-x64\n            runner: ubuntu-24.04");
     expect(ciWorkflow).toContain("Verify Linux glibc baseline");
     expect(workflow).toContain("APPIMAGETOOL_X86_64_SHA256");
+    expect(workflow).toContain("BUN_LINUX_X64_BASELINE_ZIP_SHA256");
+    expect(workflow).toContain("Install Linux baseline Bun runtime");
+    expect(workflow).toContain("ELECTROBUN_BASELINE_BUN_PATH");
+  });
+
+  test("replaces the Linux wrapper runtime before packaging", async () => {
+    const config = await readFile("electrobun.config.ts", "utf8");
+    const hook = await readFile("scripts/post-wrap.ts", "utf8");
+    expect(config).toContain('postWrap: "./scripts/post-wrap.ts"');
+    expect(hook).toContain('join(wrapper, "bin", "bun")');
+    expect(hook).toContain("copyFileSync(source, bundledBun)");
   });
 
   test("stages versioned public downloads without updater artifacts", () => {

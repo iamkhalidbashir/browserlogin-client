@@ -4,7 +4,7 @@ export default {
   app: {
     name: "BrowserLogin",
     identifier: "co.browserlogin.app",
-    version: "0.1.13",
+    version: "0.1.14",
   },
   build: {
     mainProcess: "bun",
@@ -28,6 +28,9 @@ export default {
     win: {
       bundleCEF: false,
     },
+  },
+  scripts: {
+    postWrap: "./scripts/post-wrap.ts",
   },
   release: {
     baseUrl:
