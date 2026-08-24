@@ -13,6 +13,7 @@
     "dev:web": "vite --config vite.config.ts",
     "build:web": "vite build --config vite.config.ts",
     "check:web-bundle": "bun scripts/check-mainview-bundle.ts",
+    "check:package": "bun scripts/check-package-preflight.ts",
     "dev:main": "bun src/bun/index.ts",
     "cli": "bun src/cli/index.ts",
     "build:cli": "bun build --compile src/cli/index.ts --outfile dist/browserlogin",
