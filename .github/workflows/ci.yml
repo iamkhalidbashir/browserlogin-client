@@ -69,6 +69,13 @@ jobs:
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum bun run test:integration
       - run: bun run test:contract
+      - name: Build unsigned desktop package
+        run: |
+          bun run build:web
+          bun run build:runner-child
+          bun scripts/electrobun.ts build
+      - name: Verify desktop package inventory
+        run: bun run check:package
       - name: Install Playwright Chromium
         run: bunx playwright install --with-deps chromium
       - name: Playwright E2E
