@@ -368,7 +368,7 @@ jobs:
           if ($archiveListing -match '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)') {
             throw "Browser executable found in Windows release archives"
           }
-          $allowedLarge = @("browserlogin-browser-tools-windows-x64.exe")
+          $allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")
           Get-ChildItem $smokeDir -Recurse -File | ForEach-Object {
             if ($_.Length -gt 100MB -and $_.Name -notin $allowedLarge) {
               throw "Expanded release file exceeds 100 MiB: $($_.FullName)"
