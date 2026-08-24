@@ -1,26 +1,42 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { NavLink, Navigate, Route, Routes } from "react-router-dom";
+import {
+  NavLink,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
 import SetupView from "./features/setup/setup-view.js";
 
-const Dashboard = lazy(() => import("./routes/dashboard.js"));
-const Profiles = lazy(() => import("./routes/profiles.js"));
+const Dashboard = lazy(() => import("./features/profiles/profiles-view.js"));
 const Proxies = lazy(() => import("./routes/proxies.js"));
 const Users = lazy(() => import("./routes/users.js"));
 const Audit = lazy(() => import("./routes/audit.js"));
-const Sessions = lazy(() => import("./routes/sessions.js"));
 const Settings = lazy(() => import("./routes/settings.js"));
 
 const routes = [
   ["/dashboard", "Dashboard"],
-  ["/profiles", "Profiles"],
   ["/proxies", "Proxies"],
   ["/users", "Users"],
   ["/audit", "Audit"],
-  ["/sessions", "Sessions"],
   ["/settings", "Settings"],
 ] as const;
+
+function LegacyRouteRedirect() {
+  const location = useLocation();
+  return (
+    <Navigate
+      to={{
+        pathname: "/dashboard",
+        search: location.search,
+        hash: location.hash,
+      }}
+      replace
+    />
+  );
+}
 
 export function App() {
   const bridge = useBridge();
@@ -97,11 +113,11 @@ export function App() {
             >
               <Routes>
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/profiles" element={<Profiles />} />
+                <Route path="/profiles" element={<LegacyRouteRedirect />} />
                 <Route path="/proxies" element={<Proxies />} />
                 <Route path="/users" element={<Users />} />
                 <Route path="/audit" element={<Audit />} />
-                <Route path="/sessions" element={<Sessions />} />
+                <Route path="/sessions" element={<LegacyRouteRedirect />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route
                   path="*"
