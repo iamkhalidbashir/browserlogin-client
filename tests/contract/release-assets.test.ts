@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 
-const workflow = await readFile(".github/workflows/release.yml", "utf8");
-const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
+const workflow = (await readFile(".github/workflows/release.yml", "utf8")).replaceAll(
+  "\r\n",
+  "\n",
+);
+const ciWorkflow = (await readFile(".github/workflows/ci.yml", "utf8")).replaceAll(
+  "\r\n",
+  "\n",
+);
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
