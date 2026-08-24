@@ -340,12 +340,11 @@ jobs:
               appdir="$RUNNER_TEMP/browserlogin-appimage/AppDir"
               mkdir -p "$appdir"
               cp -a "$smoke_dir/BrowserLogin/." "$appdir/"
-              cat > "$appdir/AppRun" <<'SH'
-              #!/bin/sh
-              set -eu
-              here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-              exec "$here/bin/launcher" "$@"
-              SH
+              printf '%s\n' \
+                '#!/bin/sh' \
+                'set -eu' \
+                'here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)' \
+                'exec "$here/bin/launcher" "$@"' > "$appdir/AppRun"
               chmod +x "$appdir/AppRun"
               desktop="$appdir/BrowserLogin.desktop"
               sed -i 's#^Exec=.*#Exec=AppRun#' "$desktop"
