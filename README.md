@@ -43,15 +43,16 @@ Release filenames use the version without the tag's leading `v`: tag `v0.1.1` pr
 
 ### Linux x64
 
-1. On Ubuntu 24.04, install the runtime dependencies:
+1. On Ubuntu 22.04 or newer, install the runtime dependencies:
 
    ```sh
    sudo apt-get update
    sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
    ```
 
-2. Download and extract `BrowserLogin-<version>-linux-x64-Setup.tar.gz`, then run the included launcher.
-3. Download `browserlogin-<version>-linux-x64` plus `browserlogin-browser-tools-linux-x64`, make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
+2. Download and extract `BrowserLogin-<version>-linux-x64-Setup.tar.gz`, then run the included installer.
+3. Alternatively, download `BrowserLogin-<version>-linux-x64.AppImage`, make it executable, and run it. AppImage execution may require the distribution's FUSE 2 compatibility package.
+4. Download `browserlogin-<version>-linux-x64` plus `browserlogin-browser-tools-linux-x64`, make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
 
 Verify every downloaded file against the release `SHA256SUMS` before running it.
 

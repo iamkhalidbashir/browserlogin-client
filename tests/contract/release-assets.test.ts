@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, test } from "vitest";
 
 const workflow = await readFile(".github/workflows/release.yml", "utf8");
+const ciWorkflow = await readFile(".github/workflows/ci.yml", "utf8");
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
@@ -17,6 +18,12 @@ function workflowStep(name: string): string {
 }
 
 describe("release asset contract", () => {
+  test("builds Linux on the supported minimum runner", () => {
+    expect(workflow).toContain("target: linux-x64\n            runner: ubuntu-22.04");
+    expect(ciWorkflow).toContain("Verify Linux glibc baseline");
+    expect(workflow).toContain("APPIMAGETOOL_X86_64_SHA256");
+  });
+
   test("stages versioned public downloads without updater artifacts", () => {
     expect(publishRelease).toContain('tagged_release="tagged-release"');
     expect(publishRelease).toContain(
@@ -27,6 +34,9 @@ describe("release asset contract", () => {
     );
     expect(publishRelease).toContain(
       "BrowserLogin-${release_version}-linux-x64-Setup.tar.gz",
+    );
+    expect(publishRelease).toContain(
+      "BrowserLogin-${release_version}-linux-x64.AppImage",
     );
     expect(publishRelease).toContain(
       "browserlogin-${release_version}-windows-x64.exe",

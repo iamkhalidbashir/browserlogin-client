@@ -28,6 +28,8 @@ permissions:
 env:
   BUN_VERSION: "1.2.23"
   BUN_LINUX_X64_ZIP_SHA256: cf0ed0a920799d576ffde4e0cae66d732bf23c2530407f26f59c7831dffe1f0e
+  APPIMAGETOOL_VERSION: "1.9.1"
+  APPIMAGETOOL_X86_64_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
   HUTCH_CHANNEL: production
   HUTCH_INSTALL_SH_SHA256: 9803e467afab4d795ebf506abbe94c3592b761188bd68b1b5edf02ad7955b92c
   HUTCH_INSTALL_PS1_SHA256: d0a0bc6770e6021bcae24da12543cc4384270a1a0bbb8e03e9341260220092b0
@@ -59,7 +61,7 @@ jobs:
             cli_asset: browserlogin-windows-x64.exe
             helper_asset: browserlogin-browser-tools-windows-x64.exe
           - target: linux-x64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             artifact_prefix: production-linux-x64
             installer: production-linux-x64-BrowserLogin-Setup.tar.gz
             update_archive: production-linux-x64-BrowserLogin.tar.zst
@@ -88,7 +90,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev build-essential cmake pkg-config xvfb
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev appstream build-essential cmake pkg-config xvfb
 
       - name: Install Hutch (macOS/Linux)
         if: runner.os != 'Windows'
@@ -248,6 +250,18 @@ jobs:
       - name: Build signed and notarized Electrobun application
         run: hutch electrobun build --env=production
 
+      - name: Download pinned AppImage tool
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          appimagetool="$RUNNER_TEMP/appimagetool-x86_64.AppImage"
+          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+            "https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-x86_64.AppImage" \
+            --output "$appimagetool"
+          echo "$APPIMAGETOOL_X86_64_SHA256  $appimagetool" | sha256sum -c -
+          chmod +x "$appimagetool"
+          echo "APPIMAGETOOL=$appimagetool" >> "$GITHUB_ENV"
+
       - name: Validate and stage macOS/Linux artifacts
         if: runner.os != 'Windows'
         shell: bash
@@ -315,6 +329,34 @@ jobs:
               mkdir -p "$installer_dir"
               tar -xzf "$installer" -C "$installer_dir"
               scan_tree "$installer_dir"
+              installer_binary="$installer_dir/installer"
+              file "$installer_binary" | grep -Eq 'ELF 64-bit.*x86-64'
+              for elf in "$launcher" "$installer_binary" "release/${{ matrix.cli_asset }}" "release/${{ matrix.helper_asset }}"; do
+                if readelf --version-info "$elf" | grep -Eq 'Name: GLIBC_([3-9]|2\.(3[6-9]|[4-9][0-9]))'; then
+                  echo "Linux artifact requires glibc newer than Ubuntu 22.04: $elf" >&2
+                  exit 1
+                fi
+              done
+              appdir="$RUNNER_TEMP/browserlogin-appimage/AppDir"
+              mkdir -p "$appdir"
+              cp -a "$smoke_dir/BrowserLogin/." "$appdir/"
+              cat > "$appdir/AppRun" <<'SH'
+              #!/bin/sh
+              set -eu
+              here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+              exec "$here/bin/launcher" "$@"
+              SH
+              chmod +x "$appdir/AppRun"
+              desktop="$appdir/BrowserLogin.desktop"
+              sed -i 's#^Exec=.*#Exec=AppRun#' "$desktop"
+              printf '\nIcon=BrowserLogin\n' >> "$desktop"
+              icon="$(find "$appdir/Resources/app/runner" -type f -name 'appIcon-*.png' -print -quit)"
+              test -n "$icon"
+              cp "$icon" "$appdir/BrowserLogin.png"
+              appimage="release/BrowserLogin-${RELEASE_VERSION}-linux-x64.AppImage"
+              APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGETOOL" "$appdir" "$appimage"
+              chmod +x "$appimage"
+              file "$appimage" | grep -Eq 'ELF 64-bit.*x86-64'
               ;;
           esac
 
@@ -460,7 +502,7 @@ jobs:
             (cd release && sha256sum -c "$(basename "$manifest")")
           done
           test "$(find release -maxdepth 1 -type f -name 'browserlogin-*' | wc -l | tr -d ' ')" = 6
-          test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup.zip' -o -name '*Setup.tar.gz' \) | wc -l | tr -d ' ')" = 3
+          test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup.zip' -o -name '*Setup.tar.gz' -o -name '*.AppImage' \) | wc -l | tr -d ' ')" = 4
           test "$(find release -maxdepth 1 -type f -name 'production-*-update.json' | wc -l | tr -d ' ')" = 3
 
       - name: Generate third-party notices
@@ -483,6 +525,8 @@ jobs:
             "$tagged_release/BrowserLogin-${release_version}-windows-x64-Setup.zip"
           cp release/production-linux-x64-BrowserLogin-Setup.tar.gz \
             "$tagged_release/BrowserLogin-${release_version}-linux-x64-Setup.tar.gz"
+          cp "release/BrowserLogin-${release_version}-linux-x64.AppImage" \
+            "$tagged_release/BrowserLogin-${release_version}-linux-x64.AppImage"
 
           cp release/browserlogin-macos-arm64 \
             "$tagged_release/browserlogin-${release_version}-macos-arm64"
@@ -519,6 +563,7 @@ jobs:
             BrowserLogin-${release_version}-macos-arm64.dmg
             BrowserLogin-${release_version}-windows-x64-Setup.zip
             BrowserLogin-${release_version}-linux-x64-Setup.tar.gz
+            BrowserLogin-${release_version}-linux-x64.AppImage
             browserlogin-${release_version}-macos-arm64
             browserlogin-${release_version}-windows-x64.exe
             browserlogin-${release_version}-linux-x64
