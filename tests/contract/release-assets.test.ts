@@ -83,7 +83,7 @@ describe("release asset contract", () => {
       "allowed_large.fullmatch(name)",
     );
     expect(workflowStep("Validate and stage Windows artifacts")).toContain(
-      '$allowedLarge = @("browserlogin-browser-tools-windows-x64.exe")',
+      '$allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")',
     );
   });
 });
