@@ -6,10 +6,7 @@ import {
   type ProfileAction,
 } from "./profile-table.js";
 import { ForceStopConfirmation } from "./force-stop-confirmation.js";
-import {
-  LaunchProgressView,
-  useLaunchProgress,
-} from "./launch-progress.js";
+import DashboardView from "../launch/dashboard-view.js";
 
 type ProfileForm = {
   name: string;
@@ -58,12 +55,9 @@ export default function ProfilesView() {
   const [forceStopTargetId, setForceStopTargetId] = useState<string | null>(null);
   const [forceStopText, setForceStopText] = useState("");
   const [conflict, setConflict] = useState(false);
-  const [launchStatus, setLaunchStatus] = useState("Ready");
-  const launchProgress = useLaunchProgress();
   const [pendingActions, setPendingActions] = useState<
     Record<string, ProfileAction>
   >({});
-  const [initializationRequired, setInitializationRequired] = useState(false);
   const protectedArg = form.args.find((value) =>
     /^--(?:fingerprint|user-data-dir|remote-debugging)/.test(value),
   );
@@ -127,41 +121,18 @@ export default function ProfilesView() {
       ...current,
       ...Object.fromEntries(ids.map((id) => [id, "launch" as const])),
     }));
-    setInitializationRequired(false);
-    launchProgress.begin();
     try {
-      setLaunchStatus("Checking binary…");
       const binary = await bridge.request("binaryStatus", {});
-      if (!binary.ok) {
-        setLaunchStatus(binary.error.message);
-        return;
-      }
-      if (binary.value === null) {
-        setInitializationRequired(true);
-        setLaunchStatus(
-          "CloakBrowser is not installed. Initialize it from Settings first.",
-        );
-        return;
-      }
-      launchProgress.advance("starting-session");
+      if (!binary.ok || binary.value === null) return;
       for (const profileId of ids) {
         const result = await bridge.request("sessionsStart", { profileId });
-        if (!result.ok) {
-          setLaunchStatus(result.error.message);
-          return;
-        }
+        if (!result.ok) return;
       }
-      launchProgress.advance("ui-cache-refresh");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["profiles"] }),
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
       ]);
-      launchProgress.finish();
-      setLaunchStatus(
-        `${ids.length} session${ids.length === 1 ? "" : "s"} started`,
-      );
     } finally {
-      launchProgress.finish();
       setPendingActions((current) => {
         const next = { ...current };
         for (const id of ids) delete next[id];
@@ -173,9 +144,6 @@ export default function ProfilesView() {
     setPendingActions((current) => ({ ...current, [profileId]: "stop" }));
     try {
       const result = await bridge.request("sessionsStop", { profileId });
-      setLaunchStatus(
-        result.ok ? "Profile stopped and archived" : result.error.message,
-      );
       if (result.ok)
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: ["profiles"] }),
@@ -201,9 +169,6 @@ export default function ProfilesView() {
         profileId,
         confirmation: forceStopText,
       });
-      setLaunchStatus(
-        result.ok ? "Profile force stopped" : result.error.message,
-      );
       if (result.ok) {
         setForceStopTargetId(null);
         setForceStopText("");
@@ -260,7 +225,7 @@ export default function ProfilesView() {
         setDeleteTargetId(null);
         setDeleteText("");
         await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-      } else setLaunchStatus(result.error.message);
+      }
     } finally {
       setPendingActions((current) => {
         const next = { ...current };
@@ -276,7 +241,6 @@ export default function ProfilesView() {
     }));
     try {
       const result = await bridge.request("profilesRestore", { profileId });
-      setLaunchStatus(result.ok ? "Profile restored" : result.error.message);
       if (result.ok)
         await queryClient.invalidateQueries({ queryKey: ["profiles"] });
     } finally {
@@ -295,16 +259,9 @@ export default function ProfilesView() {
       [profileId]: "rotate",
     }));
     try {
-      const result = await bridge.request("proxiesChangeIp", {
+      await bridge.request("proxiesChangeIp", {
         proxyId: profile.proxy.id,
       });
-      if (!result.ok) setLaunchStatus(result.error.message);
-      else if (result.value.ip_verified && result.value.ip)
-        setLaunchStatus(`Proxy IP rotated to ${result.value.ip}`);
-      else
-        setLaunchStatus(
-          "Proxy rotation acknowledged; new IP could not be verified",
-        );
       await queryClient.invalidateQueries({ queryKey: ["profiles"] });
       await queryClient.invalidateQueries({ queryKey: ["proxies"] });
     } finally {
@@ -320,7 +277,7 @@ export default function ProfilesView() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Workspace</p>
-          <h2 className="text-3xl font-semibold">Profiles</h2>
+          <h2 className="text-3xl font-semibold">Dashboard</h2>
           <p className="mt-2 text-zinc-500">
             Create and launch isolated browser identities.
           </p>
@@ -376,26 +333,8 @@ export default function ProfilesView() {
           setDeleteText("");
         }}
       />
-      <div
-        className={initializationRequired ? "runtime-warning" : "panel mt-4"}
-      >
-        <h3 className="font-medium">Profile activity</h3>
-        <p
-          className={
-            initializationRequired
-              ? "mt-2 text-sm"
-              : "mt-2 text-sm text-zinc-500"
-          }
-          role="status"
-        >
-          {launchStatus}
-        </p>
-        <LaunchProgressView progress={launchProgress.progress} />
-        {initializationRequired ? (
-          <a className="table-action mt-2 inline-block" href="/settings">
-            Open Settings to initialize CloakBrowser
-          </a>
-        ) : null}
+      <div className="mt-8">
+        <DashboardView title="Sessions" />
       </div>
       {forceStopTarget ? (
         <ForceStopConfirmation

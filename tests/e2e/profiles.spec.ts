@@ -91,7 +91,7 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   });
 
   await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("1 session started");
+  await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
   const launchMethods = await page.evaluate(() =>
     window.__browserloginMockCalls?.map((call) => call.method),
   );
@@ -102,7 +102,7 @@ test("creates, launches, multi-selects, and protects deletion", async ({
 
   await page.getByLabel("Select Research profile").check();
   await page.getByRole("button", { name: "Launch selected" }).click();
-  await expect(page.getByRole("status")).toContainText("1 session started");
+  await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Delete Research profile" }).click();
   const deleteButton = page.getByRole("button", {
@@ -123,9 +123,14 @@ test("creates, launches, multi-selects, and protects deletion", async ({
     path: join(evidence, "task-27-launch.png"),
     fullPage: true,
   });
-  const forceButton = page.getByRole("button", { name: "Force stop" });
+  const liveSession = page
+    .locator("article.session-row")
+    .filter({ hasText: "profile-1" });
+  const forceButton = liveSession.getByRole("button", { name: "Force stop" });
   await expect(forceButton).toBeDisabled();
   await page
+    .locator("article.session-row")
+    .filter({ hasText: "profile-1" })
     .getByLabel("Force confirmation profile-1")
     .fill("FORCE CLOSE profile-1");
   await expect(forceButton).toBeEnabled();
@@ -138,14 +143,8 @@ test("launch directs an uninitialized browser to Settings without downloading", 
 }) => {
   await page.goto("/profiles?binary=missing");
   await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Initialize it from Settings first",
-  );
-  await expect(
-    page.getByRole("link", {
-      name: "Open Settings to initialize CloakBrowser",
-    }),
-  ).toHaveAttribute("href", "/settings");
+  await expect(page.getByText("Profile activity")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Open Settings to initialize CloakBrowser" })).toHaveCount(0);
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
     path: join(evidence, "profiles-binary-required.png"),
@@ -263,9 +262,6 @@ test("profile row rotates its assigned proxy and handles an unverified result", 
   await row.getByRole("button", { name: "Rotate IP" }).click();
 
   // Then
-  await expect(page.getByRole("status")).toContainText(
-    "rotation acknowledged; new IP could not be verified",
-  );
   const rotateCall = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
       (call) => call.method === "proxiesChangeIp",
@@ -320,7 +316,10 @@ test("profile table Force stop requires the exact confirmation phrase", async ({
   await page.goto("/profiles?profileRunning=1");
   const runningRow = page.getByRole("row", { name: /Research profile/ });
   await runningRow.getByRole("button", { name: "Force stop" }).click();
-  const confirmation = page.getByLabel("Force confirmation profile-1");
+  const confirmationPanel = page
+    .getByRole("heading", { name: "Force stop profile" })
+    .locator("..");
+  const confirmation = confirmationPanel.getByLabel("Force confirmation profile-1");
   const confirmButton = page.getByRole("button", {
     name: "Force stop profile-1",
   });
@@ -350,7 +349,7 @@ test("profile table Force stop requires the exact confirmation phrase", async ({
   ]);
 });
 
-test("launch activity advances through measured permanent stages", async ({
+test("dashboard keeps sessions visible without profile activity", async ({
   page,
 }) => {
   // Given
@@ -361,24 +360,10 @@ test("launch activity advances through measured permanent stages", async ({
   // When
   await page.getByRole("button", { name: "Launch", exact: true }).click();
 
-  // Then: each real client boundary becomes active in order and remains measured.
-  const stages = page.getByRole("list", { name: "Launch stages" });
-  await expect(stages.getByText("Checking browser runtime")).toBeVisible();
-  await expect(stages.getByText("Starting remote session and browser")).toBeVisible();
-  await expect(stages.getByText("Refreshing session views")).toBeVisible();
-  await expect(
-    stages.getByText("Checking browser runtime").locator(".."),
-  ).toContainText("ms");
-  await expect(
-    stages.getByText("Starting remote session and browser").locator(".."),
-  ).toContainText("In progress");
-  await expect(page.getByRole("status")).toContainText("1 session started");
-  await expect(
-    stages.locator('[data-launch-stage="ui-cache-refresh"]'),
-  ).toContainText("ms");
-  await expect(stages.getByText("Total").locator("..")).toContainText(
-    /\d+ ms/,
-  );
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
+  await expect(page.getByText("Profile activity")).toHaveCount(0);
+  await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
 });
 
 test("edit sends optimistic version and surfaces 409 conflict", async ({

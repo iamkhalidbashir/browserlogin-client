@@ -44,14 +44,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   });
 
   await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Initialize it from Settings first",
-  );
-  await expect(
-    page.getByRole("link", {
-      name: "Open Settings to initialize CloakBrowser",
-    }),
-  ).toBeVisible();
+  await expect(page.getByText("Profile activity")).toHaveCount(0);
   await page.screenshot({
     path: join(evidence, "03-launch-requires-init.png"),
     fullPage: true,
@@ -71,7 +64,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
 
   await page.goto("/profiles");
   await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("1 session started");
+  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
   const methods = await page.evaluate(
     () => window.__browserloginMockCalls?.map((call) => call.method) ?? [],
   );
