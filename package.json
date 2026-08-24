@@ -1,6 +1,6 @@
 {
   "name": "browserlogin-client",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "description": "BrowserLogin GUI and MCP lifecycle client for CloakBrowser sessions",
   "type": "module",
   "private": false,
