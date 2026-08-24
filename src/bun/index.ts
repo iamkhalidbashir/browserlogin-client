@@ -162,6 +162,7 @@ export async function startMainProcess(
     window,
     stop: async () => {
       stopUpdates();
+      await core.application.close();
       instance.release();
       await rm(join(statePaths(root).ready, "main-process.json"), {
         force: true,

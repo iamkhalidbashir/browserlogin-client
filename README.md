@@ -135,6 +135,7 @@ Default state roots:
 | `BROWSERLOGIN_API_BASE_URL`                | Legacy exact REST root (`${origin}/api/v1`) converted to the origin.  |
 | `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                           |
 | `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Expose RCE-equivalent `browser_run_code_unsafe`.                      |
+| `BROWSERLOGIN_LAUNCH_TIMING=1`             | Emit development launch-stage durations to stderr without identifiers, URLs, or credentials. |
 
 See [the architecture guide](docs/architecture.md) for the complete security and process model.
 

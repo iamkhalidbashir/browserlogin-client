@@ -5,6 +5,11 @@ import {
   ProfileTable,
   type ProfileAction,
 } from "./profile-table.js";
+import { ForceStopConfirmation } from "./force-stop-confirmation.js";
+import {
+  LaunchProgressView,
+  useLaunchProgress,
+} from "./launch-progress.js";
 
 type ProfileForm = {
   name: string;
@@ -50,8 +55,11 @@ export default function ProfilesView() {
   const [selected, setSelected] = useState<string[]>([]);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteText, setDeleteText] = useState("");
+  const [forceStopTargetId, setForceStopTargetId] = useState<string | null>(null);
+  const [forceStopText, setForceStopText] = useState("");
   const [conflict, setConflict] = useState(false);
   const [launchStatus, setLaunchStatus] = useState("Ready");
+  const launchProgress = useLaunchProgress();
   const [pendingActions, setPendingActions] = useState<
     Record<string, ProfileAction>
   >({});
@@ -61,6 +69,7 @@ export default function ProfilesView() {
   );
   const profiles = useQuery({
     queryKey: ["profiles"],
+    refetchInterval: 2_000,
     queryFn: async () => {
       const result = await bridge.request("profilesList", {});
       if (!result.ok) throw new Error(result.error.message);
@@ -77,6 +86,9 @@ export default function ProfilesView() {
   });
   const deleteTarget = profiles.data?.find(
     (profile) => profile.id === deleteTargetId,
+  );
+  const forceStopTarget = profiles.data?.find(
+    (profile) => profile.id === forceStopTargetId,
   );
   const visible = useMemo(
     () =>
@@ -116,6 +128,7 @@ export default function ProfilesView() {
       ...Object.fromEntries(ids.map((id) => [id, "launch" as const])),
     }));
     setInitializationRequired(false);
+    launchProgress.begin();
     try {
       setLaunchStatus("Checking binary…");
       const binary = await bridge.request("binaryStatus", {});
@@ -130,6 +143,7 @@ export default function ProfilesView() {
         );
         return;
       }
+      launchProgress.advance("starting-session");
       for (const profileId of ids) {
         const result = await bridge.request("sessionsStart", { profileId });
         if (!result.ok) {
@@ -137,11 +151,17 @@ export default function ProfilesView() {
           return;
         }
       }
-      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      launchProgress.advance("ui-cache-refresh");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ]);
+      launchProgress.finish();
       setLaunchStatus(
         `${ids.length} session${ids.length === 1 ? "" : "s"} started`,
       );
     } finally {
+      launchProgress.finish();
       setPendingActions((current) => {
         const next = { ...current };
         for (const id of ids) delete next[id];
@@ -161,6 +181,37 @@ export default function ProfilesView() {
           queryClient.invalidateQueries({ queryKey: ["profiles"] }),
           queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         ]);
+    } finally {
+      setPendingActions((current) => {
+        const next = { ...current };
+        delete next[profileId];
+        return next;
+      });
+    }
+  };
+  const forceStopProfile = async () => {
+    if (!forceStopTarget) return;
+    const profileId = forceStopTarget.id;
+    setPendingActions((current) => ({
+      ...current,
+      [profileId]: "force-stop",
+    }));
+    try {
+      const result = await bridge.request("sessionsForceStop", {
+        profileId,
+        confirmation: forceStopText,
+      });
+      setLaunchStatus(
+        result.ok ? "Profile force stopped" : result.error.message,
+      );
+      if (result.ok) {
+        setForceStopTargetId(null);
+        setForceStopText("");
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+          queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        ]);
+      }
     } finally {
       setPendingActions((current) => {
         const next = { ...current };
@@ -313,6 +364,10 @@ export default function ProfilesView() {
         }
         onLaunch={(profileId) => void launch([profileId])}
         onStop={(profileId) => void stopProfile(profileId)}
+        onForceStop={(profileId) => {
+          setForceStopTargetId(profileId);
+          setForceStopText("");
+        }}
         onEdit={editProfile}
         onRestore={(profileId) => void restoreProfile(profileId)}
         onRotate={(profileId) => void rotateProfileProxy(profileId)}
@@ -335,12 +390,22 @@ export default function ProfilesView() {
         >
           {launchStatus}
         </p>
+        <LaunchProgressView progress={launchProgress.progress} />
         {initializationRequired ? (
           <a className="table-action mt-2 inline-block" href="/settings">
             Open Settings to initialize CloakBrowser
           </a>
         ) : null}
       </div>
+      {forceStopTarget ? (
+        <ForceStopConfirmation
+          profileId={forceStopTarget.id}
+          confirmation={forceStopText}
+          pending={pendingActions[forceStopTarget.id] === "force-stop"}
+          onConfirmationChange={setForceStopText}
+          onConfirm={() => void forceStopProfile()}
+        />
+      ) : null}
       {deleteTarget ? (
         <div className="panel mt-4">
           <h3 className="font-medium">Delete profile</h3>

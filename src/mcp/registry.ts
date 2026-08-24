@@ -10,10 +10,11 @@ import type {
 import type { JsonObject, RemoteTool } from "../core/mcp-proxy/types.js";
 import { mergeRemoteTools } from "../core/mcp-proxy/forward.js";
 import { BrowserInitializationRequiredError } from "../core/binary/index.js";
+import { BrowserLicenseRequiredError } from "../core/app/binary.js";
+import { ApplicationOperationError } from "../core/app/contracts.js";
 import {
   BROWSER_INIT_STATUS_TOOL,
   BROWSER_INIT_TOOL,
-  BrowserLicenseRequiredError,
   type BrowserInitializationOperations,
   type BrowserInitializationSource,
 } from "./binary-initialization.js";
@@ -237,6 +238,12 @@ export async function createRegistry(
         if (error instanceof BrowserInitializationRequiredError)
           return textResult(error.message, true);
         if (error instanceof BrowserLicenseRequiredError)
+          return textResult(error.message, true);
+        if (
+          error instanceof ApplicationOperationError &&
+          (error.code === "BROWSER_INIT_REQUIRED" ||
+            error.code === "BROWSER_LICENSE_REQUIRED")
+        )
           return textResult(error.message, true);
         return textResult(
           START_TOOL_NAMES.has(name) || STOP_TOOL_NAMES.has(name)

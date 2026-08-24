@@ -1,6 +1,12 @@
 import type { BridgeResult } from "../../rpc-client.js";
 
-export type ProfileAction = "launch" | "stop" | "restore" | "rotate" | "delete";
+export type ProfileAction =
+  | "launch"
+  | "stop"
+  | "force-stop"
+  | "restore"
+  | "rotate"
+  | "delete";
 type Profile = BridgeResult<"profilesList">[number];
 
 type ProfileTableProps = {
@@ -10,6 +16,7 @@ type ProfileTableProps = {
   readonly onSelectionChange: (profileId: string, selected: boolean) => void;
   readonly onLaunch: (profileId: string) => void;
   readonly onStop: (profileId: string) => void;
+  readonly onForceStop: (profileId: string) => void;
   readonly onEdit: (profileId: string) => void;
   readonly onRestore: (profileId: string) => void;
   readonly onRotate: (profileId: string) => void;
@@ -23,6 +30,7 @@ export function ProfileTable({
   onSelectionChange,
   onLaunch,
   onStop,
+  onForceStop,
   onEdit,
   onRestore,
   onRotate,
@@ -69,15 +77,24 @@ export function ProfileTable({
                 <td>
                   <div className="flex flex-wrap gap-2">
                     {profile.cloud.current_session_id ? (
-                      <button
-                        className="table-action"
-                        disabled={rowPending}
-                        onClick={() => onStop(profile.id)}
-                      >
-                        {pendingAction === "stop"
-                          ? "Stopping…"
-                          : "Stop and archive"}
-                      </button>
+                      <>
+                        <button
+                          className="table-action"
+                          disabled={rowPending}
+                          onClick={() => onStop(profile.id)}
+                        >
+                          {pendingAction === "stop" ? "Stopping…" : "Stop"}
+                        </button>
+                        <button
+                          className="table-action table-action-danger"
+                          disabled={rowPending}
+                          onClick={() => onForceStop(profile.id)}
+                        >
+                          {pendingAction === "force-stop"
+                            ? "Force stopping…"
+                            : "Force stop"}
+                        </button>
+                      </>
                     ) : (
                       <button
                         className="table-action"

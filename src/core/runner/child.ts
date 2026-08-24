@@ -14,6 +14,7 @@ import { routeProxy } from "../proxy/routing.js";
 import { Socks5Relay } from "../proxy/socks-relay.js";
 import { startCdpRelay, type CdpRelay } from "../cdp/relay.js";
 import { BumblebeeWorker } from "../bumblebee/worker.js";
+import { createLaunchTiming } from "../launch-timing.js";
 import type {
   BrowserContextLike,
   CloakBrowserSdk,
@@ -47,6 +48,7 @@ const browserConnected = (context: BrowserContextLike): boolean => {
 export async function runRunnerChild(
   options: RunnerChildOptions,
 ): Promise<RunnerChildOutcome> {
+  const timing = options.timing ?? createLaunchTiming({ env: process.env });
   try {
     await waitForAuthorization(options.paths.gateFile, options.gateTimeoutMs);
   } catch (error) {
@@ -89,9 +91,12 @@ export async function runRunnerChild(
       });
       if (route.mode === "relay" && route.upstream) {
         relay = await new Socks5Relay(route.upstream, {
-          onDiagnostic: (phase) =>
-            process.stderr.write(`[socks-relay] phase=${phase}\n`),
+          onDiagnostic: (phase, detail) =>
+            process.stderr.write(
+              `[socks-relay] phase=${phase}${detail ? ` detail=${detail}` : ""}\n`,
+            ),
         }).start();
+        timing.mark("socks-relay-ready");
         proxy = relay.proxyUrl;
       } else proxy = route.launchProxy;
     }
@@ -108,6 +113,7 @@ export async function runRunnerChild(
       userAgent: spec.user_agent ?? undefined,
       viewport: spec.viewport,
     });
+    timing.mark("cloakbrowser-context-launch");
     const onClose = () => {
       void stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
     };
@@ -125,11 +131,13 @@ export async function runRunnerChild(
       viewport: spec.viewport ?? undefined,
     });
     cdpRelay = await startCdpRelay({ upstreamUrl, worker });
-    if (!stopped)
+    if (!stopped) {
       await publishReady(options.paths.readyFile, {
         version: 1,
         relayCdpUrl: cdpRelay.url,
       });
+      timing.mark("cdp-readiness");
+    }
     if (pagesAtReady === 0) await stop(RUNNER_CHILD_OUTCOME.BROWSER_CLOSED);
     let hadPage = pagesAtReady > 0;
     let cdpFailures = 0;

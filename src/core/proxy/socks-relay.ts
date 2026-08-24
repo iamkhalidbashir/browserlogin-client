@@ -14,8 +14,11 @@ export type Socks5Upstream = {
 };
 
 export class SocksRelayError extends Error {
-  constructor(message = "SOCKS relay request failed") {
+  readonly diagnostic?: string;
+
+  constructor(message = "SOCKS relay request failed", diagnostic?: string) {
     super(message);
+    this.diagnostic = diagnostic;
     this.name = "SocksRelayError";
   }
 }
@@ -25,7 +28,7 @@ type RelayOptions = {
   connectTimeout?: number;
   idleTimeout?: number;
   maxConnections?: number;
-  onDiagnostic?: (phase: SocksRelayPhase) => void;
+  onDiagnostic?: (phase: SocksRelayPhase, detail?: string) => void;
 };
 
 export type SocksRelayPhase =
@@ -68,16 +71,21 @@ async function readExact(
       };
       const onEnd = () => {
         cleanup();
-        reject(new SocksRelayError(INVALID));
+        reject(new SocksRelayError(INVALID, received ? `early-disconnect bytes=${received}` : "no-bytes"));
       };
       const onError = () => {
         cleanup();
-        reject(new SocksRelayError(INVALID));
+        reject(
+          new SocksRelayError(
+            INVALID,
+            received ? `early-disconnect bytes=${received}` : "no-bytes",
+          ),
+        );
       };
       const timer = setTimeout(
         () => {
           cleanup();
-          reject(new SocksRelayError(INVALID));
+          reject(new SocksRelayError(INVALID, `timeout bytes=${received}`));
         },
         Math.max(1, deadline - Date.now()),
       );
@@ -244,11 +252,12 @@ export class Socks5Relay {
     let protocolReady = false;
     let phase: SocksRelayPhase = "client-greeting";
     try {
-      client.setTimeout(this.options.handshakeTimeout, () => client.destroy());
       const greeting = await readExact(client, 2, deadline);
-      if (greeting[0] !== 5) throw new SocksRelayError(INVALID);
+      if (greeting[0] !== 5)
+        throw new SocksRelayError(INVALID, `version=${greeting[0]}`);
       const methods = await readExact(client, greeting[1], deadline);
       if (!methods.includes(0)) {
+        this.options.onDiagnostic?.(phase, `methods=${methods.toString("hex")}`);
         client.end(Buffer.from([5, 255]));
         return;
       }
@@ -310,8 +319,11 @@ export class Socks5Relay {
       });
       phase = "tunnel";
       await this.tunnel(client, upstream);
-    } catch {
-      this.options.onDiagnostic?.(phase);
+    } catch (error) {
+      this.options.onDiagnostic?.(
+        phase,
+        error instanceof SocksRelayError ? error.diagnostic : undefined,
+      );
       if (protocolReady) await sendFailure(client);
     } finally {
       if (upstream) this.sockets.delete(upstream);

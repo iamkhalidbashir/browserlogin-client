@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { resolveStateRoot } from "../core/config/paths.js";
-import type { AppServices } from "../bun/rpc.js";
+import type { ApplicationServices } from "../core/app/contracts.js";
 
 export type CliIO = {
   stdout(value: string): void;
@@ -14,7 +14,7 @@ export type CliIO = {
 };
 
 export type CliOptions = {
-  services?: AppServices;
+  services?: ApplicationServices;
   root?: string;
   io?: CliIO;
   executable?: string;
@@ -100,8 +100,8 @@ function profileRows(value: unknown): Array<Record<string, unknown>> {
 }
 
 async function service(
-  services: AppServices,
-  name: keyof AppServices,
+  services: ApplicationServices,
+  name: keyof ApplicationServices,
   params: unknown,
 ): Promise<unknown> {
   const operation = services[name];
@@ -112,7 +112,7 @@ async function service(
   return operation(params);
 }
 
-async function loadFixtureServices(): Promise<AppServices | undefined> {
+async function loadFixtureServices(): Promise<ApplicationServices | undefined> {
   if (process.env.BROWSERLOGIN_TEST_MODE !== "1") return undefined;
   const path = process.env.BROWSERLOGIN_CLI_FIXTURE;
   if (!path) return undefined;
@@ -126,33 +126,35 @@ async function loadFixtureServices(): Promise<AppServices | undefined> {
       get: (_target, name) =>
         name === "then" ? undefined : async () => fixture[String(name)],
     },
-  ) as AppServices;
+  ) as ApplicationServices;
 }
 
-async function createServices(root: string): Promise<AppServices> {
+async function createServices(root: string): Promise<ApplicationServices> {
   const fixture = await loadFixtureServices();
   if (fixture) return fixture;
-  const [connectionModule, keychainModule, servicesModule, updaterModule] =
+  const [connectionModule, keychainModule, appModule, updaterModule] =
     await Promise.all([
       import("../core/config/connection.js"),
       import("../core/keychain/index.js"),
-      import("../bun/services.js"),
+      import("../core/app/runtime.js"),
       import("../bun/updater.js"),
     ]);
   const { ConnectionStore } = connectionModule;
   const { createKeychainBackend } = keychainModule;
-  const { createCoreAppRuntime } = servicesModule;
+  const { createApplicationRuntime } = appModule;
   const { UpdateController } = updaterModule;
   const keychain = createKeychainBackend();
   const connection = new ConnectionStore(root, keychain);
-  return createCoreAppRuntime({
+  const runtime = createApplicationRuntime({
     root,
     keychain,
     connection,
-    updateController: new UpdateController(),
-    emitProgress: () => undefined,
-    installCli: async () => installCli(process.execPath),
-  }).services;
+  });
+  const updateController = new UpdateController();
+  return {
+    ...runtime.services,
+    updatesCheck: async () => updateController.checkForUpdate(),
+  };
 }
 
 async function installCli(executable: string): Promise<{

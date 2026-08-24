@@ -30,10 +30,7 @@ import {
   ConflictError,
   PreconditionError,
 } from "../../shared/errors.js";
-import {
-  DEFAULT_APP_ORIGIN,
-  deriveRestBaseUrl,
-} from "../config/connection.js";
+import { DEFAULT_APP_ORIGIN, deriveRestBaseUrl } from "../config/connection.js";
 
 const JSON_BODY_CAP = 256 * 1024;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
@@ -92,7 +89,7 @@ export interface UploadGrant {
 export interface ProfileCreateInput {
   name: string;
   seed?: number;
-  proxy_id?: string;
+  proxy_id?: string | null;
   platform?: string;
   geoip?: boolean;
   humanize?: boolean;
@@ -106,7 +103,8 @@ export interface ProfileCreateInput {
   args?: string[];
 }
 
-export type ProfileUpdateInput = ProfileCreateInput & {
+export type ProfileUpdateInput = Omit<ProfileCreateInput, "name"> & {
+  name?: string;
   expected_config_version: number;
 };
 export interface ProxyInput {
@@ -745,9 +743,7 @@ export class BrowserLoginClient {
       "delete proxy",
     );
   }
-  async changeProxyIp(
-    proxyId: string,
-  ): Promise<{
+  async changeProxyIp(proxyId: string): Promise<{
     id: string;
     ip: string | null;
     ip_verified: boolean;

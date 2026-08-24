@@ -1,5 +1,6 @@
 import {
   copyFile,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -10,6 +11,8 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ConflictError } from "../../src/shared/errors.js";
+import { SafeZipArchive } from "../../src/core/archive/index.js";
+import type { LaunchTiming } from "../../src/core/launch-timing.js";
 import {
   LifecycleCoordinator,
   type CoordinatorApi,
@@ -59,6 +62,15 @@ const launchSpec = {
   proxy: null,
 };
 
+class RestoreArchive extends SafeZipArchive {
+  override async extractAtomic(
+    _archive: string,
+    destination: string,
+  ): Promise<void> {
+    await mkdir(destination, { recursive: true, mode: 0o700 });
+  }
+}
+
 let roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -75,6 +87,7 @@ async function setup(
     crashPoint?: CrashPoint;
     mutateAfterUploadPending?: boolean;
     stopGeneration?: number;
+    archiveOnStart?: boolean;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "browserlogin-coordinator-"));
@@ -104,11 +117,23 @@ async function setup(
           state: "active",
         },
         profile,
-        archive: null,
+        archive: options.archiveOnStart
+          ? {
+              profile_id: profileId,
+              generation: 1,
+              size: 4,
+              sha256: SHA,
+              format: "zip",
+            }
+          : null,
       } as never;
     },
-    async downloadArchive() {
-      throw new Error("archive download should not be used in this fixture");
+    async downloadArchive(_identity, destination) {
+      if (!options.archiveOnStart)
+        throw new Error("archive download should not be used in this fixture");
+      await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+      await writeFile(destination, "data");
+      return destination;
     },
     async requestUploadUrl() {
       return {
@@ -197,6 +222,7 @@ async function setup(
         closed: new Promise(() => undefined),
       };
     },
+    ...(options.archiveOnStart ? { archive: new RestoreArchive() } : {}),
     adoptArchive: async (_profileId, artifact, generation) => {
       adoptedArchive = join(root, `adopted-${generation}.zip`);
       await copyFile(artifact, adoptedArchive);
@@ -233,6 +259,39 @@ async function setup(
 }
 
 describe("Task 18 recovery state", () => {
+  it("records ordered coordinator stages when an archive is restored", async () => {
+    // Given
+    const stages: string[] = [];
+    const timing: LaunchTiming = { mark: (stage) => stages.push(stage) };
+    const { coordinator } = await setup({ archiveOnStart: true });
+
+    // When
+    await coordinator.start("profile-1", timing);
+
+    // Then
+    expect(stages).toEqual([
+      "profile-binary-preparation",
+      "remote-session-start",
+      "archive-download-restore",
+    ]);
+  });
+
+  it("omits archive timing when the remote session has no archive", async () => {
+    // Given
+    const stages: string[] = [];
+    const timing: LaunchTiming = { mark: (stage) => stages.push(stage) };
+    const { coordinator } = await setup();
+
+    // When
+    await coordinator.start("profile-1", timing);
+
+    // Then
+    expect(stages).toEqual([
+      "profile-binary-preparation",
+      "remote-session-start",
+    ]);
+  });
+
   it("uses the hashed per-profile path, validates every load, and rejects secrets", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-state-"));
     roots.push(root);

@@ -1,4 +1,8 @@
 import { z } from "zod";
+import type {
+  ApplicationService,
+  ApplicationServices,
+} from "../core/app/contracts.js";
 import {
   AppRPCSchemas,
   type AppRPC,
@@ -6,8 +10,8 @@ import {
   type RpcReply,
 } from "../shared/rpc-schema.js";
 
-export type AppService = (params: unknown) => unknown | Promise<unknown>;
-export type AppServices = Partial<Record<AppRPCMethod, AppService>>;
+export type AppService = ApplicationService;
+export type AppServices = ApplicationServices;
 
 export type BinaryProgress = {
   downloaded: number;
@@ -80,9 +84,7 @@ function makeHandler(
   };
 }
 
-export function createRPCHandlers(
-  options: RpcHandlerOptions,
-): AppRPCHandlers {
+export function createRPCHandlers(options: RpcHandlerOptions): AppRPCHandlers {
   return Object.fromEntries(
     (Object.keys(AppRPCSchemas) as AppRPCMethod[]).map((name) => [
       name,

@@ -50,3 +50,9 @@ Unsigned check/download works, but reliable unsigned apply was not proven on eve
 ## Diagnostics
 
 Logs are bounded/redacted. MCP stdout remains protocol-only. Renderer schemas strip proxy passwords and expose credential presence rather than values.
+
+`BROWSERLOGIN_LAUNCH_TIMING=1` enables monotonic development diagnostics at confirmed backend launch boundaries: `remote-session-start`, optional `archive-download-restore`, `runner-spawn`, optional `socks-relay-ready`, `cloakbrowser-context-launch`, and `cdp-readiness`. The permanent launch UI separately measures `ui-cache-refresh`. Diagnostic records contain only allowlisted stage names and millisecond durations; profile identifiers, proxy credentials, launch-file contents, license data, URLs, and error payloads are excluded.
+
+## Blocked realtime subscriptions
+
+Convex-backed reactive tables remain blocked until the server supplies a deployment URL, generated query identifiers, authentication/token exchange, authorized table or event schemas, and reconnect semantics. The client intentionally has no speculative Convex dependency, configuration, or subscription code; REST and the existing application cache remain authoritative until that contract exists.

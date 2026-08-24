@@ -114,6 +114,7 @@ describe("runner authenticated SOCKS5 relay", () => {
     await writeFile(paths.gateFile, "authorized\n");
     const cdp = await listenCdp(root);
     let launchProxy: string | undefined;
+    const timingStages: string[] = [];
     try {
       // When: the runner launches CloakBrowser and publishes ready.
       const running = runRunnerChild({
@@ -128,6 +129,9 @@ describe("runner authenticated SOCKS5 relay", () => {
             return context();
           },
         },
+        timing: {
+          mark: (stage) => timingStages.push(stage),
+        },
         pollMs: 5,
       });
       for (
@@ -141,6 +145,11 @@ describe("runner authenticated SOCKS5 relay", () => {
       // Then: ready is observable only while that same local relay is listening.
       expect(await readFile(paths.readyFile, "utf8")).toContain('"version":1');
       if (!launchProxy) throw new Error("runner did not launch the browser");
+      expect(timingStages).toEqual([
+        "socks-relay-ready",
+        "cloakbrowser-context-launch",
+        "cdp-readiness",
+      ]);
       await connectToLoopbackProxy(launchProxy);
       await writeFile(paths.controlFile, "stop\n");
       await expect(running).resolves.toBe(RUNNER_CHILD_OUTCOME.CONTROL_STOP);

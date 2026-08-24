@@ -251,7 +251,18 @@ export function createMockBridge(
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
-  let liveSessions: Array<Record<string, unknown>> = [];
+  let liveSessions: Array<Record<string, unknown>> =
+    initialSearch.get("profileRunning") === "1"
+      ? [
+          {
+            profile_id: profile.id,
+            status: "running",
+            started_at: new Date().toISOString(),
+            generation: 1,
+            archive_generation: 4,
+          },
+        ]
+      : [];
   let hasLicense = false;
   const downloadDelayMs = (() => {
     if (typeof window === "undefined") return 0;
@@ -346,6 +357,14 @@ export function createMockBridge(
       ) {
         return { ok: true, value: null as BridgeResult<K> };
       }
+      if (method === "binaryStatus") {
+        const delay = Number.parseInt(
+          initialSearch.get("binaryStatusDelayMs") ?? "0",
+          10,
+        );
+        if (Number.isFinite(delay) && delay > 0)
+          await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 2_000)));
+      }
       if (method === "binaryDownload" && downloadDelayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, downloadDelayMs));
       }
@@ -402,13 +421,30 @@ export function createMockBridge(
       }
       if (method === "profilesList" && multi && !overrides.profilesList) {
         const value = AppRPCSchemas.profilesList.result.parse([
-          profile,
+          {
+            ...profile,
+            cloud: {
+              ...profile.cloud,
+              current_session_id: liveSessions.some(
+                (session) => session.profile_id === profile.id,
+              )
+                ? `session-${profile.id}`
+                : null,
+            },
+          },
           {
             ...profile,
             id: "profile-2",
             name: "Secondary profile",
             platform: "linux",
-            cloud: { archive_generation: 1, current_session_id: null },
+            cloud: {
+              archive_generation: 1,
+              current_session_id: liveSessions.some(
+                (session) => session.profile_id === "profile-2",
+              )
+                ? "session-profile-2"
+                : null,
+            },
           },
         ]) as BridgeResult<K>;
         return { ok: true, value };
@@ -417,11 +453,37 @@ export function createMockBridge(
         const assigned = {
           ...profile,
           proxy: (values.proxiesList as Array<Record<string, unknown>>)[0],
+          cloud: {
+            ...profile.cloud,
+            current_session_id: liveSessions.some(
+              (session) => session.profile_id === profile.id,
+            )
+              ? `session-${profile.id}`
+              : null,
+          },
         };
         return {
           ok: true,
           value: AppRPCSchemas.profilesList.result.parse([
             assigned,
+          ]) as BridgeResult<K>,
+        };
+      }
+      if (method === "profilesList" && !overrides.profilesList) {
+        return {
+          ok: true,
+          value: AppRPCSchemas.profilesList.result.parse([
+            {
+              ...profile,
+              cloud: {
+                ...profile.cloud,
+                current_session_id: liveSessions.some(
+                  (session) => session.profile_id === profile.id,
+                )
+                  ? `session-${profile.id}`
+                  : null,
+              },
+            },
           ]) as BridgeResult<K>,
         };
       }

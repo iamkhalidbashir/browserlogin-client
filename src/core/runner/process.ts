@@ -2,9 +2,16 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { readIdentity, type ProcessIdentity } from "../processes/identity.js";
 import type { SpawnedRunner } from "./types.js";
+import { LAUNCH_TIMING_STAGES } from "../launch-timing.js";
 
 const SOCKS_RELAY_DIAGNOSTIC =
-  /^\[socks-relay] phase=(?:client-greeting|client-request|upstream-connect|upstream-method|upstream-authentication|upstream-request|tunnel)$/;
+  /^\[socks-relay] phase=(?:client-greeting|client-request|upstream-connect|upstream-method|upstream-authentication|upstream-request|tunnel)(?: detail=(?:no-bytes|early-disconnect bytes=\d+|timeout bytes=\d+|version=\d+|methods=[0-9a-f]*))?$/;
+const LAUNCH_TIMING_DIAGNOSTIC = new RegExp(
+  `^\\[launch-timing] stage=(?:${LAUNCH_TIMING_STAGES.join("|")}) delta_ms=\\d+ total_ms=\\d+$`,
+);
+
+export const safeRunnerDiagnostic = (line: string): boolean =>
+  SOCKS_RELAY_DIAGNOSTIC.test(line) || LAUNCH_TIMING_DIAGNOSTIC.test(line);
 
 export const runnerEntrypoint = (moduleUrl = import.meta.url): string =>
   fileURLToPath(
@@ -47,7 +54,7 @@ export const spawnRunnerProcess = async (
     const lines = `${diagnosticBuffer}${text}`.split(/\r?\n/);
     diagnosticBuffer = lines.pop() ?? "";
     for (const line of lines) {
-      if (SOCKS_RELAY_DIAGNOSTIC.test(line)) process.stderr.write(`${line}\n`);
+      if (safeRunnerDiagnostic(line)) process.stderr.write(`${line}\n`);
     }
   });
   const completion = new Promise<{

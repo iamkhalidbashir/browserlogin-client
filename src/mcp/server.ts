@@ -16,16 +16,14 @@ import {
   SetupRequiredError,
 } from "../core/config/connection.js";
 import { resolveStateRoot } from "../core/config/paths.js";
-import { LifecycleCoordinator } from "../core/coordinator/index.js";
 import { createKeychainBackend } from "../core/keychain/index.js";
 import { RemoteMcpClient } from "../core/mcp-proxy/client.js";
 import { RemoteMcpDiscoveryCache } from "../core/mcp-proxy/cache.js";
 import { RemoteMcpForwarder } from "../core/mcp-proxy/forward.js";
-import { BrowserLoginClient } from "../core/api/client.js";
 import {
-  BrowserInitializationRequiredError,
-  readActiveBinary,
-} from "../core/binary/index.js";
+  createApplicationRuntime,
+  unwrapApplicationResult,
+} from "../core/app/index.js";
 import { VERSION } from "../shared/version.js";
 import {
   argumentsForCall,
@@ -35,7 +33,6 @@ import {
   type RegistryDependencies,
   type UnifiedRegistry,
 } from "./registry.js";
-import { BrowserInitializer } from "./binary-initialization.js";
 
 const SETUP_MESSAGE = "BrowserLogin connection setup is required";
 const LOG_LIMIT = 256 * 1024;
@@ -85,85 +82,39 @@ async function diagnosticLogger(root: string): Promise<() => Promise<void>> {
 async function defaultRuntime(root: string): Promise<ServerRuntime> {
   const keychain = createKeychainBackend();
   const store = new ConnectionStore(root, keychain);
-  let resolution;
   try {
     const envKey =
       process.env.BROWSERLOGIN_API_KEY?.trim() ||
       process.env.CLOAKBROWSER_API_KEY?.trim();
     if (!envKey && (await store.read()) === null)
       throw new SetupRequiredError();
-    resolution = await store.resolve();
   } catch {
     throw new SetupRequiredError();
   }
-  if (!resolution.apiKey) throw new SetupRequiredError();
-  const client = new BrowserLoginClient({
-    baseUrl: resolution.restBaseUrl,
-    credentials: async () => resolution.apiKey!,
-  });
-  const runtimeHooks: {
-    stop?: (profileId: string) => Promise<void>;
-  } = {};
-  const binaryInitialization = new BrowserInitializer({
+  const application = createApplicationRuntime({
     root,
-    licenseKey: resolution.licenseKey,
+    connection: store,
+    keychain,
   });
-  const coordinator = new LifecycleCoordinator({
-    root,
-    api: client,
-    profile: async (profileId) => {
-      const binary = await readActiveBinary(root, { env: process.env });
-      if (!binary) throw new BrowserInitializationRequiredError();
-      const profile = await client.getProfile(profileId);
-      return {
-        profile,
-        binary,
-        launchSpec: {
-          profile_id: profile.id,
-          seed: profile.seed,
-          platform: profile.platform as "macos" | "linux" | "windows",
-          geoip: profile.geoip,
-          humanize: profile.humanize,
-          human_preset: profile.human_preset,
-          bumblebee_profile: profile.bumblebee_profile,
-          headless: profile.headless,
-          timezone: profile.timezone,
-          locale: profile.locale,
-          user_agent: profile.user_agent,
-          viewport: profile.viewport as {
-            width: number;
-            height: number;
-          } | null,
-          args: profile.args,
-          proxy: profile.proxy
-            ? {
-                protocol: profile.proxy.protocol,
-                host: profile.proxy.host,
-                port: profile.proxy.port,
-                username: profile.proxy.username ?? null,
-                password: profile.proxy.password ?? null,
-              }
-            : null,
-        },
-      };
-    },
-    runtimeStop: async (profileId) => runtimeHooks.stop?.(profileId),
+  const resolution = await application.remoteConnection().catch(() => {
+    throw new SetupRequiredError();
   });
   const browser = createBrowserTools({
     lookup: async (profileId) => {
-      const state = await coordinator.store.load(profileId);
+      const state = await application.loadSessionState(profileId);
       const relayCdpUrl =
         state?.status === "running" ? state.relay_cdp_url : undefined;
       return relayCdpUrl ? { relayCdpUrl } : undefined;
     },
-    coordinatorStop: (profileId) => coordinator.stop(profileId),
-    coordinatorForceStop: (profileId) => coordinator.forceStop(profileId),
+    coordinatorStop: async (profileId) =>
+      unwrapApplicationResult(await application.lifecycle.stop(profileId)),
+    coordinatorForceStop: async (profileId) =>
+      unwrapApplicationResult(await application.lifecycle.forceStop(profileId)),
   });
-  runtimeHooks.stop = browser.runtimeStop;
+  application.setRuntimeStop(browser.runtimeStop);
   const remoteClient = new RemoteMcpClient({
     url: resolution.remoteMcpUrl,
-    credentials: async () =>
-      resolution.apiKey!,
+    credentials: resolution.credentials,
   });
   const remoteCache = new RemoteMcpDiscoveryCache(remoteClient);
   const remoteForwarder = new RemoteMcpForwarder(
@@ -171,9 +122,17 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
     localToolNames(),
   );
   const lifecycle: LifecycleOperations = {
-    start: (profileId) => coordinator.start(profileId),
-    stop: (profileId) => coordinator.stop(profileId),
-    forceStop: (profileId) => coordinator.forceStop(profileId),
+    start: async (profileId) =>
+      unwrapApplicationResult(await application.lifecycle.start(profileId)),
+    stop: async (profileId) =>
+      unwrapApplicationResult(await application.lifecycle.stop(profileId)),
+    forceStop: async (profileId) =>
+      unwrapApplicationResult(await application.lifecycle.forceStop(profileId)),
+  };
+  const binaryInitialization = {
+    initialize: (source: "free" | "license") =>
+      application.binary.initialize(source),
+    status: () => application.binary.initializationStatus(),
   };
   const browserTools = visibleTools(
     process.env.BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE === "1",
@@ -186,7 +145,7 @@ async function defaultRuntime(root: string): Promise<ServerRuntime> {
     browserTools,
     remoteCache,
     remoteForwarder,
-    close: async () => undefined,
+    close: () => application.close(),
   };
 }
 

@@ -13,6 +13,7 @@ import { SafeZipArchive } from "../archive/index.js";
 import { ensureBinary, type BinaryInfo } from "../binary/index.js";
 import { launchRunner } from "../runner/supervisor.js";
 import type { LaunchSpec, RunnerPaths } from "../runner/types.js";
+import type { LaunchTiming } from "../launch-timing.js";
 import {
   assertIdentity,
   killProcessTree,
@@ -75,6 +76,7 @@ export type RunnerFactory = (options: {
   onNormalStop: () => Promise<void>;
   onSpawned?: (identity: ProcessIdentity) => Promise<void>;
   healthCallback?: () => Promise<boolean>;
+  timing?: LaunchTiming;
 }) => Promise<RunnerHandle>;
 export type CrashPoint =
   | "after-start-intent-save"
@@ -168,7 +170,10 @@ export class LifecycleCoordinator {
         }));
   }
 
-  async start(profileId: string): Promise<RecoveryState> {
+  async start(
+    profileId: string,
+    timing?: LaunchTiming,
+  ): Promise<RecoveryState> {
     return this.store.withTransition(profileId, async () => {
       let state = await this.store.load(profileId);
       if (state && state.status !== "done") {
@@ -188,7 +193,7 @@ export class LifecycleCoordinator {
             state.status === "archive_materialized" ||
             state.status === "spawn-intent")
         )
-          return this.startLocked(state);
+          return this.startLocked(state, timing);
       }
       if (state?.status === "done") await this.cleanupLocked(state);
       const runId = randomUUID().replaceAll("-", "");
@@ -202,7 +207,7 @@ export class LifecycleCoordinator {
       );
       await this.store.save(state);
       await this.crashInjector?.("after-start-intent-save", state);
-      return this.startLocked(state);
+      return this.startLocked(state, timing);
     });
   }
 
@@ -452,9 +457,13 @@ export class LifecycleCoordinator {
     };
   }
 
-  private async startLocked(initial: RecoveryState): Promise<RecoveryState> {
+  private async startLocked(
+    initial: RecoveryState,
+    timing?: LaunchTiming,
+  ): Promise<RecoveryState> {
     let state = initial;
     const context = await this.options.profile(state.profile_id);
+    timing?.mark("profile-binary-preparation");
     const licenseApiUrl = this.options.license?.key
       ? (this.licenseUrls.get(state.profile_id) ??
         (await this.options.license.acquire()))
@@ -494,6 +503,7 @@ export class LifecycleCoordinator {
           this.now,
         );
         await this.store.save(state);
+        timing?.mark("remote-session-start");
         await this.crashInjector?.("after-remote-active-save", state);
       }
       await mkdir(state.work_dir, { recursive: true, mode: 0o700 });
@@ -518,6 +528,7 @@ export class LifecycleCoordinator {
           sha256: state.archive.sha256,
           format: "zip",
         });
+        timing?.mark("archive-download-restore");
       }
       await mkdir(state.cache_dir, { recursive: true, mode: 0o700 });
       state = transition(
@@ -579,6 +590,7 @@ export class LifecycleCoordinator {
         licenseApiUrl,
         paths,
         healthCallback: this.options.health,
+        timing,
         onNormalStop: async () => {
           this.naturallyClosed.add(state.profile_id);
           await this.stop(state.profile_id);

@@ -99,6 +99,7 @@ export async function launchRunner(options: RunnerSupervisorOptions): Promise<{
       cwd: options.cwd,
       env,
     });
+    options.timing?.mark("runner-spawn");
   } catch (error) {
     await cleanupArtifacts(options.paths);
     throw error;

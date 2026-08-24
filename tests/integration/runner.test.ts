@@ -216,6 +216,7 @@ describe("fake runner lifecycle", () => {
     const cdp = await listenCdp(root);
     const context = new FakeContext();
     let normalStops = 0;
+    const timingStages: string[] = [];
     const running = runRunnerChild({
       paths,
       expectedProfileId: spec.profile_id,
@@ -227,6 +228,9 @@ describe("fake runner lifecycle", () => {
       },
       normalStop: () => {
         normalStops += 1;
+      },
+      timing: {
+        mark: (stage) => timingStages.push(stage),
       },
       pollMs: 5,
     });
@@ -244,6 +248,10 @@ describe("fake runner lifecycle", () => {
       cdp.server.close((error) => (error ? reject(error) : resolve())),
     );
     expect(normalStops).toBe(1);
+    expect(timingStages).toEqual([
+      "cloakbrowser-context-launch",
+      "cdp-readiness",
+    ]);
   });
 
   test("treats consecutive resolved CDP endpoint failures as a native browser close", async () => {
@@ -420,6 +428,9 @@ describe("fake runner lifecycle", () => {
           lifecycleEvents.push("ready");
           readyCallbacks += 1;
         },
+        timing: {
+          mark: (stage) => lifecycleEvents.push(stage),
+        },
         isAlive: async () => true,
         cooperativeStopTimeoutMs: 10,
         stopTree: async (actual) => {
@@ -445,7 +456,7 @@ describe("fake runner lifecycle", () => {
       });
       expect(running.identity).toEqual(identity);
       expect(readyCallbacks).toBe(1);
-      expect(lifecycleEvents).toEqual(["spawned", "ready"]);
+      expect(lifecycleEvents).toEqual(["runner-spawn", "spawned", "ready"]);
       expect(childEnv?.CLOAKBROWSER_LICENSE_KEY).toBeUndefined();
       expect(childEnv?.CLOAKBROWSER_LICENSE_API).toBeUndefined();
       expect(childEnv?.BROWSERLOGIN_API_KEY).toBeUndefined();

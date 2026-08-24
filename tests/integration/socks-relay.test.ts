@@ -343,6 +343,27 @@ describe("authenticated SOCKS5 relay", () => {
     expect(phases.join(" ")).not.toContain("secret-pass");
   });
 
+  it("reports a connected client that sends no SOCKS greeting bytes", async () => {
+    // Given
+    const phases: string[] = [];
+    const relay = new Socks5Relay(
+      { host: "127.0.0.1", port: 1, username: "user", password: "pass" },
+      {
+        handshakeTimeout: 25,
+        onDiagnostic: (phase, detail) => phases.push(`${phase}:${detail}`),
+      },
+    );
+    relays.push(relay);
+    await relay.start();
+
+    // When
+    const client = await connect(Number(new URL(relay.proxyUrl).port));
+    await waitForSocketEvent(client, "close");
+
+    // Then
+    expect(phases).toEqual(["client-greeting:timeout bytes=0"]);
+  });
+
   it("handles twenty concurrent connections", async () => {
     const targetPort = await echoTarget();
     const upstreamPort = await authenticatedUpstream(targetPort, "secret");

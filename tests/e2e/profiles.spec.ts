@@ -289,7 +289,96 @@ test("only the selected profile action is pending while a slow request runs", as
   await expect(firstRow.getByRole("button", { name: "Launching…" })).toBeDisabled();
   await expect(firstRow.getByRole("button", { name: "Edit" })).toBeDisabled();
   await expect(secondRow.getByRole("button", { name: "Launch" })).toBeEnabled();
-  await expect(firstRow.getByRole("button", { name: "Launch" })).toBeEnabled();
+  await expect(
+    firstRow.getByRole("button", { name: "Stop", exact: true }),
+  ).toBeEnabled();
+});
+
+test("profile table normal Stop preserves the archive-producing lifecycle", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?profileRunning=1");
+  const row = page.getByRole("row", { name: /Research profile/ });
+
+  // When: the normal lifecycle action is used.
+  await row.getByRole("button", { name: "Stop", exact: true }).click();
+
+  // Then: it preserves the existing archive-producing RPC contract.
+  const normalStop = await page.evaluate(() =>
+    window.__browserloginMockCalls?.find(
+      (call) => call.method === "sessionsStop",
+    ),
+  );
+  expect(normalStop?.params).toEqual({ profileId: "profile-1" });
+});
+
+test("profile table Force stop requires the exact confirmation phrase", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?profileRunning=1");
+  const runningRow = page.getByRole("row", { name: /Research profile/ });
+  await runningRow.getByRole("button", { name: "Force stop" }).click();
+  const confirmation = page.getByLabel("Force confirmation profile-1");
+  const confirmButton = page.getByRole("button", {
+    name: "Force stop profile-1",
+  });
+  await expect(confirmButton).toBeDisabled();
+
+  // When: a near miss is entered, followed by the exact confirmation.
+  await confirmation.fill("FORCE CLOSE PROFILE-1");
+  await expect(confirmButton).toBeDisabled();
+  await confirmation.fill("FORCE CLOSE profile-1");
+  await expect(confirmButton).toBeEnabled();
+  await confirmButton.click();
+
+  // Then: only the confirmed destructive RPC is sent.
+  const forceStops = await page.evaluate(() =>
+    window.__browserloginMockCalls?.filter(
+      (call) => call.method === "sessionsForceStop",
+    ),
+  );
+  expect(forceStops).toEqual([
+    {
+      method: "sessionsForceStop",
+      params: {
+        profileId: "profile-1",
+        confirmation: "FORCE CLOSE profile-1",
+      },
+    },
+  ]);
+});
+
+test("launch activity advances through measured permanent stages", async ({
+  page,
+}) => {
+  // Given
+  await page.goto(
+    "/profiles?binaryStatusDelayMs=450&profileActionDelayMs=450",
+  );
+
+  // When
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+
+  // Then: each real client boundary becomes active in order and remains measured.
+  const stages = page.getByRole("list", { name: "Launch stages" });
+  await expect(stages.getByText("Checking browser runtime")).toBeVisible();
+  await expect(stages.getByText("Starting remote session and browser")).toBeVisible();
+  await expect(stages.getByText("Refreshing session views")).toBeVisible();
+  await expect(
+    stages.getByText("Checking browser runtime").locator(".."),
+  ).toContainText("ms");
+  await expect(
+    stages.getByText("Starting remote session and browser").locator(".."),
+  ).toContainText("In progress");
+  await expect(page.getByRole("status")).toContainText("1 session started");
+  await expect(
+    stages.locator('[data-launch-stage="ui-cache-refresh"]'),
+  ).toContainText("ms");
+  await expect(stages.getByText("Total").locator("..")).toContainText(
+    /\d+ ms/,
+  );
 });
 
 test("edit sends optimistic version and surfaces 409 conflict", async ({

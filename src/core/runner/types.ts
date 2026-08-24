@@ -1,5 +1,6 @@
 import type { ProcessIdentity } from "../processes/identity.js";
 import type { PathSecurity } from "../config/paths.js";
+import type { LaunchTiming } from "../launch-timing.js";
 
 export const AUTHORIZATION_MARKER = "authorized\n";
 export const STOP_MARKER = "stop\n";
@@ -93,6 +94,7 @@ export type RunnerChildOptions = {
   cdpLivenessFailureThreshold?: number;
   sdk?: CloakBrowserSdk;
   normalStop?: () => Promise<void> | void;
+  timing?: LaunchTiming;
 };
 
 export type RunnerSupervisorOptions = {
@@ -117,4 +119,5 @@ export type RunnerSupervisorOptions = {
   onNormalStop?: () => Promise<void> | void;
   isAlive?: (identity: ProcessIdentity) => Promise<boolean>;
   pathSecurity?: PathSecurity;
+  timing?: LaunchTiming;
 };
