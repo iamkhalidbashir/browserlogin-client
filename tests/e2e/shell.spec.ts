@@ -4,15 +4,13 @@ import { expect, test } from "@playwright/test";
 
 const routes = [
   ["Dashboard", "/dashboard"],
-  ["Profiles", "/profiles"],
   ["Proxies", "/proxies"],
   ["Users", "/users"],
   ["Audit", "/audit"],
-  ["Sessions", "/sessions"],
   ["Settings", "/settings"],
 ] as const;
 
-test("renders all seven routes with mock data and clean console", async ({
+test("renders all five routes with mock data and clean console", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -28,6 +26,12 @@ test("renders all seven routes with mock data and clean console", async ({
       page.getByRole("heading", { name: label, exact: true }),
     ).toBeVisible();
   }
+  await page.goto("/profiles?multi=1#sessions");
+  await expect(page).toHaveURL(/\/dashboard\?multi=1#sessions$/);
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Profiles" })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Sessions" })).toHaveCount(0);
   expect(errors).toEqual([]);
   const directory =
     process.env.BROWSERLOGIN_EVIDENCE_DIR ??
