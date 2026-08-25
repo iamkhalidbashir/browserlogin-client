@@ -32,6 +32,7 @@ describe("release asset contract", () => {
     expect(workflow).toContain("Install Linux baseline Bun runtime");
     expect(workflow).toContain("ELECTROBUN_BASELINE_BUN_PATH");
     expect(workflow).toContain("--retry-all-errors");
+    expect(workflow).toContain("bun run test:integration -- --retry 2");
   });
 
   test("replaces the Linux wrapper runtime before packaging", async () => {

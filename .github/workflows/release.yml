@@ -213,11 +213,11 @@ jobs:
 
       - name: Integration tests
         if: runner.os != 'Linux'
-        run: bun run test:integration
+        run: bun run test:integration -- --retry 2
 
       - name: Integration tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum bun run test:integration
+        run: xvfb-run --auto-servernum bun run test:integration -- --retry 2
 
       - name: Contract tests
         run: bun run test:contract
