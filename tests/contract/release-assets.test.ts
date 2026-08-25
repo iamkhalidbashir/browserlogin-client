@@ -33,16 +33,10 @@ describe("release asset contract", () => {
     expect(workflow).toContain("ELECTROBUN_BASELINE_BUN_PATH");
     expect(workflow).toContain("--retry-all-errors");
     expect(workflow).toContain("bun run test:integration -- --retry 2");
+    expect(workflow).toContain("Select Linux baseline Bun runtime");
+    expect(workflow).toContain("*/linux-x64/bun");
   });
 
-  test("replaces the Linux wrapper runtime before packaging", async () => {
-    const config = await readFile("electrobun.config.ts", "utf8");
-    const hook = await readFile("scripts/post-wrap.ts", "utf8");
-    expect(config).toContain('postWrap: "./scripts/post-wrap.ts"');
-    expect(hook).toContain('join(wrapper, "bin", "bun")');
-    expect(hook).toContain("copyFileSync(source, bundledBun)");
-    expect(hook).toContain("if (!source) process.exit(0)");
-  });
 
   test("stages versioned public downloads without updater artifacts", () => {
     expect(publishRelease).toContain('tagged_release="tagged-release"');

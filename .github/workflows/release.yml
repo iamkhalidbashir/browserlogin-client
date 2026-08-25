@@ -202,6 +202,16 @@ jobs:
       - name: Sync exact Electrobun devkit
         run: hutch electrobun sync
 
+      - name: Select Linux baseline Bun runtime
+        if: matrix.target == 'linux-x64'
+        shell: bash
+        run: |
+          runtime="$(find "$HOME/.hutch/releases/electrobun" -type f -path '*/linux-x64/bun' -print -quit)"
+          test -n "$runtime"
+          cp "$ELECTROBUN_BASELINE_BUN_PATH" "$runtime"
+          chmod +x "$runtime"
+          "$runtime" --version
+
       - name: Typecheck
         run: bun run typecheck
 
