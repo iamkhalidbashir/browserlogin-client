@@ -4,7 +4,7 @@ export default {
   app: {
     name: "BrowserLogin",
     identifier: "co.browserlogin.app",
-    version: "0.1.16",
+    version: "0.1.17",
   },
   build: {
     mainProcess: "bun",

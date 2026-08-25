@@ -40,6 +40,7 @@ describe("release asset contract", () => {
     expect(config).toContain('postWrap: "./scripts/post-wrap.ts"');
     expect(hook).toContain('join(wrapper, "bin", "bun")');
     expect(hook).toContain("copyFileSync(source, bundledBun)");
+    expect(hook).toContain("if (!source) process.exit(0)");
   });
 
   test("stages versioned public downloads without updater artifacts", () => {
