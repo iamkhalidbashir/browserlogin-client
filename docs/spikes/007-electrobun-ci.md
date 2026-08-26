@@ -20,10 +20,9 @@ returned 404 afterward.
 ## Pins and Configuration
 
 - Bun package manager: `1.2.23` from `.bun-version` and `package.json`.
-- Electrobun bootstrap: `2.0.1-beta.14` in `package.json` and `bun.lock`.
-- Hutch: `0.10.0` in the first-line `hutch.config.ts` pragma.
-- Cottontail: `0.4.4` in the same Hutch pragma.
-- Electrobun project pin: `2.0.1-beta.14` in `hutch.config.ts`.
+- Electrobun bootstrap: `2.0.1` in `package.json` and `bun.lock`.
+- Hutch and Cottontail: paired by the package-local Electrobun bootstrap.
+- Electrobun project pin: `2.0.1` in `hutch.config.ts`.
 - App name: `BrowserLogin`.
 - Identifier: `co.browserlogin.app`.
 - Release base URL: `https://github.com/iamkhalidbashir/browserlogin-client/releases/download/stable`.
@@ -57,7 +56,7 @@ matrix:
 The workflow installs `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`,
 `libayatana-appindicator3-dev`, `build-essential`, `cmake`, `pkg-config`, and
 `xvfb` on Ubuntu, runs `hutch electrobun sync`, then
-`hutch electrobun build --env=production`. macOS/Linux use `uname -m`; Windows
+`bun scripts/electrobun.ts build --env=stable`. macOS/Linux use `uname -m`; Windows
 uses `RuntimeInformation.OSArchitecture` and `PROCESSOR_ARCHITECTURE`.
 
 ## Matrix Run
