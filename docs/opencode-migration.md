@@ -60,7 +60,7 @@ Prefer `browserlogin setup`, which stores the key through the OS keychain. Manag
 
 ## Compatibility
 
-Remote tools are proxied without renaming and retain their input schemas. Successful discovery yields 43 tools. Remote failure yields 26 lifecycle/browser tools plus degraded-mode initialize instructions. Stdout is JSON-RPC-only; diagnostics go to stderr/private logs.
+Remote tools are proxied without renaming and retain their input schemas. Successful discovery yields 45 tools by default. Remote failure yields 28 lifecycle/browser tools plus degraded-mode initialize instructions. Setting `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` adds the disabled-by-default RCE-equivalent browser-code tool, yielding 46 or 29 tools respectively. Stdout is JSON-RPC-only; diagnostics go to stderr/private logs.
 
 Local lifecycle tools are advertised as `browser_session_start` and `browser_session_stop`. In OpenCode, the server namespace exposes them as `browserlogin_browser_session_start` and `browserlogin_browser_session_stop`. The v0.1.0 names `browserlogin_session_start` and `browserlogin_session_stop` are hidden from discovery but remain callable as local compatibility names for one release. They are reserved by the local registry and never forwarded to BrowserSessionMCP.
 
