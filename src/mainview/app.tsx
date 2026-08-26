@@ -9,12 +9,15 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
 import SetupView from "./features/setup/setup-view.js";
+import { GUIDE_ROUTES } from "./guides/routes.js";
 
 const Dashboard = lazy(() => import("./features/profiles/profiles-view.js"));
 const Proxies = lazy(() => import("./routes/proxies.js"));
 const Users = lazy(() => import("./routes/users.js"));
 const Audit = lazy(() => import("./routes/audit.js"));
 const Settings = lazy(() => import("./routes/settings.js"));
+const CliGuide = lazy(() => import("./routes/guide-cli.js"));
+const McpGuide = lazy(() => import("./routes/guide-mcp.js"));
 
 const routes = [
   ["/dashboard", "Dashboard"],
@@ -22,6 +25,7 @@ const routes = [
   ["/users", "Users"],
   ["/audit", "Audit"],
   ["/settings", "Settings"],
+  ...GUIDE_ROUTES.map((route) => [route.path, route.label] as const),
 ] as const;
 
 function LegacyRouteRedirect() {
@@ -87,7 +91,10 @@ export function App() {
         </aside>
         <div className="min-w-0">
           <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:px-7">
-            <div className="flex flex-wrap gap-2" aria-label="Application status">
+            <div
+              className="flex flex-wrap gap-2"
+              aria-label="Application status"
+            >
               <span className="status-pill">
                 {connection.isLoading
                   ? "Connecting"
@@ -119,6 +126,12 @@ export function App() {
                 <Route path="/audit" element={<Audit />} />
                 <Route path="/sessions" element={<LegacyRouteRedirect />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route
+                  path="/guides"
+                  element={<Navigate to="/guides/mcp" replace />}
+                />
+                <Route path="/guides/cli" element={<CliGuide />} />
+                <Route path="/guides/mcp" element={<McpGuide />} />
                 <Route
                   path="*"
                   element={<Navigate to="/dashboard" replace />}
