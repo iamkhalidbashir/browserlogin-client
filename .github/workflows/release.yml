@@ -276,7 +276,7 @@ jobs:
         run: bun run build:web
 
       - name: Build signed and notarized Electrobun application
-        run: hutch electrobun build --env=production
+        run: bun scripts/electrobun.ts build --env=stable
 
       - name: Download pinned AppImage tool
         if: matrix.target == 'linux-x64'

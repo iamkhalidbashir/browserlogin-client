@@ -1,28 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { access } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
-const command = process.argv[2] ?? "dev";
-const executable = process.platform === "win32" ? "hutch.exe" : "hutch";
-const candidates = [
-  process.env.HUTCH_BIN,
-  join(homedir(), ".hutch", "bin", executable),
-  executable,
-].filter((value): value is string => Boolean(value));
+const [command = "dev", ...args] = process.argv.slice(2);
+const electrobun = join(
+  process.cwd(),
+  "node_modules",
+  "electrobun",
+  "bin",
+  "electrobun.cjs",
+);
 
-let hutch = candidates.at(-1)!;
-for (const candidate of candidates.slice(0, -1)) {
-  try {
-    await access(candidate);
-    hutch = candidate;
-    break;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-  }
-}
-
-const child = spawn(hutch, ["electrobun", command], {
+const child = spawn(process.execPath, [electrobun, command, ...args], {
   cwd: process.cwd(),
   env: process.env,
   detached: process.platform !== "win32",
