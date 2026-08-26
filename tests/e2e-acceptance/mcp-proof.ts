@@ -95,10 +95,10 @@ const degradedCatalog = await createRegistry({
   browserTools: PRODUCT_TOOLS,
 });
 if (
-  connected.tools.length !== 44 ||
-  degraded.tools.length !== 27 ||
-  connectedCatalog.tools.length !== 45 ||
-  degradedCatalog.tools.length !== 28
+  connected.tools.length !== 45 ||
+  degraded.tools.length !== 28 ||
+  connectedCatalog.tools.length !== 46 ||
+  degradedCatalog.tools.length !== 29
 )
   throw new Error("acceptance MCP safe/catalog tool counts are invalid");
 const start = await connected.call("browser_session_start", {
