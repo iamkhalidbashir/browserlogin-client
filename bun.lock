@@ -29,7 +29,7 @@
         "@typescript-eslint/eslint-plugin": "^8.32.0",
         "@typescript-eslint/parser": "^8.32.0",
         "@vitejs/plugin-react": "5.1.4",
-        "electrobun": "2.0.1-beta.14",
+        "electrobun": "2.0.1",
         "eslint": "^9.25.0",
         "prettier": "^3.5.3",
         "tailwindcss": "^4.3.3",
@@ -430,7 +430,7 @@
 
     "ee-first": ["ee-first@1.1.1", "", {}, "sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow=="],
 
-    "electrobun": ["electrobun@2.0.1-beta.14", "", { "bin": { "electrobun": "bin/electrobun.cjs" } }, "sha512-OVXKG+tI9KtiBE8LCCCl4gOz1GLybT0bO3CSqfZprbxb61ayBBlL3SijeMbC/zHW9R2b9+hyeKABPXvBF6dRgA=="],
+    "electrobun": ["electrobun@2.0.1", "", { "bin": { "electrobun": "bin/electrobun.cjs" } }, "sha512-1+OjJ0tMemjVrUEsh/AhmxnqUNpyCfJslCbcWOvkogFJuNVMmTlWMzyZem/Ts/7lg8f7ULWu8uuQBsKeGQsu7A=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.408", "", {}, "sha512-SLoprcYpJ/OH2v2ps0+N5biv9H4/KBT3+YmmDew64TwK5y9j2wv7pMOFY7IorVkyMtEyLSCRlXKLsNlakeAlPw=="],
 
