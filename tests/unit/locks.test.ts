@@ -13,7 +13,10 @@ import { describe, expect, it } from "vitest";
 import { withLock } from "../../src/core/locks/locks.js";
 import { parseLinuxProcessStartTime } from "../../src/core/locks/platform.js";
 import { captureIdentity } from "../../src/core/processes/identity.js";
-import { LockTimeoutError } from "../../src/core/locks/types.js";
+import {
+  LockTimeoutError,
+  type LockOwner,
+} from "../../src/core/locks/types.js";
 
 const temp = async () => mkdtemp(join(tmpdir(), "browserlogin-task13-"));
 
@@ -30,16 +33,26 @@ describe("Task 13 locks", () => {
     await writeFile(counterPath, "0");
     let active = 0;
     let maximum = 0;
+    const owner: LockOwner = {
+      pid: 1,
+      process_start_time: "test-process-start-time",
+      hostname: "test-host",
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
     await Promise.all(
       Array.from({ length: 50 }, async () =>
-        withLock(lockPath, async () => {
-          active += 1;
-          maximum = Math.max(maximum, active);
-          const value = Number(await readFile(counterPath, "utf8"));
-          await new Promise((resolve) => setTimeout(resolve, 2));
-          await writeFile(counterPath, String(value + 1));
-          active -= 1;
-        }),
+        withLock(
+          lockPath,
+          async () => {
+            active += 1;
+            maximum = Math.max(maximum, active);
+            const value = Number(await readFile(counterPath, "utf8"));
+            await new Promise((resolve) => setTimeout(resolve, 2));
+            await writeFile(counterPath, String(value + 1));
+            active -= 1;
+          },
+          { owner },
+        ),
       ),
     );
     expect(await readFile(counterPath, "utf8")).toBe("50");
