@@ -19,6 +19,9 @@ test("renders all five routes with mock data and clean console", async ({
   });
   await page.goto("/dashboard");
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: "BrowserLogin logo" }),
+  ).toBeVisible();
   for (const [label, path] of routes) {
     await page.getByRole("link", { name: label }).click();
     await expect(page).toHaveURL(new RegExp(`${path}$`));
@@ -41,6 +44,19 @@ test("renders all five routes with mock data and clean console", async ({
     path: join(directory, "task-26-shell.png"),
     fullPage: true,
   });
+});
+
+test("displays the BrowserLogin logo during first-run setup", async ({ page }) => {
+  // Given
+  await page.goto("/dashboard?setup=1");
+
+  // Then
+  await expect(
+    page.getByRole("img", { name: "BrowserLogin logo" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Connect BrowserLogin" }),
+  ).toBeVisible();
 });
 
 test("primary navigation and content are keyboard reachable", async ({

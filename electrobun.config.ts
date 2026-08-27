@@ -21,12 +21,15 @@ export default {
       codesign: true,
       notarize: true,
       bundleCEF: false,
+      icons: "resources/icons/browserlogin.iconset",
     },
     linux: {
       bundleCEF: false,
+      icon: "resources/icons/browserlogin.png",
     },
     win: {
       bundleCEF: false,
+      icon: "resources/icons/browserlogin.ico",
     },
   },
   scripts: {

@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
 import SetupView from "./features/setup/setup-view.js";
 import { GUIDE_ROUTES } from "./guides/routes.js";
+import logoUrl from "../../resources/icons/browserlogin.png";
 
 const Dashboard = lazy(() => import("./features/profiles/profiles-view.js"));
 const Proxies = lazy(() => import("./routes/proxies.js"));
@@ -69,11 +70,20 @@ export function App() {
           className="border-b border-zinc-200 bg-white/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/80 md:border-b-0 md:border-r md:p-5"
           aria-label="Primary navigation"
         >
-          <div className="mb-4 md:mb-8">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-400">
-              BrowserLogin
-            </p>
-            <h1 className="mt-2 text-xl font-semibold">Control center</h1>
+          <div className="mb-4 flex items-start gap-3 md:mb-8">
+            <img
+              src={logoUrl}
+              alt="BrowserLogin logo"
+              width={32}
+              height={32}
+              className="h-8 w-8 shrink-0 rounded-lg"
+            />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-emerald-400">
+                BrowserLogin
+              </p>
+              <h1 className="mt-2 text-xl font-semibold">Control center</h1>
+            </div>
           </div>
           <nav className="flex gap-1 overflow-x-auto md:block md:space-y-1">
             {routes.map(([path, label]) => (

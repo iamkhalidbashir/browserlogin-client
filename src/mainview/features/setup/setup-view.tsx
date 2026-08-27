@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "../../rpc-client.js";
+import logoUrl from "../../../../resources/icons/browserlogin.png";
 
 export default function SetupView() {
   const bridge = useBridge();
@@ -42,7 +43,16 @@ export default function SetupView() {
   return (
     <main className="grid min-h-screen place-items-center bg-zinc-50 p-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
       <section className="panel w-full max-w-xl">
-        <p className="eyebrow">First run</p>
+        <div className="flex items-center gap-3">
+          <img
+            src={logoUrl}
+            alt="BrowserLogin logo"
+            width={32}
+            height={32}
+            className="h-8 w-8 rounded-lg"
+          />
+          <p className="eyebrow">First run</p>
+        </div>
         <h1 className="text-3xl font-semibold">Connect BrowserLogin</h1>
         <p className="mt-2 text-sm text-zinc-500">
           Navigation remains locked until the client credential is stored in the
