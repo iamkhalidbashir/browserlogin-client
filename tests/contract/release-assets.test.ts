@@ -143,4 +143,11 @@ describe("release asset contract", () => {
       '$allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")',
     );
   });
+
+  test("adds a guarded Windows installer entrypoint", () => {
+    const windowsArtifacts = workflowStep("Validate and stage Windows artifacts");
+    expect(workflow).toContain("Add guarded Windows installer entrypoint");
+    expect(windowsArtifacts).toContain('$entrypoint = Join-Path $installerDir "Install-BrowserLogin.cmd"');
+    expect(windowsArtifacts).toContain('Join-Path $installerDir ".installer\\BrowserLogin-Setup.tar.zst"');
+  });
 });

@@ -278,6 +278,34 @@ jobs:
       - name: Build signed and notarized Electrobun application
         run: bun scripts/electrobun.ts build --env=stable
 
+      - name: Add guarded Windows installer entrypoint
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installer = "artifacts/${{ matrix.installer }}"
+          $installerDir = Join-Path $env:RUNNER_TEMP "browserlogin-windows-installer-source"
+          $repackedInstaller = Join-Path $env:RUNNER_TEMP "BrowserLogin-Setup.zip"
+          Expand-Archive -Path $installer -DestinationPath $installerDir
+          @'
+          @echo off
+          setlocal
+          set "root=%~dp0"
+          if not exist "%root%.installer\BrowserLogin-Setup.tar.zst" (
+            echo Extract the entire ZIP before running this file.
+            echo Do not run BrowserLogin-Setup.exe directly from the ZIP or after moving it.
+            pause
+            exit /b 1
+          )
+          start "" "%root%BrowserLogin-Setup.exe"
+          '@ | Set-Content -Path (Join-Path $installerDir "Install-BrowserLogin.cmd") -Encoding ascii
+          [IO.Compression.ZipFile]::CreateFromDirectory(
+            $installerDir,
+            $repackedInstaller,
+            [IO.Compression.CompressionLevel]::Optimal,
+            $false
+          )
+          Move-Item -Force $repackedInstaller $installer
+
       - name: Download pinned AppImage tool
         if: matrix.target == 'linux-x64'
         shell: bash
@@ -433,6 +461,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Could not list Windows update archive" }
           $installerListing = & tar -tf $installer
           if ($LASTEXITCODE -ne 0) { throw "Could not list Windows installer archive" }
+          $installerDir = Join-Path $env:RUNNER_TEMP "browserlogin-release-installer"
+          Expand-Archive -Path $installer -DestinationPath $installerDir
+          $entrypoint = Join-Path $installerDir "Install-BrowserLogin.cmd"
+          if (-not (Test-Path $entrypoint -PathType Leaf)) { throw "Missing guarded Windows installer entrypoint" }
+          if (-not (Test-Path (Join-Path $installerDir ".installer\BrowserLogin-Setup.tar.zst") -PathType Leaf)) { throw "Missing Windows installer payload" }
           $archiveListing = ($updateListing + $installerListing) -join "`n"
           if ($archiveListing -match '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)') {
             throw "Browser executable found in Windows release archives"
