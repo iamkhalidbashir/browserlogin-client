@@ -32,9 +32,6 @@ export default {
       icon: "resources/icons/browserlogin.ico",
     },
   },
-  scripts: {
-    postWrap: "./scripts/post-wrap.ts",
-  },
   release: {
     baseUrl:
       "https://github.com/iamkhalidbashir/browserlogin-client/releases/download/stable",

@@ -10,6 +10,7 @@ const ciWorkflow = (
 const packageManifest = await readFile("package.json", "utf8");
 const hutchConfig = await readFile("hutch.config.ts", "utf8");
 const electrobunWrapper = await readFile("scripts/electrobun.ts", "utf8");
+const electrobunConfig = await readFile("electrobun.config.ts", "utf8");
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
@@ -35,6 +36,10 @@ describe("release asset contract", () => {
     expect(electrobunWrapper).toMatch(
       /node_modules.*electrobun.*bin.*electrobun\.cjs/s,
     );
+  });
+
+  test("does not configure missing Electrobun build hooks", () => {
+    expect(electrobunConfig).not.toContain("postWrap");
   });
 
   test("prepares the generated Electrobun devkit before local development", () => {
