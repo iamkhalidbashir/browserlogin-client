@@ -37,7 +37,7 @@ Release filenames use the version without the tag's leading `v`: tag `v0.1.1` pr
 
 ### Windows x64
 
-1. Download and extract `BrowserLogin-<version>-windows-x64-Setup.zip`, then run the installer.
+1. Download and extract `BrowserLogin-<version>-windows-x64-Setup.zip`, then run `Install-BrowserLogin.cmd`. Do not run `BrowserLogin-Setup.exe` from inside the ZIP or after moving it: it needs the adjacent `.installer` payload directory.
 2. If SmartScreen appears, select **More info → Run anyway** after verifying the checksum.
 3. Download `browserlogin-<version>-windows-x64.exe` plus `browserlogin-browser-tools-windows-x64.exe`. Place both in the same directory, put that directory on `PATH`, and rename only the CLI to `browserlogin.exe`.
 
