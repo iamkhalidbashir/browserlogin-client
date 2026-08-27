@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { watch } from "node:fs";
+import { basename, dirname } from "node:path";
 
 export const launchPersistentContext = async (options) => {
   const executable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
@@ -47,13 +49,19 @@ export const launchPersistentContext = async (options) => {
   };
   const mode = process.env.FAKE_SDK_LIFECYCLE;
   if (mode === "context-close") setTimeout(() => void context.close(), 3500);
-  else if (mode === "disconnect")
-    setTimeout(() => {
+  else if (mode === "disconnect") {
+    const disconnectFile = process.env.FAKE_SDK_DISCONNECT_FILE;
+    if (!disconnectFile)
+      throw new Error("disconnect signal file is not configured");
+    const watcher = watch(dirname(disconnectFile), (_event, filename) => {
+      if (filename !== basename(disconnectFile)) return;
+      watcher.close();
       connected = false;
       for (const listener of disconnectListeners) listener();
       child.kill("SIGTERM");
-    }, 1500);
-  else if (mode === "zero-pages")
+    });
+    child.once("exit", () => watcher.close());
+  } else if (mode === "zero-pages")
     setTimeout(() => {
       pageCount = 0;
     }, 300);

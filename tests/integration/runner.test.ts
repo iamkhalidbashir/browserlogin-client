@@ -630,6 +630,7 @@ describe("fake runner lifecycle", () => {
       const argvFile = join(root, "fake-argv.json");
       const exitFile = join(root, "fake-exit");
       const logFile = join(root, "fake-log.jsonl");
+      const disconnectFile = join(root, "fake-sdk-disconnect");
       const paths = {
         launchFile: join(root, "launch.json"),
         gateFile: join(root, "gate"),
@@ -653,6 +654,7 @@ describe("fake runner lifecycle", () => {
       const oldExecutable = process.env.BROWSERLOGIN_FAKE_EXECUTABLE;
       const oldTestMode = process.env.BROWSERLOGIN_RUNNER_TEST_MODE;
       const oldExecutableArgs = process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS;
+      const oldDisconnectFile = process.env.FAKE_SDK_DISCONNECT_FILE;
       process.env.FAKE_BROWSER_ARGV_FILE = argvFile;
       process.env.FAKE_BROWSER_EXIT_FILE = exitFile;
       process.env.FAKE_BROWSER_EXIT_AFTER_MS = "5000";
@@ -665,6 +667,7 @@ describe("fake runner lifecycle", () => {
       process.env.BROWSERLOGIN_RUNNER_TEST_MODE = "1";
       const oldLifecycle = process.env.FAKE_SDK_LIFECYCLE;
       process.env.FAKE_SDK_LIFECYCLE = lifecycle;
+      process.env.FAKE_SDK_DISCONNECT_FILE = disconnectFile;
       process.env.BROWSERLOGIN_RUNNER_TEST_ERROR_FILE = errorFile;
       try {
         const running = await launchRunner({
@@ -678,6 +681,7 @@ describe("fake runner lifecycle", () => {
             normalStops += 1;
           },
         });
+        if (lifecycle === "disconnect") await writeFile(disconnectFile, "");
         const exit = await Promise.race([
           running.closed,
           new Promise<never>((_, reject) =>
@@ -726,6 +730,9 @@ describe("fake runner lifecycle", () => {
         else process.env.BROWSERLOGIN_FAKE_EXECUTABLE_ARGS = oldExecutableArgs;
         if (oldLifecycle === undefined) delete process.env.FAKE_SDK_LIFECYCLE;
         else process.env.FAKE_SDK_LIFECYCLE = oldLifecycle;
+        if (oldDisconnectFile === undefined)
+          delete process.env.FAKE_SDK_DISCONNECT_FILE;
+        else process.env.FAKE_SDK_DISCONNECT_FILE = oldDisconnectFile;
       }
     },
     15_000,
