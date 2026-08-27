@@ -282,7 +282,8 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $installer = "artifacts/${{ matrix.installer }}"
+          $installer = (Get-ChildItem artifacts -File -Filter "*BrowserLogin-Setup.zip" | Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($installer)) { throw "Missing Windows installer ZIP" }
           $installerDir = Join-Path $env:RUNNER_TEMP "browserlogin-windows-installer-source"
           $repackedInstaller = Join-Path $env:RUNNER_TEMP "BrowserLogin-Setup.zip"
           Expand-Archive -Path $installer -DestinationPath $installerDir
@@ -437,7 +438,8 @@ jobs:
             if ($machine -ne 0x8664) { throw ("Expected x64 PE machine 0x8664 for {0}; got 0x{1:X4}" -f $Path, $machine) }
           }
 
-          $installer = "artifacts/${{ matrix.installer }}"
+          $installer = (Get-ChildItem artifacts -File -Filter "*BrowserLogin-Setup.zip" | Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($installer)) { throw "Missing Windows installer ZIP" }
           $update = "artifacts/${{ matrix.update_archive }}"
           $metadata = "artifacts/${{ matrix.metadata }}"
           foreach ($path in @($installer, $update, $metadata)) {
