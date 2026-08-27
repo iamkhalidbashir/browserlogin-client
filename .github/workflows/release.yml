@@ -442,7 +442,8 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($installer)) { throw "Missing Windows installer ZIP" }
           $update = (Get-ChildItem artifacts -File -Filter "*BrowserLogin.tar.zst" | Select-Object -First 1).FullName
           if ([string]::IsNullOrWhiteSpace($update)) { throw "Missing Windows update archive" }
-          $metadata = "artifacts/${{ matrix.metadata }}"
+          $metadata = (Get-ChildItem artifacts -File -Filter "*update.json" | Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($metadata)) { throw "Missing Windows update metadata" }
           foreach ($path in @($installer, $update, $metadata)) {
             if (-not (Test-Path $path -PathType Leaf)) { throw "Missing artifact: $path" }
           }
