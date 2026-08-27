@@ -440,7 +440,8 @@ jobs:
 
           $installer = (Get-ChildItem artifacts -File -Filter "*BrowserLogin-Setup.zip" | Select-Object -First 1).FullName
           if ([string]::IsNullOrWhiteSpace($installer)) { throw "Missing Windows installer ZIP" }
-          $update = "artifacts/${{ matrix.update_archive }}"
+          $update = (Get-ChildItem artifacts -File -Filter "*BrowserLogin.tar.zst" | Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($update)) { throw "Missing Windows update archive" }
           $metadata = "artifacts/${{ matrix.metadata }}"
           foreach ($path in @($installer, $update, $metadata)) {
             if (-not (Test-Path $path -PathType Leaf)) { throw "Missing artifact: $path" }
