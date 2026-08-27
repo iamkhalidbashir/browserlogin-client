@@ -8,6 +8,17 @@ const execFileAsync = promisify(execFile);
 let ownStartTime: ProcessStartTime | undefined;
 let ownCommandLine: string[] | undefined;
 
+const processExists = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ESRCH")
+      return false;
+    return true;
+  }
+};
+
 const parseLinuxStartTime = (stat: string): ProcessStartTime | undefined => {
   const close = stat.lastIndexOf(")");
   if (close < 0) return undefined;
@@ -51,6 +62,7 @@ export const getProcessStartTime = async (
   pid: number,
 ): Promise<ProcessStartTime | undefined> => {
   if (pid === process.pid && ownStartTime) return ownStartTime;
+  if (!processExists(pid)) return undefined;
   try {
     if (process.platform === "linux") {
       const stat = await readFile(`/proc/${pid}/stat`, "utf8");
