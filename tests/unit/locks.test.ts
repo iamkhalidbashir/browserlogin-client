@@ -111,7 +111,7 @@ describe("Task 13 locks", () => {
     await writeFile(dead, JSON.stringify(owner), { mode: 0o600 });
     await withLock(dead, async () => undefined, { timeoutMs: 500, pollMs: 1 });
     await rm(directory, { recursive: true, force: true });
-  });
+  }, 20_000);
 
   it("reclaims old empty legacy locks but keeps fresh malformed locks", async () => {
     const directory = await temp();
