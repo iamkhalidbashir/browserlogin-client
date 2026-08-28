@@ -385,7 +385,7 @@ jobs:
               chmod +x "$appdir/AppRun"
               desktop="$appdir/BrowserLogin.desktop"
               sed -i 's#^Exec=.*#Exec=AppRun#' "$desktop"
-              printf '\nIcon=BrowserLogin\n' >> "$desktop"
+              sed -i 's#^Icon=.*#Icon=BrowserLogin#' "$desktop"
               icon="$(find "$appdir/Resources/app/runner" -type f -name 'appIcon-*.png' -print -quit)"
               test -n "$icon"
               cp "$icon" "$appdir/BrowserLogin.png"
