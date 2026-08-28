@@ -547,7 +547,7 @@ jobs:
           done
           test "$(find release -maxdepth 1 -type f -name 'browserlogin-*' | wc -l | tr -d ' ')" = 6
           test "$(find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*Setup.zip' -o -name '*Setup.tar.gz' -o -name '*.AppImage' \) | wc -l | tr -d ' ')" = 4
-          test "$(find release -maxdepth 1 -type f -name 'production-*-update.json' | wc -l | tr -d ' ')" = 3
+          test "$(find release -maxdepth 1 -type f -name 'stable-*-update.json' | wc -l | tr -d ' ')" = 3
 
       - name: Generate third-party notices
         shell: bash
