@@ -686,14 +686,14 @@ jobs:
           done
           expected_version="${GITHUB_REF_NAME#v}"
           metadata=(
-            release/production-macos-arm64-update.json
-            release/production-win-x64-update.json
-            release/production-linux-x64-update.json
+            release/stable-macos-arm64-update.json
+            release/stable-win-x64-update.json
+            release/stable-linux-x64-update.json
           )
           bundles=(
-            release/production-macos-arm64-BrowserLogin.app.tar.zst
-            release/production-win-x64-BrowserLogin.tar.zst
-            release/production-linux-x64-BrowserLogin.tar.zst
+            release/stable-macos-arm64-BrowserLogin.app.tar.zst
+            release/stable-win-x64-BrowserLogin.tar.zst
+            release/stable-linux-x64-BrowserLogin.tar.zst
           )
           jq -e --arg version "$expected_version" \
             '.version == $version and .platform == "macos" and .arch == "arm64"' \
@@ -720,7 +720,7 @@ jobs:
             gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$stable_assets"
             while IFS= read -r name; do
               case "$name" in
-                production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
+                stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json) ;;
                 *)
                   if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
                     echo "unexpected stable asset: $name" >&2
@@ -755,7 +755,7 @@ jobs:
                 candidate_patches_complete=0
               fi
             done
-            current_version="$(jq -r '.version' "$rollback_dir/production-macos-arm64-update.json")"
+            current_version="$(jq -r '.version' "$rollback_dir/stable-macos-arm64-update.json")"
             candidate_version="${GITHUB_REF_NAME#v}"
             if [[ "$current_version" == "$candidate_version" ]]; then
               if [[ "$candidate_patches_complete" != 1 ]]; then
@@ -778,14 +778,14 @@ jobs:
         shell: bash
         run: |
           metadata=(
-            release/production-macos-arm64-update.json
-            release/production-win-x64-update.json
-            release/production-linux-x64-update.json
+            release/stable-macos-arm64-update.json
+            release/stable-win-x64-update.json
+            release/stable-linux-x64-update.json
           )
           bundles=(
-            release/production-macos-arm64-BrowserLogin.app.tar.zst
-            release/production-win-x64-BrowserLogin.tar.zst
-            release/production-linux-x64-BrowserLogin.tar.zst
+            release/stable-macos-arm64-BrowserLogin.app.tar.zst
+            release/stable-win-x64-BrowserLogin.tar.zst
+            release/stable-linux-x64-BrowserLogin.tar.zst
           )
           shopt -s nullglob
           patches=(release/production-*.patch)
@@ -837,12 +837,12 @@ jobs:
           verify_dir="$RUNNER_TEMP/stable-verification"
           mkdir -p "$verify_dir"
           for name in \
-            production-macos-arm64-BrowserLogin.app.tar.zst \
-            production-win-x64-BrowserLogin.tar.zst \
-            production-linux-x64-BrowserLogin.tar.zst \
-            production-macos-arm64-update.json \
-            production-win-x64-update.json \
-            production-linux-x64-update.json; do
+            stable-macos-arm64-BrowserLogin.app.tar.zst \
+            stable-win-x64-BrowserLogin.tar.zst \
+            stable-linux-x64-BrowserLogin.tar.zst \
+            stable-macos-arm64-update.json \
+            stable-win-x64-update.json \
+            stable-linux-x64-update.json; do
             url="https://github.com/${GITHUB_REPOSITORY}/releases/download/stable/${name}?run=${GITHUB_RUN_ID}"
             curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location "$url" --output "$verify_dir/$name"
             expected_hash="$(grep -h "  ${name}$" release/SHA256SUMS-* | cut -d ' ' -f 1)"
@@ -865,7 +865,7 @@ jobs:
           gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$verify_dir/assets.txt"
           while IFS= read -r name; do
             case "$name" in
-              production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
+              stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json) ;;
               *)
                 if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
                   echo "unexpected stable asset: $name" >&2
@@ -890,14 +890,14 @@ jobs:
           fi
 
           bundles=(
-            "$STABLE_ROLLBACK_DIR/production-macos-arm64-BrowserLogin.app.tar.zst"
-            "$STABLE_ROLLBACK_DIR/production-win-x64-BrowserLogin.tar.zst"
-            "$STABLE_ROLLBACK_DIR/production-linux-x64-BrowserLogin.tar.zst"
+            "$STABLE_ROLLBACK_DIR/stable-macos-arm64-BrowserLogin.app.tar.zst"
+            "$STABLE_ROLLBACK_DIR/stable-win-x64-BrowserLogin.tar.zst"
+            "$STABLE_ROLLBACK_DIR/stable-linux-x64-BrowserLogin.tar.zst"
           )
           metadata=(
-            "$STABLE_ROLLBACK_DIR/production-macos-arm64-update.json"
-            "$STABLE_ROLLBACK_DIR/production-win-x64-update.json"
-            "$STABLE_ROLLBACK_DIR/production-linux-x64-update.json"
+            "$STABLE_ROLLBACK_DIR/stable-macos-arm64-update.json"
+            "$STABLE_ROLLBACK_DIR/stable-win-x64-update.json"
+            "$STABLE_ROLLBACK_DIR/stable-linux-x64-update.json"
           )
           shopt -s nullglob
           patches=("$STABLE_ROLLBACK_DIR"/production-*.patch)

@@ -109,12 +109,12 @@ describe("release asset contract", () => {
 
   test("keeps the rolling stable channel on Electrobun filenames", () => {
     const stableAssets = [
-      "production-macos-arm64-BrowserLogin.app.tar.zst",
-      "production-macos-arm64-update.json",
-      "production-win-x64-BrowserLogin.tar.zst",
-      "production-win-x64-update.json",
-      "production-linux-x64-BrowserLogin.tar.zst",
-      "production-linux-x64-update.json",
+      "stable-macos-arm64-BrowserLogin.app.tar.zst",
+      "stable-macos-arm64-update.json",
+      "stable-win-x64-BrowserLogin.tar.zst",
+      "stable-win-x64-update.json",
+      "stable-linux-x64-BrowserLogin.tar.zst",
+      "stable-linux-x64-update.json",
     ];
     for (const asset of stableAssets) expect(publishUpdater).toContain(asset);
     expect(publishUpdater).toContain("production-*.patch");
