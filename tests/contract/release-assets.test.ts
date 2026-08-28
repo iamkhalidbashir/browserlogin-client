@@ -42,6 +42,12 @@ describe("release asset contract", () => {
     expect(electrobunConfig).not.toContain("postWrap");
   });
 
+  test("validates generated macOS and Linux artifacts without stale names", () => {
+    const nativeArtifacts = workflowStep("Validate and stage macOS/Linux artifacts");
+    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin.dmg" -print -quit');
+    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.gz" -print -quit');
+  });
+
   test("prepares the generated Electrobun devkit before local development", () => {
     expect(packageManifest).toContain(
       '"electrobun:sync": "bun scripts/electrobun-sync.ts"',
@@ -67,13 +73,8 @@ describe("release asset contract", () => {
     );
     expect(ciWorkflow).toContain("Verify Linux glibc baseline");
     expect(workflow).toContain("APPIMAGETOOL_X86_64_SHA256");
-    expect(workflow).toContain("BUN_LINUX_X64_BASELINE_ZIP_SHA256");
-    expect(workflow).toContain("Install Linux baseline Bun runtime");
-    expect(workflow).toContain("ELECTROBUN_BASELINE_BUN_PATH");
-    expect(workflow).toContain("--retry-all-errors");
+    expect(workflow).toContain("hutch electrobun sync");
     expect(workflow).toContain("bun run test:integration -- --retry 2");
-    expect(workflow).toContain("Select Linux baseline Bun runtime");
-    expect(workflow).toContain("*/linux-x64/bun");
   });
 
   test("stages versioned public downloads without updater artifacts", () => {

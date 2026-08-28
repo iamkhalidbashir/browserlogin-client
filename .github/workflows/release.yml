@@ -28,7 +28,6 @@ permissions:
 env:
   BUN_VERSION: "1.2.23"
   BUN_LINUX_X64_ZIP_SHA256: cf0ed0a920799d576ffde4e0cae66d732bf23c2530407f26f59c7831dffe1f0e
-  BUN_LINUX_X64_BASELINE_ZIP_SHA256: 017f89e19e1b40aa4c11a7cf671d3990cb51cc12288a43473238a019a8cafffc
   APPIMAGETOOL_VERSION: "1.9.1"
   APPIMAGETOOL_X86_64_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
   HUTCH_CHANNEL: production
@@ -120,23 +119,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Install Linux baseline Bun runtime
-        if: matrix.target == 'linux-x64'
-        shell: bash
-        run: |
-          archive="$RUNNER_TEMP/bun-linux-x64-baseline.zip"
-          curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
-            --retry 5 --retry-delay 2 --retry-all-errors \
-            "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-baseline.zip" \
-            --output "$archive"
-          sha256sum "$archive"
-          echo "$BUN_LINUX_X64_BASELINE_ZIP_SHA256  $archive" | sha256sum -c -
-          unzip -q "$archive" -d "$RUNNER_TEMP/bun-baseline"
-          baseline="$RUNNER_TEMP/bun-baseline/bun-linux-x64-baseline/bun"
-          chmod +x "$baseline"
-          "$baseline" --version
-          echo "ELECTROBUN_BASELINE_BUN_PATH=$baseline" >> "$GITHUB_ENV"
-
       - name: Configure macOS signing and notarization
         if: matrix.target == 'macos-arm64'
         env:
@@ -201,16 +183,6 @@ jobs:
 
       - name: Sync exact Electrobun devkit
         run: hutch electrobun sync
-
-      - name: Select Linux baseline Bun runtime
-        if: matrix.target == 'linux-x64'
-        shell: bash
-        run: |
-          runtime="$(find "$HOME/.hutch/releases/electrobun" -type f -path '*/linux-x64/bun' -print -quit)"
-          test -n "$runtime"
-          cp "$ELECTROBUN_BASELINE_BUN_PATH" "$runtime"
-          chmod +x "$runtime"
-          "$runtime" --version
 
       - name: Typecheck
         run: bun run typecheck
@@ -348,9 +320,17 @@ jobs:
           PY
           }
 
-          installer="artifacts/${{ matrix.installer }}"
-          update="artifacts/${{ matrix.update_archive }}"
-          metadata="artifacts/${{ matrix.metadata }}"
+          case '${{ matrix.target }}' in
+            macos-arm64)
+              installer="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.dmg" -print -quit)"
+              update="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.app.tar.zst" -print -quit)"
+              ;;
+            linux-x64)
+              installer="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.gz" -print -quit)"
+              update="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.zst" -print -quit)"
+              ;;
+          esac
+          metadata="$(find artifacts -maxdepth 1 -type f -name "*update.json" -print -quit)"
           test -f "$installer"
           test -f "$update"
           test -f "$metadata"
