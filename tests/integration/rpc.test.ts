@@ -47,7 +47,16 @@ async function taskkillTree(pid: number): Promise<void> {
   });
 }
 
-async function stopTree(child: ChildProcess): Promise<void> {
+function signalProcess(pid: number, signal: NodeJS.Signals): void {
+  try {
+    process.kill(pid, signal);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ESRCH"))
+      throw error;
+  }
+}
+
+async function stopTree(child: ChildProcess, descendantPid?: number): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (child.pid && process.platform === "win32") {
     await taskkillTree(child.pid);
@@ -60,6 +69,9 @@ async function stopTree(child: ChildProcess): Promise<void> {
   } else {
     child.kill("SIGTERM");
   }
+  if (descendantPid && process.platform !== "win32") {
+    signalProcess(descendantPid, "SIGTERM");
+  }
   await waitForExit(child, 5_000).catch(async () => {
     if (child.pid && process.platform === "win32") {
       await taskkillTree(child.pid);
@@ -71,6 +83,9 @@ async function stopTree(child: ChildProcess): Promise<void> {
       }
     } else {
       child.kill("SIGKILL");
+    }
+    if (descendantPid && process.platform !== "win32") {
+      signalProcess(descendantPid, "SIGKILL");
     }
     await waitForExit(child, 2_000).catch(() => undefined);
   });
@@ -162,7 +177,7 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
     if (typeof ready.pid !== "number") throw new Error("missing ready PID");
     const readyPid = ready.pid;
     const initialProcessSnapshot = await linuxProcessSnapshot(readyPid);
-    await stopTree(child);
+    await stopTree(child, readyPid);
     const cleanupDeadline = Date.now() + 5_000;
     let appAlive = true;
     while (Date.now() < cleanupDeadline) {
