@@ -45,7 +45,7 @@ describe("release asset contract", () => {
   test("validates generated macOS and Linux artifacts without stale names", () => {
     const nativeArtifacts = workflowStep("Validate and stage macOS/Linux artifacts");
     expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin.dmg" -print -quit');
-    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.gz" -print -quit');
+    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin-Setup.tar.gz" -print -quit');
   });
 
   test("prepares the generated Electrobun devkit before local development", () => {

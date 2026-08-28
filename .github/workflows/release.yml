@@ -326,7 +326,7 @@ jobs:
               update="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.app.tar.zst" -print -quit)"
               ;;
             linux-x64)
-              installer="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.gz" -print -quit)"
+              installer="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin-Setup.tar.gz" -print -quit)"
               update="$(find artifacts -maxdepth 1 -type f -name "*BrowserLogin.tar.zst" -print -quit)"
               ;;
           esac
