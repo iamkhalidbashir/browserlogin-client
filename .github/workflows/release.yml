@@ -718,9 +718,17 @@ jobs:
             echo "STABLE_EXISTS=1" >> "$GITHUB_ENV"
             stable_assets="$RUNNER_TEMP/stable-assets-before.txt"
             gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$stable_assets"
+            legacy_core_assets=(
+              production-macos-arm64-BrowserLogin.app.tar.zst
+              production-macos-arm64-update.json
+              production-win-x64-BrowserLogin.tar.zst
+              production-win-x64-update.json
+              production-linux-x64-BrowserLogin.tar.zst
+              production-linux-x64-update.json
+            )
             while IFS= read -r name; do
               case "$name" in
-                stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json) ;;
+                stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json|production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
                 *)
                   if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
                     echo "unexpected stable asset: $name" >&2
@@ -731,8 +739,25 @@ jobs:
             done < "$stable_assets"
             gh release download stable \
               -R "$GITHUB_REPOSITORY" \
-              --dir "$rollback_dir" \
-              --pattern 'production-*'
+              --dir "$rollback_dir"
+            stable_core_assets=(
+              stable-macos-arm64-BrowserLogin.app.tar.zst
+              stable-macos-arm64-update.json
+              stable-win-x64-BrowserLogin.tar.zst
+              stable-win-x64-update.json
+              stable-linux-x64-BrowserLogin.tar.zst
+              stable-linux-x64-update.json
+            )
+            for index in "${!legacy_core_assets[@]}"; do
+              legacy="${legacy_core_assets[$index]}"
+              stable="${stable_core_assets[$index]}"
+              if [[ -f "$rollback_dir/$legacy" ]]; then
+                if [[ ! -f "$rollback_dir/$stable" ]]; then
+                  cp "$rollback_dir/$legacy" "$rollback_dir/$stable"
+                fi
+                rm -f "$rollback_dir/$legacy"
+              fi
+            done
             (
               cd "$rollback_dir"
               find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
@@ -787,6 +812,14 @@ jobs:
             release/stable-win-x64-BrowserLogin.tar.zst
             release/stable-linux-x64-BrowserLogin.tar.zst
           )
+          legacy_core_assets=(
+            production-macos-arm64-BrowserLogin.app.tar.zst
+            production-macos-arm64-update.json
+            production-win-x64-BrowserLogin.tar.zst
+            production-win-x64-update.json
+            production-linux-x64-BrowserLogin.tar.zst
+            production-linux-x64-update.json
+          )
           shopt -s nullglob
           patches=(release/production-*.patch)
           echo "STABLE_MUTATION_STARTED=1" >> "$GITHUB_ENV"
@@ -806,7 +839,7 @@ jobs:
 
           gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/stable-assets.txt"
 
-          for file in "${metadata[@]}" "${bundles[@]}"; do
+          for file in "${metadata[@]}" "${bundles[@]}" "${legacy_core_assets[@]}"; do
             name="$(basename "$file")"
             if grep -Fxq "$name" "$RUNNER_TEMP/stable-assets.txt"; then
               gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
@@ -903,15 +936,17 @@ jobs:
           patches=("$STABLE_ROLLBACK_DIR"/production-*.patch)
           gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/failed-stable-assets.txt"
           while IFS= read -r name; do
-            if [[ "$name" == production-* ]]; then
-              gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
-            fi
+            case "$name" in
+              production-*.patch|production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json|stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json)
+                gh release delete-asset stable "$name" -R "$GITHUB_REPOSITORY" --yes
+                ;;
+            esac
           done < "$RUNNER_TEMP/failed-stable-assets.txt"
           gh release upload stable "${bundles[@]}" "${patches[@]}" -R "$GITHUB_REPOSITORY"
           gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
           restored_verification="$RUNNER_TEMP/restored-verification"
           mkdir -p "$restored_verification"
-          gh release download stable -R "$GITHUB_REPOSITORY" --dir "$restored_verification" --pattern 'production-*'
+          gh release download stable -R "$GITHUB_REPOSITORY" --dir "$restored_verification"
           cp "$STABLE_ROLLBACK_DIR/SHA256SUMS" "$restored_verification/SHA256SUMS"
           (cd "$restored_verification" && sha256sum -c SHA256SUMS)
           echo "::error::Previous stable core assets restored; the release job remains failed for investigation."

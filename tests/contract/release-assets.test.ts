@@ -120,13 +120,30 @@ describe("release asset contract", () => {
     expect(publishUpdater).toContain("production-*.patch");
     expect(publishUpdater).not.toContain("tagged-release");
     expect(workflow).toContain("!contains(github.ref_name, '+')");
-    expect(publishUpdater).toContain("--pattern 'production-*'");
+    expect(
+      workflowStep("Guard stable version and save rollback assets"),
+    ).not.toContain("--pattern 'production-*'");
     expect(publishUpdater).toContain("unexpected stable asset");
     expect(publishUpdater).toContain("stable patch collision");
     expect(publishUpdater).toContain(
       "candidate patch missing from stable retry",
     );
+    expect(
+      workflowStep("Guard stable version and save rollback assets"),
+    ).toContain("legacy_core_assets=(");
+    expect(
+      workflowStep("Guard stable version and save rollback assets"),
+    ).toContain('cp "$rollback_dir/$legacy" "$rollback_dir/$stable"');
+    expect(
+      workflowStep("Guard stable version and save rollback assets"),
+    ).toContain('rm -f "$rollback_dir/$legacy"');
+    expect(workflowStep("Publish full bundles before metadata")).toContain(
+      'for file in "${metadata[@]}" "${bundles[@]}" "${legacy_core_assets[@]}"',
+    );
     expect(publishUpdater).toContain("restored-verification");
+    expect(
+      workflowStep("Restore stable after publication failure"),
+    ).not.toContain("--pattern 'production-*'");
     expect(publishUpdater).toContain(
       'gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --latest',
     );
