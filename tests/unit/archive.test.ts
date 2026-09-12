@@ -89,14 +89,21 @@ afterEach(async () => {
 }, 120_000);
 
 describe("SafeZipArchive", () => {
-  it("exposes the exact Python limits and checks limit minus/at/plus boundaries", () => {
+  it("accepts the official Windows runtime while enforcing archive boundaries", () => {
     expect(ARCHIVE_LIMITS).toEqual({
-      maxArchiveBytes: 512 * 1024 * 1024,
+      maxArchiveBytes: 640 * 1024 * 1024,
       maxFiles: 100_000,
       maxTotalSize: 2 * 1024 * 1024 * 1024,
       maxFileSize: 512 * 1024 * 1024,
       maxCompressionRatio: 200,
     });
+    expect(() =>
+      validateArchiveLimits(ARCHIVE_LIMITS, {
+        fileCount: 0,
+        totalSize: 0,
+        archiveSize: 562_004_238,
+      }),
+    ).not.toThrow();
     for (const [field, limit] of Object.entries(ARCHIVE_LIMITS)) {
       const metadata: ArchiveMetadata = { fileCount: 0, totalSize: 0 };
       const key =

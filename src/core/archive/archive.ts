@@ -47,7 +47,7 @@ export interface ArchiveLimits {
 }
 
 export const ARCHIVE_LIMITS: Readonly<ArchiveLimits> = Object.freeze({
-  maxArchiveBytes: 512 * 1024 * 1024,
+  maxArchiveBytes: 640 * 1024 * 1024,
   maxFiles: 100_000,
   maxTotalSize: 2 * 1024 * 1024 * 1024,
   maxFileSize: 512 * 1024 * 1024,
