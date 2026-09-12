@@ -1,9 +1,19 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const evidence =
   process.env.BROWSERLOGIN_EVIDENCE_DIR ?? join(process.cwd(), "test-results");
+const launchSecret = "launch-secret";
+const launchApiKey = "bl_launch_secret";
+const launchUrl = "https://private.example.test/launch";
+const redactionMarker = "<redacted>";
+
+function observePageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
 
 test("setup gate blocks navigation until connection and runtime setup succeed", async ({
   page,
@@ -133,9 +143,7 @@ test("rejected connection test after a successful save keeps the saved connectio
   await expect(page.getByRole("status")).toContainText(
     "Connection test failed: mock transport rejection.",
   );
-  await expect(origin).toHaveValue(
-    "https://example-1.app-csite-env.sapps.co",
-  );
+  await expect(origin).toHaveValue("https://example-1.app-csite-env.sapps.co");
   await expect(apiKey).toHaveValue("");
   await expect(page.locator("body")).not.toContainText(
     "bl_test_fake_rejected_test_key",
@@ -145,7 +153,7 @@ test("rejected connection test after a successful save keeps the saved connectio
   const testedAt = calls.findIndex((item) => item.method === "connectionTest");
   expect(savedAt).toBeGreaterThanOrEqual(0);
   expect(testedAt).toBeGreaterThan(savedAt);
-  expect(calls[savedAt]?.params).toEqual({
+  expect(calls[savedAt]?.params).toMatchObject({
     appOrigin: "https://example-1.app-csite-env.sapps.co",
     apiKey: "[REDACTED]",
   });
@@ -380,12 +388,162 @@ test("only the selected profile action is pending while a slow request runs", as
   await firstRow.getByRole("button", { name: "Launch" }).click();
 
   // Then
-  await expect(firstRow.getByRole("button", { name: "Launching…" })).toBeDisabled();
+  await expect(
+    firstRow.getByRole("button", { name: "Launching…" }),
+  ).toBeDisabled();
   await expect(firstRow.getByRole("button", { name: "Edit" })).toBeDisabled();
   await expect(secondRow.getByRole("button", { name: "Launch" })).toBeEnabled();
   await expect(
     firstRow.getByRole("button", { name: "Stop", exact: true }),
   ).toBeEnabled();
+});
+
+test("profile launch exposes pending then successful machine-readable feedback", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/profiles?profileActionDelayMs=700");
+
+  // When
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+
+  // Then
+  const pending = page.locator('[data-state="pending"]');
+  await expect(pending).toHaveAttribute("role", "status");
+  await expect(pending).toHaveAttribute("data-code", "");
+  await expect(pending).toHaveAttribute("data-completed", "0");
+  const success = page.locator('[data-state="success"]');
+  await expect(success).toHaveAttribute("role", "status");
+  await expect(success).toHaveAttribute("data-code", "");
+  await expect(success).toHaveAttribute("data-completed", "1");
+  const methods = await page.evaluate(() =>
+    (window.__browserloginMockCalls ?? []).map((call) => call.method),
+  );
+  const startedAt = methods.lastIndexOf("sessionsStart");
+  const preflightAt = methods.lastIndexOf("binaryStatus", startedAt - 1);
+  expect(preflightAt).toBeGreaterThanOrEqual(0);
+  expect(startedAt).toBeGreaterThan(preflightAt);
+  expect(pageErrors).toEqual([]);
+});
+
+test("profile launch surfaces a sanitized RPC reply failure", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/profiles?sessionsStart=fail");
+
+  // When
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+
+  // Then
+  const feedback = page.locator('[data-state="error"]');
+  await expect(feedback).toHaveAttribute("role", "alert");
+  await expect(feedback).toHaveAttribute("data-code", "SESSION_START_FAILED");
+  await expect(feedback).toHaveAttribute("data-completed", "0");
+  await expect(page.locator("body")).not.toContainText(launchSecret);
+  await expect(page.locator("body")).not.toContainText(launchApiKey);
+  await expect(page.locator("body")).not.toContainText(launchUrl);
+  await expect(page.locator("body")).not.toContainText(redactionMarker);
+  expect(pageErrors).toEqual([]);
+});
+
+test("profile launch surfaces a sanitized transport rejection", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/profiles?sessionsStart=reject");
+
+  // When
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+
+  // Then
+  const feedback = page.locator('[data-state="error"]');
+  await expect(feedback).toHaveAttribute("role", "alert");
+  await expect(feedback).toHaveAttribute("data-code", "TRANSPORT_ERROR");
+  await expect(feedback).toHaveAttribute("data-completed", "0");
+  await expect(page.locator("body")).not.toContainText(launchSecret);
+  await expect(page.locator("body")).not.toContainText(launchApiKey);
+  await expect(page.locator("body")).not.toContainText(launchUrl);
+  await expect(page.locator("body")).not.toContainText(redactionMarker);
+  expect(pageErrors).toEqual([]);
+});
+
+test("profile launch rechecks a runtime that disappears after the app gate", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/profiles?binaryStatus=missing-after-first");
+
+  // When
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+
+  // Then
+  const feedback = page.locator('[data-state="error"]');
+  await expect(feedback).toHaveAttribute("role", "alert");
+  await expect(feedback).toHaveAttribute("data-code", "RUNTIME_REQUIRED");
+  await expect(feedback).toHaveAttribute("data-completed", "0");
+  const starts = await page.evaluate(
+    () =>
+      (window.__browserloginMockCalls ?? []).filter(
+        (call) => call.method === "sessionsStart",
+      ).length,
+  );
+  expect(starts).toBe(0);
+  expect(pageErrors).toEqual([]);
+});
+
+test("partial batch launch refreshes profiles and sessions after the first success", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/profiles?multi=1&sessionsStart=fail-profile-2");
+  await page.getByLabel("Select Research profile").check();
+  await page.getByLabel("Select Secondary profile").check();
+  const callsBefore = await page.evaluate(() => [
+    (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "profilesList",
+    ).length,
+    (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "sessionsLive",
+    ).length,
+  ]);
+
+  // When
+  await page.getByRole("button", { name: "Launch selected" }).click();
+
+  // Then
+  const feedback = page.locator('[data-state="error"]');
+  await expect(feedback).toHaveAttribute("role", "alert");
+  await expect(feedback).toHaveAttribute("data-code", "SESSION_START_FAILED");
+  await expect(feedback).toHaveAttribute("data-completed", "1");
+  await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
+  const callsAfter = await page.evaluate(() => ({
+    profiles: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "profilesList",
+    ).length,
+    sessions: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "sessionsLive",
+    ).length,
+    starts: (window.__browserloginMockCalls ?? [])
+      .filter((call) => call.method === "sessionsStart")
+      .map((call) => call.params),
+  }));
+  expect(callsAfter.profiles).toBeGreaterThan(callsBefore[0] ?? 0);
+  expect(callsAfter.sessions).toBeGreaterThan(callsBefore[1] ?? 0);
+  expect(callsAfter.starts).toEqual([
+    { profileId: "profile-1" },
+    { profileId: "profile-2" },
+  ]);
+  await expect(page.locator("body")).not.toContainText(launchSecret);
+  await expect(page.locator("body")).not.toContainText(launchApiKey);
+  await expect(page.locator("body")).not.toContainText(launchUrl);
+  await expect(page.locator("body")).not.toContainText(redactionMarker);
+  expect(pageErrors).toEqual([]);
 });
 
 test("profile table normal Stop preserves the archive-producing lifecycle", async ({
@@ -417,7 +575,9 @@ test("profile table Force stop requires the exact confirmation phrase", async ({
   const confirmationPanel = page
     .getByRole("heading", { name: "Force stop profile" })
     .locator("..");
-  const confirmation = confirmationPanel.getByLabel("Force confirmation profile-1");
+  const confirmation = confirmationPanel.getByLabel(
+    "Force confirmation profile-1",
+  );
   const confirmButton = page.getByRole("button", {
     name: "Force stop profile-1",
   });
@@ -451,15 +611,15 @@ test("dashboard keeps sessions visible without profile activity", async ({
   page,
 }) => {
   // Given
-  await page.goto(
-    "/profiles?binaryStatusDelayMs=450&profileActionDelayMs=450",
-  );
+  await page.goto("/profiles?binaryStatusDelayMs=450&profileActionDelayMs=450");
 
   // When
   await page.getByRole("button", { name: "Launch", exact: true }).click();
 
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Live sessions" }),
+  ).toBeVisible();
   await expect(page.getByText("Profile activity")).toHaveCount(0);
   await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
 });

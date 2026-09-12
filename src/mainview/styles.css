@@ -384,6 +384,11 @@ button:disabled {
     border-color: #d4d4d8;
     background: #fff;
   }
+  .conflict-banner {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #78350f;
+  }
   .runtime-progress {
     background: var(--color-zinc-200);
   }

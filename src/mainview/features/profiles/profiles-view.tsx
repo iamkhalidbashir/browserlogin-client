@@ -6,6 +6,7 @@ import {
   type ProfileAction,
 } from "./profile-table.js";
 import { ForceStopConfirmation } from "./force-stop-confirmation.js";
+import { useProfileLaunch } from "./use-profile-launch.js";
 import DashboardView from "../launch/dashboard-view.js";
 
 type ProfileForm = {
@@ -70,6 +71,7 @@ export default function ProfilesView() {
       return result.value;
     },
   });
+  const { launch, launchActions, feedback } = useProfileLaunch(profiles.data);
   const proxies = useQuery({
     queryKey: ["proxies"],
     queryFn: async () => {
@@ -116,30 +118,6 @@ export default function ProfilesView() {
       }
     },
   });
-  const launch = async (ids: string[]) => {
-    setPendingActions((current) => ({
-      ...current,
-      ...Object.fromEntries(ids.map((id) => [id, "launch" as const])),
-    }));
-    try {
-      const binary = await bridge.request("binaryStatus", {});
-      if (!binary.ok || binary.value === null) return;
-      for (const profileId of ids) {
-        const result = await bridge.request("sessionsStart", { profileId });
-        if (!result.ok) return;
-      }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["profiles"] }),
-        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
-      ]);
-    } finally {
-      setPendingActions((current) => {
-        const next = { ...current };
-        for (const id of ids) delete next[id];
-        return next;
-      });
-    }
-  };
   const stopProfile = async (profileId: string) => {
     setPendingActions((current) => ({ ...current, [profileId]: "stop" }));
     try {
@@ -311,7 +289,7 @@ export default function ProfilesView() {
       <ProfileTable
         profiles={visible}
         selected={selected}
-        pendingActions={pendingActions}
+        pendingActions={{ ...pendingActions, ...launchActions }}
         onSelectionChange={(profileId, checked) =>
           setSelected(
             checked
@@ -333,6 +311,20 @@ export default function ProfilesView() {
           setDeleteText("");
         }}
       />
+      {feedback ? (
+        <div
+          className={
+            feedback.role === "alert" ? "conflict-banner" : "panel mt-4"
+          }
+          role={feedback.role}
+          aria-live={feedback.role === "alert" ? "assertive" : "polite"}
+          data-state={feedback.state}
+          data-code={feedback.code}
+          data-completed={feedback.completed}
+        >
+          {feedback.message}
+        </div>
+      ) : null}
       <div className="mt-8">
         <DashboardView title="Sessions" />
       </div>

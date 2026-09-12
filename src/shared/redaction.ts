@@ -64,6 +64,11 @@ export function serializeError(error: Error): RedactedError {
 
 export function safeErrorMessage(value: string | Error): string {
   const message = typeof value === "string" ? value : value.message;
-  const safe = redactString(message).replace(SAFE_ERROR, " ").trim();
+  const safe = redactString(message)
+    .replaceAll(`Bearer ${SECRET}`, "")
+    .replaceAll(SECRET, "")
+    .replace(SAFE_ERROR, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return safe.slice(0, 500) || "Lifecycle request could not be completed.";
 }

@@ -119,29 +119,36 @@ test("session force-close confirmation and pending state are isolated per row", 
   page,
 }) => {
   await page.goto("/profiles?multi=1");
-  const launchButtons = page.getByRole("button", {
-    name: "Launch",
-    exact: true,
-  });
-  await launchButtons.nth(0).click();
-  await launchButtons.nth(1).click();
+  await page
+    .getByRole("row", { name: /Research profile/ })
+    .getByRole("button", { name: "Launch", exact: true })
+    .click();
+  await page
+    .getByRole("row", { name: /Secondary profile/ })
+    .getByRole("button", { name: "Launch", exact: true })
+    .click();
   await page.getByRole("link", { name: "Dashboard" }).click();
 
   const firstInput = page.getByLabel("Force confirmation profile-1");
   const secondInput = page.getByLabel("Force confirmation profile-2");
-  const forceButtons = page.getByRole("button", { name: "Force stop" });
+  const firstForceButton = page
+    .locator("article.session-row", { has: firstInput })
+    .getByRole("button", { name: "Force stop" });
+  const secondForceButton = page
+    .locator("article.session-row", { has: secondInput })
+    .getByRole("button", { name: "Force stop" });
 
   await firstInput.fill("FORCE CLOSE profile-1");
-  await expect(forceButtons.nth(0)).toBeEnabled();
-  await expect(forceButtons.nth(1)).toBeDisabled();
+  await expect(firstForceButton).toBeEnabled();
+  await expect(secondForceButton).toBeDisabled();
 
   await secondInput.fill("FORCE CLOSE profile-2");
   await expect(firstInput).toHaveValue("FORCE CLOSE profile-1");
   await expect(secondInput).toHaveValue("FORCE CLOSE profile-2");
-  await expect(forceButtons.nth(0)).toBeEnabled();
-  await expect(forceButtons.nth(1)).toBeEnabled();
+  await expect(firstForceButton).toBeEnabled();
+  await expect(secondForceButton).toBeEnabled();
 
-  await forceButtons.nth(0).click();
+  await firstForceButton.click();
   await expect(page.getByText("profile-1", { exact: true })).toHaveCount(0);
   await expect(page.getByText("profile-2", { exact: true })).toBeVisible();
   await expect(secondInput).toHaveValue("FORCE CLOSE profile-2");
