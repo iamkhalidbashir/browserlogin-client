@@ -4,6 +4,6 @@ import { VERSION } from "../../src/shared/version";
 
 describe("package version", () => {
   it("exposes the scaffold release version", () => {
-    expect(VERSION).toBe("0.1.24");
+    expect(VERSION).toBe("0.1.25");
   });
 });
