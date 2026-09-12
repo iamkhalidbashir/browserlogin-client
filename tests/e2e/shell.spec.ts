@@ -90,7 +90,10 @@ test("displays the BrowserLogin logo during first-run setup", async ({ page }) =
 test("primary navigation and content are keyboard reachable", async ({
   page,
 }) => {
-  await page.goto("/dashboard");
+  await page.goto("/dashboard?binaryStatusDelayMs=450");
+  await expect(
+    page.getByRole("complementary", { name: "Primary navigation" }),
+  ).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("link", { name: "Skip to content" }),
