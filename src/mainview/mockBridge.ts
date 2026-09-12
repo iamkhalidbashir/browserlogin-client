@@ -24,6 +24,9 @@ const profile = {
   cloud: { archive_generation: 4, current_session_id: null },
 };
 
+const sensitiveFailureMessage =
+  "Bearer launch-secret bl_launch_secret https://private.example.test/launch failed";
+
 export const mockParams: Record<AppRPCMethod, unknown> = {
   connectionGet: {},
   connectionSet: {
@@ -247,6 +250,9 @@ export function createMockBridge(
     typeof window === "undefined"
       ? new URLSearchParams()
       : new URLSearchParams(window.location.search);
+  const binaryStatusControl = initialSearch.get("binaryStatus");
+  const profilesListControl = initialSearch.get("profilesList");
+  const sessionsStartControl = initialSearch.get("sessionsStart");
   const multi =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
@@ -264,11 +270,22 @@ export function createMockBridge(
         ]
       : [];
   let hasLicense = false;
+  let binaryInstalled = initialSearch.get("binary") !== "missing";
+  let binaryStatusCalls = 0;
+  let profilesListCalls = 0;
+  let binaryProgress: BridgeResult<"binaryProgress"> =
+    AppRPCSchemas.binaryProgress.result.parse(values.binaryProgress);
   const downloadDelayMs = (() => {
     if (typeof window === "undefined") return 0;
     const raw = new URLSearchParams(window.location.search).get(
       "downloadDelayMs",
     );
+    const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(2000, Math.max(0, parsed));
+  })();
+  const binaryProgressDelayMs = (() => {
+    const raw = initialSearch.get("binaryProgressDelayMs");
     const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed)) return 0;
     return Math.min(2000, Math.max(0, parsed));
@@ -280,7 +297,19 @@ export function createMockBridge(
       params: BridgeParams<K>,
     ): Promise<RpcReply<BridgeResult<K>>> {
       AppRPCSchemas[method].params.parse(params);
-      calls.push({ method, params: structuredClone(params) });
+      const recordedParams =
+        method === "connectionSet"
+          ? {
+              ...AppRPCSchemas.connectionSet.params.parse(params),
+              apiKey: "[REDACTED]",
+            }
+          : method === "licenseSet"
+            ? {
+                ...AppRPCSchemas.licenseSet.params.parse(params),
+                licenseKey: "[REDACTED]",
+              }
+            : params;
+      calls.push({ method, params: structuredClone(recordedParams) });
       if (method === "connectionGet") {
         const override = overrides.connectionGet as
           Record<string, unknown> | undefined;
@@ -290,6 +319,7 @@ export function createMockBridge(
           ...override,
           appOrigin: override?.appOrigin ?? currentAppOrigin,
           hasApiKey: override?.hasApiKey ?? (connected && !stale),
+          hasLicense: override?.hasLicense ?? hasLicense,
         }) as BridgeResult<K>;
         return { ok: true, value };
       }
@@ -324,9 +354,8 @@ export function createMockBridge(
         await new Promise((resolve) => setTimeout(resolve, 300));
       }
       if (method === "connectionSet") {
-        currentAppOrigin = AppRPCSchemas.connectionSet.params.parse(
-          params,
-        ).appOrigin;
+        currentAppOrigin =
+          AppRPCSchemas.connectionSet.params.parse(params).appOrigin;
         connected = true;
       }
       if (method === "connectionClear") connected = false;
@@ -350,23 +379,77 @@ export function createMockBridge(
           }) as BridgeResult<K>,
         };
       }
-      if (
-        method === "binaryStatus" &&
-        typeof window !== "undefined" &&
-        new URLSearchParams(window.location.search).get("binary") === "missing"
-      ) {
-        return { ok: true, value: null as BridgeResult<K> };
-      }
       if (method === "binaryStatus") {
+        binaryStatusCalls += 1;
         const delay = Number.parseInt(
           initialSearch.get("binaryStatusDelayMs") ?? "0",
           10,
         );
         if (Number.isFinite(delay) && delay > 0)
-          await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 2_000)));
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(delay, 2_000)),
+          );
+        const value = AppRPCSchemas.binaryStatus.result.parse(
+          binaryInstalled &&
+            !(
+              binaryStatusControl === "missing-after-first" &&
+              binaryStatusCalls > 1
+            )
+            ? (overrides.binaryStatus ?? values.binaryStatus)
+            : null,
+        ) as BridgeResult<K>;
+        return { ok: true, value };
       }
-      if (method === "binaryDownload" && downloadDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, downloadDelayMs));
+      if (method === "binaryProgress") {
+        if (binaryProgressDelayMs > 0)
+          await new Promise((resolve) =>
+            setTimeout(resolve, binaryProgressDelayMs),
+          );
+        if (!binaryProgress.done && binaryProgress.total !== null) {
+          binaryProgress = AppRPCSchemas.binaryProgress.result.parse({
+            ...binaryProgress,
+            downloaded: Math.min(
+              binaryProgress.total - 1,
+              binaryProgress.downloaded + 25,
+            ),
+          });
+        }
+        const value = AppRPCSchemas.binaryProgress.result.parse(
+          binaryProgress,
+        ) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "binaryDownload") {
+        binaryProgress = AppRPCSchemas.binaryProgress.result.parse({
+          downloaded: 0,
+          total: 100,
+          done: false,
+        });
+        if (downloadDelayMs > 0)
+          await new Promise((resolve) => setTimeout(resolve, downloadDelayMs));
+        if (initialSearch.get("binaryDownload") === "fail") {
+          binaryProgress = AppRPCSchemas.binaryProgress.result.parse({
+            ...binaryProgress,
+            done: true,
+          });
+          return {
+            ok: false,
+            error: {
+              code: "BINARY_DOWNLOAD_FAILED",
+              message: "CloakBrowser download failed: mock rejection.",
+            },
+          };
+        }
+        binaryInstalled = true;
+        binaryProgress = AppRPCSchemas.binaryProgress.result.parse({
+          downloaded: 100,
+          total: 100,
+          done: true,
+        });
+        const value = AppRPCSchemas.binaryDownload.result.parse(
+          overrides.binaryDownload ?? values.binaryDownload,
+        ) as BridgeResult<K>;
+        return { ok: true, value };
       }
       if (method === "licenseSet") hasLicense = true;
       if (method === "licenseClear") hasLicense = false;
@@ -419,6 +502,48 @@ export function createMockBridge(
         ]) as BridgeResult<K>;
         return { ok: true, value };
       }
+      if (method === "profilesList") {
+        profilesListCalls += 1;
+        if (
+          profilesListCalls > 1 &&
+          (profilesListControl === "changed-after-first" ||
+            profilesListControl === "fail-after-first")
+        ) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+        if (
+          profilesListControl === "fail-after-first" &&
+          profilesListCalls > 1
+        ) {
+          return {
+            ok: false,
+            error: {
+              code: "PROFILES_REFRESH_FAILED",
+              message: sensitiveFailureMessage,
+            },
+          };
+        }
+        if (
+          profilesListControl === "changed-after-first" &&
+          profilesListCalls > 1
+        ) {
+          const value = AppRPCSchemas.profilesList.result.parse([
+            {
+              ...profile,
+              name: "Remote refreshed profile",
+              cloud: {
+                ...profile.cloud,
+                current_session_id: liveSessions.some(
+                  (session) => session.profile_id === profile.id,
+                )
+                  ? `session-${profile.id}`
+                  : null,
+              },
+            },
+          ]) as BridgeResult<K>;
+          return { ok: true, value };
+        }
+      }
       if (method === "profilesList" && multi && !overrides.profilesList) {
         const value = AppRPCSchemas.profilesList.result.parse([
           {
@@ -449,7 +574,10 @@ export function createMockBridge(
         ]) as BridgeResult<K>;
         return { ok: true, value };
       }
-      if (method === "profilesList" && initialSearch.get("profileProxy") === "1") {
+      if (
+        method === "profilesList" &&
+        initialSearch.get("profileProxy") === "1"
+      ) {
         const assigned = {
           ...profile,
           proxy: (values.proxiesList as Array<Record<string, unknown>>)[0],
@@ -509,8 +637,26 @@ export function createMockBridge(
           10,
         );
         if (Number.isFinite(delay) && delay > 0)
-          await new Promise((resolve) => setTimeout(resolve, Math.min(delay, 2_000)));
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(delay, 2_000)),
+          );
         const profileId = (params as { profileId: string }).profileId;
+        if (sessionsStartControl === "reject") {
+          throw new Error(sensitiveFailureMessage);
+        }
+        if (
+          sessionsStartControl === "fail" ||
+          (sessionsStartControl === "fail-profile-2" &&
+            profileId === "profile-2")
+        ) {
+          return {
+            ok: false,
+            error: {
+              code: "SESSION_START_FAILED",
+              message: sensitiveFailureMessage,
+            },
+          };
+        }
         liveSessions = [
           ...liveSessions.filter((session) => session.profile_id !== profileId),
           {
@@ -528,7 +674,10 @@ export function createMockBridge(
           ) as BridgeResult<K>,
         };
       }
-      if (method === "proxiesChangeIp" && initialSearch.get("rotateUnverified") === "1") {
+      if (
+        method === "proxiesChangeIp" &&
+        initialSearch.get("rotateUnverified") === "1"
+      ) {
         return {
           ok: true,
           value: AppRPCSchemas.proxiesChangeIp.result.parse({
