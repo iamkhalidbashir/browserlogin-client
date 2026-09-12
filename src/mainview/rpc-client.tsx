@@ -52,7 +52,7 @@ export async function createElectrobunBridge(): Promise<Bridge> {
       params: BridgeParams<K>,
     ): Promise<RpcReply<BridgeResult<K>>> {
       const response =
-        method === "binaryDownload"
+        method === "binaryDownload" || method === "sessionsStart"
           ? await rpc.request(method, params, { maxRequestTime: Infinity })
           : await rpc.request(method, params);
       const parsed = RpcReplySchema.parse(response);

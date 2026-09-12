@@ -51,4 +51,26 @@ describe("Electrobun renderer RPC", () => {
       {},
     );
   });
+
+  test("keeps session starts alive while preserving the default timeout for other requests", async () => {
+    // Given
+    const bridge = await createElectrobunBridge();
+
+    // When
+    await bridge.request("sessionsStart", { profileId: "profile-1" });
+    await bridge.request("sessionsLive", {});
+
+    // Then
+    expect(electrobunMock.request).toHaveBeenNthCalledWith(
+      1,
+      "sessionsStart",
+      { profileId: "profile-1" },
+      { maxRequestTime: Infinity },
+    );
+    expect(electrobunMock.request).toHaveBeenNthCalledWith(
+      2,
+      "sessionsLive",
+      {},
+    );
+  });
 });
