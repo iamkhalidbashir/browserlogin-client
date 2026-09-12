@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense } from "react";
 import {
   NavLink,
   Navigate,
@@ -9,6 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useBridge } from "./rpc-client.js";
 import SetupView from "./features/setup/setup-view.js";
+import { StatusRefresh } from "./features/status/status-refresh.js";
 import { GUIDE_ROUTES } from "./guides/routes.js";
 import logoUrl from "../../resources/icons/browserlogin.png";
 
@@ -45,12 +46,6 @@ function LegacyRouteRedirect() {
 
 export function App() {
   const bridge = useBridge();
-  const [toast, setToast] = useState<string | null>(null);
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(null), 4_000);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
   const connection = useQuery({
     queryKey: ["connection"],
     queryFn: async () => {
@@ -180,12 +175,7 @@ export function App() {
               <span className="status-pill">Free</span>
               <span className="status-pill">Up to date</span>
             </div>
-            <button
-              className="button-secondary"
-              onClick={() => setToast("Status refreshed")}
-            >
-              Refresh status
-            </button>
+            <StatusRefresh />
           </header>
           <main id="main" className="p-4 md:p-7" tabIndex={-1}>
             <Suspense
@@ -216,22 +206,6 @@ export function App() {
           </main>
         </div>
       </div>
-      {toast ? (
-        <div
-          className="toast"
-          role="status"
-          aria-label="Status notification"
-          aria-live="polite"
-        >
-          <span>{toast}</span>
-          <button
-            onClick={() => setToast(null)}
-            aria-label="Dismiss notification"
-          >
-            ×
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

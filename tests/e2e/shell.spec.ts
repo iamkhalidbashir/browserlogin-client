@@ -1,6 +1,34 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const refreshSecret = "launch-secret";
+const refreshApiKey = "bl_launch_secret";
+const refreshUrl = "https://private.example.test/launch";
+const redactionMarker = "<redacted>";
+
+function observePageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
+
+async function queryCallCounts(page: Page) {
+  return page.evaluate(() => ({
+    connection: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "connectionGet",
+    ).length,
+    binary: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "binaryStatus",
+    ).length,
+    profiles: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "profilesList",
+    ).length,
+    sessions: (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "sessionsLive",
+    ).length,
+  }));
+}
 
 const routes = [
   ["Dashboard", "/dashboard"],
@@ -75,7 +103,7 @@ test("primary navigation and content are keyboard reachable", async ({
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 });
 
-test("status refreshed notification is announced and auto-dismisses", async ({
+test("status refresh notification is announced and auto-dismisses", async ({
   page,
 }) => {
   // Given
@@ -86,8 +114,71 @@ test("status refreshed notification is announced and auto-dismisses", async ({
 
   // Then
   const status = page.getByRole("status", { name: "Status notification" });
-  await expect(status).toContainText("Status refreshed");
+  await expect(status).toHaveAttribute("data-state", "success");
   await expect(status).toHaveCount(0, { timeout: 6_000 });
+});
+
+test("status refresh awaits every active query and updates the remote profile", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/dashboard?profilesList=changed-after-first");
+  await expect(
+    page.getByText("Research profile", { exact: true }),
+  ).toBeVisible();
+  const before = await queryCallCounts(page);
+
+  // When
+  await page.getByRole("button", { name: "Refresh status" }).click();
+
+  // Then
+  const pending = page.locator('[data-state="pending"]');
+  await expect(pending).toHaveAttribute("role", "status");
+  await expect(page.getByRole("button", { name: "Refreshing" })).toBeDisabled();
+  const success = page.locator('[data-state="success"]');
+  await expect(success).toHaveAttribute("role", "status");
+  await expect(
+    page.getByText("Remote refreshed profile", { exact: true }),
+  ).toBeVisible();
+  const after = await queryCallCounts(page);
+  expect(after).toEqual({
+    connection: before.connection + 1,
+    binary: before.binary + 1,
+    profiles: before.profiles + 1,
+    sessions: before.sessions + 1,
+  });
+  expect(pageErrors).toEqual([]);
+});
+
+test("status refresh reports a sanitized active-query failure", async ({
+  page,
+}) => {
+  // Given
+  const pageErrors = observePageErrors(page);
+  await page.goto("/dashboard?profilesList=fail-after-first");
+  await expect(
+    page.getByText("Research profile", { exact: true }),
+  ).toBeVisible();
+  const before = await queryCallCounts(page);
+
+  // When
+  await page.getByRole("button", { name: "Refresh status" }).click();
+
+  // Then
+  const failure = page.locator('[data-state="error"]');
+  await expect(failure).toHaveAttribute("role", "alert", { timeout: 15_000 });
+  const failureText = await failure.textContent();
+  const after = await queryCallCounts(page);
+  expect(after.connection).toBe(before.connection + 1);
+  expect(after.binary).toBe(before.binary + 1);
+  expect(after.profiles).toBeGreaterThan(before.profiles);
+  expect(after.sessions).toBe(before.sessions + 1);
+  expect(failureText).not.toContain(refreshSecret);
+  expect(failureText).not.toContain(refreshApiKey);
+  expect(failureText).not.toContain(refreshUrl);
+  expect(failureText).not.toContain(redactionMarker);
+  expect(pageErrors).toEqual([]);
 });
 
 test("system dark mode renders a dark application surface", async ({
