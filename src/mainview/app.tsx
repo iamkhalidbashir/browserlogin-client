@@ -59,7 +59,72 @@ export function App() {
       return result.value;
     },
   });
-  if (connection.data && !connection.data.hasApiKey) return <SetupView />;
+  const binary = useQuery({
+    queryKey: ["binary"],
+    enabled: connection.data?.hasApiKey === true,
+    queryFn: async () => {
+      const result = await bridge.request("binaryStatus", {});
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    },
+  });
+  if (connection.isPending)
+    return (
+      <SetupView
+        key="connection"
+        step="connection"
+        status={{ state: "pending" }}
+        onRetryStatus={() => void connection.refetch()}
+      />
+    );
+  if (connection.isError)
+    return (
+      <SetupView
+        key="connection"
+        step="connection"
+        status={{ state: "error", message: connection.error.message }}
+        onRetryStatus={() => void connection.refetch()}
+      />
+    );
+  if (!connection.data.hasApiKey)
+    return (
+      <SetupView
+        key="connection"
+        step="connection"
+        status={{ state: "required" }}
+        onRetryStatus={() => void connection.refetch()}
+      />
+    );
+  if (binary.isPending)
+    return (
+      <SetupView
+        key="runtime"
+        step="runtime"
+        status={{ state: "pending" }}
+        hasLicense={connection.data.hasLicense}
+        onRetryStatus={() => void binary.refetch()}
+      />
+    );
+  if (binary.isError)
+    return (
+      <SetupView
+        key="runtime"
+        step="runtime"
+        status={{ state: "error", message: binary.error.message }}
+        hasLicense={connection.data.hasLicense}
+        onRetryStatus={() => void binary.refetch()}
+      />
+    );
+  if (binary.data === null)
+    return (
+      <SetupView
+        key="runtime"
+        step="runtime"
+        status={{ state: "required" }}
+        hasLicense={connection.data.hasLicense}
+        onRetryStatus={() => void binary.refetch()}
+      />
+    );
   return (
     <div className="min-h-[100dvh] bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
       <a className="skip-link" href="#main">

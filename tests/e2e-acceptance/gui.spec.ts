@@ -12,8 +12,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
 }) => {
   await mkdir(evidence, { recursive: true });
 
-  // Setup navigation gating with a synthetic key only.
-  await page.goto("/?setup=1");
+  await page.goto("/?setup=1&binary=missing&downloadDelayMs=750");
   await expect(
     page.getByRole("heading", { name: "Connect BrowserLogin" }),
   ).toBeVisible();
@@ -24,17 +23,37 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   });
   await page.getByLabel("API key").fill("bl_test_key_value");
   await page.getByRole("button", { name: "Save and test" }).click();
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await page.getByLabel("License key").fill("license-test-key");
+  await page.getByRole("button", { name: "Install CloakBrowser" }).click();
+  await expect(page.getByRole("progressbar")).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
-  const connectionSet = await page.evaluate(() =>
-    window.__browserloginMockCalls?.find(
-      (call) => call.method === "connectionSet",
-    ),
+  const onboardingCalls = await page.evaluate(
+    () => window.__browserloginMockCalls ?? [],
   );
-  expect(connectionSet?.params).toMatchObject({
-    apiKey: "bl_test_key_value",
+  const connectionSet = onboardingCalls.find(
+    (call) => call.method === "connectionSet",
+  );
+  const licenseSetIndex = onboardingCalls.findIndex(
+    (call) => call.method === "licenseSet",
+  );
+  const binaryDownloadIndex = onboardingCalls.findIndex(
+    (call) => call.method === "binaryDownload",
+  );
+  expect(connectionSet?.params).toEqual({
+    appOrigin: "https://example-1.app-csite-env.sapps.co",
+    apiKey: "[REDACTED]",
+  });
+  expect(licenseSetIndex).toBeGreaterThanOrEqual(0);
+  expect(binaryDownloadIndex).toBeGreaterThan(licenseSetIndex);
+  expect(onboardingCalls[licenseSetIndex]?.params).toEqual({
+    licenseKey: "[REDACTED]",
+  });
+  expect(onboardingCalls[binaryDownloadIndex]?.params).toEqual({
+    advancedEnabled: false,
+    source: "license",
   });
 
-  await page.goto("/profiles?binary=missing");
   await expect(
     page.getByRole("button", { name: "Launch", exact: true }),
   ).toBeVisible();
@@ -44,34 +63,15 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   });
 
   await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByText("Profile activity")).toHaveCount(0);
-  await page.screenshot({
-    path: join(evidence, "03-launch-requires-init.png"),
-    fullPage: true,
-  });
-
-  await page.goto("/settings?downloadDelayMs=750");
-  await page.getByRole("button", { name: "Install latest Free" }).click();
-  await expect(page.getByRole("status")).toContainText("installed and active");
-  const initializationMethods = await page.evaluate(
-    () => window.__browserloginMockCalls?.map((call) => call.method) ?? [],
-  );
-  expect(initializationMethods).toContain("binaryDownload");
-  await page.screenshot({
-    path: join(evidence, "04-browser-initialized.png"),
-    fullPage: true,
-  });
-
-  await page.goto("/profiles");
-  await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Live sessions" }),
+  ).toBeVisible();
   const methods = await page.evaluate(
     () => window.__browserloginMockCalls?.map((call) => call.method) ?? [],
   );
   const binaryStatusIndex = methods.indexOf("binaryStatus");
   const sessionsStartIndex = methods.indexOf("sessionsStart");
   expect(binaryStatusIndex).toBeGreaterThanOrEqual(0);
-  expect(methods).not.toContain("binaryDownload");
   expect(sessionsStartIndex).toBeGreaterThan(binaryStatusIndex);
 
   // Visible running session on the dashboard.

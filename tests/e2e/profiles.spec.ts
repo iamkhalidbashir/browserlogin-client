@@ -5,10 +5,13 @@ import { expect, test } from "@playwright/test";
 const evidence =
   process.env.BROWSERLOGIN_EVIDENCE_DIR ?? join(process.cwd(), "test-results");
 
-test("setup gate blocks navigation until connection succeeds", async ({
+test("setup gate blocks navigation until connection and runtime setup succeed", async ({
   page,
 }) => {
-  await page.goto("/?setup=1");
+  // Given
+  await page.goto(
+    "/?setup=1&binary=missing&downloadDelayMs=2000&binaryProgressDelayMs=500",
+  );
   await expect(
     page.getByRole("heading", { name: "Connect BrowserLogin" }),
   ).toBeVisible();
@@ -18,8 +21,98 @@ test("setup gate blocks navigation until connection succeeds", async ({
     fullPage: true,
   });
   await expect(page.getByRole("navigation")).toHaveCount(0);
+
+  // When
   await page.getByLabel("API key").fill("bl_test_key_value");
   await page.getByRole("button", { name: "Save and test" }).click();
+
+  // Then
+  await expect(page.getByLabel("License key")).toBeVisible();
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+
+  // When
+  await page.getByLabel("License key").fill("license-test-key");
+  await page.getByRole("button", { name: "Install CloakBrowser" }).click();
+
+  // Then
+  const progress = page.getByRole("progressbar");
+  await expect(progress).toBeVisible();
+  await expect(progress).not.toHaveAttribute("value");
+  await expect(progress).toHaveAttribute("value", /\d+/);
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("license-test-key");
+  const calls = await page.evaluate(() => window.__browserloginMockCalls ?? []);
+  const savedConnectionAt = calls.findIndex(
+    (item) => item.method === "connectionSet",
+  );
+  const savedLicenseAt = calls.findIndex(
+    (item) => item.method === "licenseSet",
+  );
+  const downloadedAt = calls.findIndex(
+    (item) => item.method === "binaryDownload",
+  );
+  expect(savedConnectionAt).toBeGreaterThanOrEqual(0);
+  expect(savedLicenseAt).toBeGreaterThan(savedConnectionAt);
+  expect(downloadedAt).toBeGreaterThan(savedLicenseAt);
+  expect(calls[savedConnectionAt]?.params).toEqual({
+    appOrigin: "https://example-1.app-csite-env.sapps.co",
+    apiKey: "[REDACTED]",
+  });
+  expect(calls[savedLicenseAt]?.params).toEqual({
+    licenseKey: "[REDACTED]",
+  });
+  expect(calls[downloadedAt]?.params).toEqual({
+    advancedEnabled: false,
+    source: "license",
+  });
+  expect(calls.some((item) => item.method === "binaryProgress")).toBe(true);
+});
+
+test("failed runtime download stays gated and retries without storing the license again", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/?setup=1&binary=missing&binaryDownload=fail");
+  await page.getByLabel("API key").fill("bl_test_key_value");
+  await page.getByRole("button", { name: "Save and test" }).click();
+  await page.getByLabel("License key").fill("license-test-key");
+
+  // When
+  await page.getByRole("button", { name: "Install CloakBrowser" }).click();
+
+  // Then
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await expect(page.getByLabel("License key")).toHaveCount(0);
+  const retry = page.getByRole("button", { name: "Retry download" });
+  await expect(retry).toBeVisible();
+  await expect(page.getByRole("alert")).toContainText(
+    "CloakBrowser download failed",
+  );
+
+  // When
+  await retry.click();
+
+  // Then
+  const calls = await page.evaluate(() => window.__browserloginMockCalls ?? []);
+  expect(calls.filter((item) => item.method === "licenseSet")).toHaveLength(1);
+  expect(calls.filter((item) => item.method === "binaryDownload")).toHaveLength(
+    2,
+  );
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+});
+
+test("pending runtime status never exposes the application shell", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/dashboard?binaryStatusDelayMs=450");
+
+  // Then
+  await expect(page.getByRole("navigation")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Install CloakBrowser" }),
+  ).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
 });
 
@@ -52,8 +145,9 @@ test("rejected connection test after a successful save keeps the saved connectio
   const testedAt = calls.findIndex((item) => item.method === "connectionTest");
   expect(savedAt).toBeGreaterThanOrEqual(0);
   expect(testedAt).toBeGreaterThan(savedAt);
-  expect(calls[savedAt]?.params).toMatchObject({
-    apiKey: "bl_test_fake_rejected_test_key",
+  expect(calls[savedAt]?.params).toEqual({
+    appOrigin: "https://example-1.app-csite-env.sapps.co",
+    apiKey: "[REDACTED]",
   });
   await expect(saveButton).toBeVisible();
   await apiKey.fill("bl_test_fake_retry_key");
@@ -138,13 +232,17 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   await expect(page.getByText("No local sessions are running.")).toBeVisible();
 });
 
-test("launch directs an uninitialized browser to Settings without downloading", async ({
+test("direct profile navigation stays gated when the runtime is missing", async ({
   page,
 }) => {
+  // Given
   await page.goto("/profiles?binary=missing");
-  await page.getByRole("button", { name: "Launch", exact: true }).click();
-  await expect(page.getByText("Profile activity")).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Open Settings to initialize CloakBrowser" })).toHaveCount(0);
+
+  // Then
+  await expect(
+    page.getByRole("heading", { name: "Install CloakBrowser" }),
+  ).toBeVisible();
+  await expect(page.getByRole("navigation")).toHaveCount(0);
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
     path: join(evidence, "profiles-binary-required.png"),

@@ -99,11 +99,48 @@ button:disabled {
 .field input,
 .field select {
   width: 100%;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--color-zinc-500);
   border-radius: 0.55rem;
   background: #18181b;
   padding: 0.6rem 0.7rem;
-  color: inherit;
+  color: var(--color-zinc-50);
+}
+.runtime-progress {
+  height: 0.625rem;
+  overflow: hidden;
+  appearance: none;
+  border: 1px solid var(--color-zinc-500);
+  border-radius: 999px;
+  background: var(--color-zinc-800);
+}
+.runtime-progress::-webkit-progress-bar {
+  background: var(--color-zinc-800);
+}
+.runtime-progress::-webkit-progress-value {
+  background: var(--color-emerald-400);
+}
+.runtime-progress::-moz-progress-bar {
+  background: var(--color-emerald-400);
+}
+.runtime-progress:indeterminate {
+  animation: runtime-progress-pulse 1.2s ease-in-out infinite;
+}
+.runtime-progress:indeterminate::-webkit-progress-bar {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-zinc-800) 0 0.5rem,
+    var(--color-emerald-400) 0.5rem 1rem
+  );
+}
+.runtime-progress:indeterminate::-webkit-progress-value {
+  background: transparent;
+}
+.runtime-progress:indeterminate::-moz-progress-bar {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-zinc-800) 0 0.5rem,
+    var(--color-emerald-400) 0.5rem 1rem
+  );
 }
 .field {
   display: grid;
@@ -261,6 +298,16 @@ button:disabled {
     background-position: -200% 0;
   }
 }
+@keyframes runtime-progress-pulse {
+  50% {
+    opacity: 0.65;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .runtime-progress:indeterminate {
+    animation: none;
+  }
+}
 .session-row {
   display: grid;
   gap: 1rem;
@@ -323,12 +370,45 @@ button:disabled {
   .metric-card span {
     color: #71717a;
   }
+  .field {
+    color: var(--color-zinc-600);
+  }
   .input,
   .field input,
-  .field select,
+  .field select {
+    border-color: var(--color-zinc-500);
+    background: #fff;
+    color: var(--color-zinc-950);
+  }
   .drawer-card {
     border-color: #d4d4d8;
     background: #fff;
+  }
+  .runtime-progress {
+    background: var(--color-zinc-200);
+  }
+  .runtime-progress::-webkit-progress-bar {
+    background: var(--color-zinc-200);
+  }
+  .runtime-progress::-webkit-progress-value {
+    background: var(--color-emerald-800);
+  }
+  .runtime-progress::-moz-progress-bar {
+    background: var(--color-emerald-800);
+  }
+  .runtime-progress:indeterminate::-webkit-progress-bar {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--color-zinc-200) 0 0.5rem,
+      var(--color-emerald-800) 0.5rem 1rem
+    );
+  }
+  .runtime-progress:indeterminate::-moz-progress-bar {
+    background: repeating-linear-gradient(
+      135deg,
+      var(--color-zinc-200) 0 0.5rem,
+      var(--color-emerald-800) 0.5rem 1rem
+    );
   }
   .data-table th,
   .data-table td {
