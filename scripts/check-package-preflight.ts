@@ -4,13 +4,18 @@ import { join, relative } from "node:path";
 const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const prohibitedPayload =
   /(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)/i;
+const allowedPlaywrightChromiumSource =
+  /(^|[\\/])app[\\/]runner[\\/]node_modules[\\/]playwright-core[\\/]lib[\\/]server[\\/]chromium(?:$|[\\/][^\\/]+\.(?:js|png)$)/;
 const allowedLargeFile = /^(bun|bun\.exe|browserlogin-browser-tools-(macos-arm64|linux-x64|windows-x64)(\.exe)?)$/;
 
 async function checkTree(root: string, directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const path = join(directory, entry.name);
     const displayPath = relative(root, path);
-    if (prohibitedPayload.test(displayPath))
+    if (
+      prohibitedPayload.test(displayPath) &&
+      !allowedPlaywrightChromiumSource.test(displayPath)
+    )
       throw new Error(`prohibited browser payload path: ${displayPath}`);
     if (entry.isDirectory()) {
       await checkTree(root, path);
