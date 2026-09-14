@@ -67,6 +67,19 @@ describe("release asset contract", () => {
     expect(applicationBuild).not.toContain("hutch electrobun build");
   });
 
+  test("builds the runner child before Electrobun packages the application", () => {
+    // Given: the production application packaging step.
+    const applicationBuild = workflowStep(
+      "Build signed and notarized Electrobun application",
+    );
+
+    // When: its commands are evaluated in execution order.
+    // Then: the runner bundle is built before Electrobun consumes application assets.
+    expect(applicationBuild).toMatch(
+      /bun run build:runner-child[\s\S]*bun scripts\/electrobun\.ts build --env=stable/,
+    );
+  });
+
   test("builds Linux on the supported minimum runner", () => {
     expect(workflow).toContain(
       "target: linux-x64\n            runner: ubuntu-24.04",

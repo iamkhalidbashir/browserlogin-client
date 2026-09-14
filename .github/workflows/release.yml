@@ -248,7 +248,9 @@ jobs:
         run: bun run build:web
 
       - name: Build signed and notarized Electrobun application
-        run: bun scripts/electrobun.ts build --env=stable
+        run: |
+          bun run build:runner-child
+          bun scripts/electrobun.ts build --env=stable
 
       - name: Add guarded Windows installer entrypoint
         if: runner.os == 'Windows'
