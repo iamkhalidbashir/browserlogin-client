@@ -1,7 +1,19 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { cp, mkdir, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const outputDirectory = join(process.cwd(), "dist", "runner");
+const cloakBrowserEntrypoint = import.meta.resolve("cloakbrowser");
+const playwrightDirectory = dirname(
+  createRequire(cloakBrowserEntrypoint).resolve("playwright-core/package.json"),
+);
+const copiedPlaywrightDirectory = join(
+  outputDirectory,
+  "node_modules",
+  "playwright-core",
+);
+
+await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
 
 const child = Bun.spawn(
@@ -15,9 +27,22 @@ const child = Bun.spawn(
     "chromium-bidi/*",
     "--external",
     "electron",
+    "--external",
+    "playwright-core",
+    "--external",
+    "playwright-core/*",
     "--outdir",
     outputDirectory,
   ],
   { cwd: process.cwd(), stdin: "ignore", stdout: "inherit", stderr: "inherit" },
 );
 if ((await child.exited) !== 0) throw new Error("runner child build failed");
+await cp(
+  playwrightDirectory,
+  copiedPlaywrightDirectory,
+  { recursive: true },
+);
+await rm(join(copiedPlaywrightDirectory, "bin"), {
+  recursive: true,
+  force: true,
+});
