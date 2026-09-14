@@ -305,11 +305,14 @@ jobs:
               r"(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)",
               re.IGNORECASE,
           )
+          allowed_playwright = re.compile(
+              r"(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)"
+          )
           allowed_large = re.compile(r"^browserlogin-browser-tools-(macos-arm64|linux-x64)$")
           for base, dirs, files in os.walk(root, followlinks=False):
               for name in dirs + files:
-                  relative = os.path.relpath(os.path.join(base, name), root)
-                  if prohibited.search(relative):
+                  relative = os.path.relpath(os.path.join(base, name), root).replace(os.sep, "/")
+                  if prohibited.search(relative) and not allowed_playwright.search(relative):
                       raise SystemExit(f"prohibited browser payload path: {relative}")
               for name in files:
                   path = os.path.join(base, name)
@@ -452,9 +455,13 @@ jobs:
           $entrypoint = Join-Path $installerDir "Install-BrowserLogin.cmd"
           if (-not (Test-Path $entrypoint -PathType Leaf)) { throw "Missing guarded Windows installer entrypoint" }
           if (-not (Test-Path (Join-Path $installerDir ".installer\BrowserLogin-Setup.tar.zst") -PathType Leaf)) { throw "Missing Windows installer payload" }
-          $archiveListing = ($updateListing + $installerListing) -join "`n"
-          if ($archiveListing -match '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)') {
-            throw "Browser executable found in Windows release archives"
+          $prohibited = '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)'
+          $allowedPlaywright = '(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)'
+          $allowedPlaywrightWindows = '(^|[\\/])app[\\/]runner[\\/]node_modules[\\/]playwright-core[\\/]lib[\\/]server[\\/]chromium(?:$|[\\/][^\\/]+\.(?:js|png)$)'
+          foreach ($archivePath in $updateListing + $installerListing) {
+            if ($archivePath -match $prohibited -and $archivePath -notmatch $allowedPlaywright -and $archivePath -notmatch $allowedPlaywrightWindows) {
+              throw "Browser executable found in Windows release archives"
+            }
           }
           $allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")
           Get-ChildItem $smokeDir -Recurse -File | ForEach-Object {

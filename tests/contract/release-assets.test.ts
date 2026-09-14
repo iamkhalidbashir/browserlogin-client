@@ -11,6 +11,8 @@ const packageManifest = await readFile("package.json", "utf8");
 const hutchConfig = await readFile("hutch.config.ts", "utf8");
 const electrobunWrapper = await readFile("scripts/electrobun.ts", "utf8");
 const electrobunConfig = await readFile("electrobun.config.ts", "utf8");
+const playwrightChromiumSourceAllowance =
+  String.raw`(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)`;
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
@@ -177,6 +179,29 @@ describe("release asset contract", () => {
     );
     expect(workflowStep("Validate and stage Windows artifacts")).toContain(
       '$allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")',
+    );
+  });
+
+  test("uses the same precise Playwright Chromium source allowance on every release platform", () => {
+    // Given: the macOS/Linux and Windows expanded-release validators.
+    const nativeArtifacts = workflowStep(
+      "Validate and stage macOS/Linux artifacts",
+    );
+    const windowsArtifacts = workflowStep("Validate and stage Windows artifacts");
+
+    // When: their Playwright exceptions are inspected.
+    // Then: both encode the exact immediate JavaScript/resource-file allowance.
+    expect(nativeArtifacts).toContain(
+      `r"${playwrightChromiumSourceAllowance}"`,
+    );
+    expect(nativeArtifacts).toContain(
+      "prohibited.search(relative) and not allowed_playwright.search(relative)",
+    );
+    expect(windowsArtifacts).toContain(
+      `$allowedPlaywright = '${playwrightChromiumSourceAllowance}'`,
+    );
+    expect(windowsArtifacts).toContain(
+      "$archivePath -match $prohibited -and $archivePath -notmatch $allowedPlaywright",
     );
   });
 
