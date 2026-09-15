@@ -12,7 +12,7 @@ const hutchConfig = await readFile("hutch.config.ts", "utf8");
 const electrobunWrapper = await readFile("scripts/electrobun.ts", "utf8");
 const electrobunConfig = await readFile("electrobun.config.ts", "utf8");
 const playwrightChromiumSourceAllowance =
-  String.raw`(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)`;
+  String.raw`(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:/?$|/[^/]+\.(?:js|png)$)`;
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
@@ -137,7 +137,9 @@ describe("release asset contract", () => {
     for (const asset of stableAssets) expect(publishUpdater).toContain(asset);
     expect(publishUpdater).toContain("production-*.patch");
     expect(publishUpdater).not.toContain("tagged-release");
-    expect(workflow).toContain("!contains(github.ref_name, '+')");
+    expect(workflow).toContain(
+      '[[ "$release_tag" != *-* && "$release_tag" != *+* ]]',
+    );
     expect(
       workflowStep("Guard stable version and save rollback assets"),
     ).not.toContain("--pattern 'production-*'");
@@ -163,7 +165,7 @@ describe("release asset contract", () => {
       workflowStep("Restore stable after publication failure"),
     ).not.toContain("--pattern 'production-*'");
     expect(publishUpdater).toContain(
-      'gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --latest',
+      'gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --latest',
     );
     expect(
       workflowStep("Guard stable version and save rollback assets"),
@@ -205,6 +207,56 @@ describe("release asset contract", () => {
     );
     expect(windowsArtifacts).toContain(
       "$archivePath -match $prohibited -and $archivePath -notmatch $allowedPlaywright",
+    );
+    const allowance = new RegExp(playwrightChromiumSourceAllowance);
+    expect(
+      allowance.test(
+        "BrowserLogin/Resources/app/runner/node_modules/playwright-core/lib/server/chromium/",
+      ),
+    ).toBe(true);
+    expect(
+      allowance.test(
+        "BrowserLogin/Resources/app/runner/node_modules/playwright-core/chrome.exe",
+      ),
+    ).toBe(false);
+    expect(windowsArtifacts).toContain(
+      'throw "Browser executable found in Windows release archives: $archivePath"',
+    );
+  });
+
+  test("uses the canonical Linux icon after runner preparation", () => {
+    const nativeArtifacts = workflowStep(
+      "Validate and stage macOS/Linux artifacts",
+    );
+    expect(nativeArtifacts).toContain(
+      'icon="resources/icons/browserlogin.png"',
+    );
+    expect(nativeArtifacts).not.toContain("appIcon-*.png");
+  });
+
+  test("repairs an existing release from its immutable tag commit", () => {
+    expect(workflow).toContain("publish_release:");
+    expect(workflow).toContain(
+      "release_sha: ${{ steps.release.outputs.release_sha }}",
+    );
+    expect(workflow).toContain(
+      "ref: ${{ needs.prepare.outputs.release_sha }}",
+    );
+    expect(workflow).toContain(
+      '[[ "$DISPATCH_REF_NAME" == "$DEFAULT_BRANCH" ]]',
+    );
+    expect(workflow).toContain(
+      '[[ "$tag_type" == tag ]]',
+    );
+    expect(publishRelease).toContain(
+      "if: needs.prepare.outputs.publish_release == 'true'",
+    );
+    expect(publishRelease).toContain('gh release create "$RELEASE_TAG"');
+    expect(publishUpdater).toContain(
+      "needs.prepare.outputs.stable_release == 'true'",
+    );
+    expect(publishUpdater).toContain(
+      'test "$latest_tag" = "$RELEASE_TAG"',
     );
   });
 

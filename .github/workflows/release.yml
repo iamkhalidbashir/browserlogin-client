@@ -7,10 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Version used by the failure-injection build drill
+        description: Version used by a failure drill or immutable-tag repair
         required: false
         default: v0.1.0-failure-drill
         type: string
+      publish_release:
+        description: Publish an existing annotated tag from the default branch
+        required: false
+        default: false
+        type: boolean
       fail_target:
         description: Fail one matrix target after tests and before packaging
         required: false
@@ -36,10 +41,67 @@ env:
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
 
 jobs:
+  prepare:
+    name: prepare-release
+    runs-on: ubuntu-24.04
+    outputs:
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      release_sha: ${{ steps.release.outputs.release_sha }}
+      publish_release: ${{ steps.release.outputs.publish_release }}
+      stable_release: ${{ steps.release.outputs.stable_release }}
+    steps:
+      - name: Checkout workflow source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release request
+        id: release
+        env:
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
+          MANUAL_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          DISPATCH_REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            release_tag="$GITHUB_REF_NAME"
+            release_sha="$GITHUB_SHA"
+            publish_release=true
+          else
+            release_tag="$MANUAL_RELEASE_TAG"
+            release_sha="$GITHUB_SHA"
+            publish_release="${MANUAL_PUBLISH_RELEASE:-false}"
+          fi
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          [[ "$release_tag" =~ $semver ]] || { echo "release tag must be v-prefixed SemVer" >&2; exit 2; }
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$publish_release" == true ]]; then
+            [[ "$DISPATCH_REF_NAME" == "$DEFAULT_BRANCH" ]] || { echo "manual publication must run from the default branch" >&2; exit 2; }
+            tag_type="$(git cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)"
+            [[ "$tag_type" == tag ]] || { echo "manual publication requires an existing annotated tag" >&2; exit 2; }
+            release_sha="$(git rev-parse "refs/tags/$release_tag^{commit}")"
+          fi
+          stable_release=false
+          if [[ "$release_tag" != *-* && "$release_tag" != *+* ]]; then
+            stable_release=true
+          fi
+          {
+            echo "release_tag=$release_tag"
+            echo "release_version=${release_tag#v}"
+            echo "release_sha=$release_sha"
+            echo "publish_release=$publish_release"
+            echo "stable_release=$stable_release"
+          } >> "$GITHUB_OUTPUT"
+
   build:
     name: build-${{ matrix.target }}
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +133,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.release_sha }}
+
+      - name: Verify release source
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = '${{ needs.prepare.outputs.release_sha }}'
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
@@ -147,22 +215,6 @@ jobs:
           echo "ELECTROBUN_APPLEAPIISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
           echo "ELECTROBUN_APPLEAPIKEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
           echo "ELECTROBUN_APPLEAPIKEYPATH=$api_key" >> "$GITHUB_ENV"
-
-      - name: Resolve release version
-        env:
-          MANUAL_RELEASE_TAG: ${{ inputs.release_tag }}
-        shell: bash
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            release_tag="$GITHUB_REF_NAME"
-          else
-            release_tag="$MANUAL_RELEASE_TAG"
-          fi
-          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
-          [[ "$release_tag" =~ $semver ]] || { echo "release tag must be v-prefixed SemVer" >&2; exit 2; }
-          release_version="${release_tag#v}"
-          echo "RELEASE_TAG=$release_tag" >> "$GITHUB_ENV"
-          echo "RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
 
       - name: Align package and Electrobun versions
         shell: bash
@@ -306,7 +358,7 @@ jobs:
               re.IGNORECASE,
           )
           allowed_playwright = re.compile(
-              r"(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)"
+              r"(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:/?$|/[^/]+\.(?:js|png)$)"
           )
           allowed_large = re.compile(r"^browserlogin-browser-tools-(macos-arm64|linux-x64)$")
           for base, dirs, files in os.walk(root, followlinks=False):
@@ -391,8 +443,8 @@ jobs:
               desktop="$appdir/BrowserLogin.desktop"
               sed -i 's#^Exec=.*#Exec=AppRun#' "$desktop"
               sed -i 's#^Icon=.*#Icon=BrowserLogin#' "$desktop"
-              icon="$(find "$appdir/Resources/app/runner" -type f -name 'appIcon-*.png' -print -quit)"
-              test -n "$icon"
+              icon="resources/icons/browserlogin.png"
+              test -f "$icon"
               cp "$icon" "$appdir/BrowserLogin.png"
               appimage="release/BrowserLogin-${RELEASE_VERSION}-linux-x64.AppImage"
               APPIMAGE_EXTRACT_AND_RUN=1 "$APPIMAGETOOL" "$appdir" "$appimage"
@@ -456,11 +508,11 @@ jobs:
           if (-not (Test-Path $entrypoint -PathType Leaf)) { throw "Missing guarded Windows installer entrypoint" }
           if (-not (Test-Path (Join-Path $installerDir ".installer\BrowserLogin-Setup.tar.zst") -PathType Leaf)) { throw "Missing Windows installer payload" }
           $prohibited = '(^|[^a-z0-9])(chromium|chrome|cloakbrowser|chrome-headless-shell|chromium-headless-shell|chrome-sandbox|icudtl\.dat|resources\.pak|snapshot_blob\.bin|v8_context_snapshot\.bin|widevinecdm)([^a-z0-9]|$)'
-          $allowedPlaywright = '(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:$|/[^/]+\.(?:js|png)$)'
-          $allowedPlaywrightWindows = '(^|[\\/])app[\\/]runner[\\/]node_modules[\\/]playwright-core[\\/]lib[\\/]server[\\/]chromium(?:$|[\\/][^\\/]+\.(?:js|png)$)'
+          $allowedPlaywright = '(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:/?$|/[^/]+\.(?:js|png)$)'
+          $allowedPlaywrightWindows = '(^|[\\/])app[\\/]runner[\\/]node_modules[\\/]playwright-core[\\/]lib[\\/]server[\\/]chromium(?:[\\/]?$|[\\/][^\\/]+\.(?:js|png)$)'
           foreach ($archivePath in $updateListing + $installerListing) {
             if ($archivePath -match $prohibited -and $archivePath -notmatch $allowedPlaywright -and $archivePath -notmatch $allowedPlaywrightWindows) {
-              throw "Browser executable found in Windows release archives"
+              throw "Browser executable found in Windows release archives: $archivePath"
             }
           }
           $allowedLarge = @("browserlogin-browser-tools-windows-x64.exe", "bun.exe")
@@ -510,17 +562,25 @@ jobs:
 
   publish-release:
     name: publish-tagged-release
-    if: github.event_name == 'push'
-    needs: build
+    if: needs.prepare.outputs.publish_release == 'true'
+    needs:
+      - prepare
+      - build
     runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+      RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
     permissions:
       contents: write
     concurrency:
-      group: ${{ github.workflow }}-tag-${{ github.ref_name }}
+      group: ${{ github.workflow }}-tag-${{ needs.prepare.outputs.release_tag }}
       cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ needs.prepare.outputs.release_sha }}
 
       - name: Install pinned Bun release binary
         shell: bash
@@ -568,7 +628,7 @@ jobs:
       - name: Stage tagged release assets
         shell: bash
         run: |
-          release_version="${GITHUB_REF_NAME#v}"
+          release_version="$RELEASE_VERSION"
           tagged_release="tagged-release"
           mkdir -p "$tagged_release"
 
@@ -617,7 +677,7 @@ jobs:
       - name: Enforce tagged release allowlist
         shell: bash
         run: |
-          release_version="${GITHUB_REF_NAME#v}"
+          release_version="$RELEASE_VERSION"
           required=(
             BrowserLogin-${release_version}-macos-arm64.dmg
             BrowserLogin-${release_version}-windows-x64-Setup.zip
@@ -647,27 +707,32 @@ jobs:
         shell: bash
         run: |
           prerelease=()
-          if [[ "$GITHUB_REF_NAME" == *-* ]]; then prerelease+=(--prerelease); fi
-          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
+          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "versioned release already exists; refusing to replace immutable assets" >&2
             exit 1
           fi
           release_files=(tagged-release/*)
-          gh release create "$GITHUB_REF_NAME" "${release_files[@]}" \
+          gh release create "$RELEASE_TAG" "${release_files[@]}" \
             -R "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --title "BrowserLogin ${GITHUB_REF_NAME}" \
+            --title "BrowserLogin ${RELEASE_TAG}" \
             --generate-notes \
             --latest=false \
             "${prerelease[@]}"
 
   publish-updater:
     name: publish-stable-updater
-    if: github.event_name == 'push' && !contains(github.ref_name, '-') && !contains(github.ref_name, '+')
+    if: needs.prepare.outputs.publish_release == 'true' && needs.prepare.outputs.stable_release == 'true'
     needs:
+      - prepare
       - build
       - publish-release
     runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+      RELEASE_SHA: ${{ needs.prepare.outputs.release_sha }}
     permissions:
       contents: write
     concurrency:
@@ -693,7 +758,7 @@ jobs:
             test -f "$manifest"
             (cd release && sha256sum -c "$(basename "$manifest")")
           done
-          expected_version="${GITHUB_REF_NAME#v}"
+          expected_version="$RELEASE_VERSION"
           metadata=(
             release/stable-macos-arm64-update.json
             release/stable-win-x64-update.json
@@ -790,7 +855,7 @@ jobs:
               fi
             done
             current_version="$(jq -r '.version' "$rollback_dir/stable-macos-arm64-update.json")"
-            candidate_version="${GITHUB_REF_NAME#v}"
+            candidate_version="$RELEASE_VERSION"
             if [[ "$current_version" == "$candidate_version" ]]; then
               if [[ "$candidate_patches_complete" != 1 ]]; then
                 echo "candidate patch missing from stable retry; republishing stable assets"
@@ -837,7 +902,7 @@ jobs:
             echo "STABLE_CREATED=1" >> "$GITHUB_ENV"
             gh release create stable \
               -R "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
+              --target "$RELEASE_SHA" \
               --title "BrowserLogin stable updater channel" \
               --notes "Rolling updater assets. Installers remain on versioned releases." \
               --latest=false \
@@ -875,7 +940,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          expected_version="${GITHUB_REF_NAME#v}"
+          expected_version="$RELEASE_VERSION"
           verify_dir="$RUNNER_TEMP/stable-verification"
           mkdir -p "$verify_dir"
           for name in \
@@ -965,6 +1030,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --latest
+          gh release edit "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --latest
           latest_tag="$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)"
-          test "$latest_tag" = "$GITHUB_REF_NAME"
+          test "$latest_tag" = "$RELEASE_TAG"
