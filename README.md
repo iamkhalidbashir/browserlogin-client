@@ -303,7 +303,7 @@ The app checks the rolling `stable` release metadata. Unsigned automatic apply w
 
 ## Development
 
-Requirements: Bun `1.2.23`, Hutch, and the native dependencies shown in CI. The
+Requirements: Bun `1.4.0`, Hutch, and the native dependencies shown in CI. The
 development commands resolve Hutch from `HUTCH_BIN`, then
 `~/.hutch/bin/hutch`, then `PATH`.
 
