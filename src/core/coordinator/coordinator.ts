@@ -1081,12 +1081,20 @@ export class LifecycleCoordinator {
     state: RecoveryState,
     preserveCache = false,
   ): Promise<void> {
+    const archiveArtifacts = new Set([
+      assertStatePath(
+        this.options.root,
+        join(this.options.root, "artifacts", `${state.run_id}.zip`),
+      ),
+    ]);
+    if (state.archive_artifact)
+      archiveArtifacts.add(
+        assertStatePath(this.options.root, state.archive_artifact),
+      );
     await Promise.all([
-      state.archive_artifact
-        ? rm(assertStatePath(this.options.root, state.archive_artifact), {
-            force: true,
-          })
-        : undefined,
+      ...Array.from(archiveArtifacts, (artifact) =>
+        rm(artifact, { force: true }),
+      ),
       rm(assertStatePath(this.options.root, state.work_dir), {
         recursive: true,
         force: true,
@@ -1109,9 +1117,6 @@ export class LifecycleCoordinator {
         force: true,
       }),
       rm(join(this.options.root, "ready", `${state.run_id}.ready`), {
-        force: true,
-      }),
-      rm(join(this.options.root, "artifacts", `${state.run_id}.zip`), {
         force: true,
       }),
     ]);
