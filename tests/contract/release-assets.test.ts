@@ -55,7 +55,10 @@ describe("release asset contract", () => {
       '"electrobun:sync": "bun scripts/electrobun-sync.ts"',
     );
     expect(packageManifest).toContain(
-      '"dev": "bun run electrobun:sync && bun run build:web',
+      '"prepare:dev": "bun run electrobun:sync && bun run build:web && bun run build:browser-tools-helper && bun run build:runner-child"',
+    );
+    expect(packageManifest).toContain(
+      '"dev": "bun run prepare:dev && bun scripts/electrobun.ts dev"',
     );
   });
 

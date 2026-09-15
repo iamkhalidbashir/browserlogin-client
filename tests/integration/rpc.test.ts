@@ -9,6 +9,50 @@ const roots: string[] = [];
 const children: ChildProcess[] = [];
 const generated: string[] = [];
 
+async function prepareDev(): Promise<void> {
+  const child = spawn(BUN, ["run", "prepare:dev"], {
+    cwd: process.cwd(),
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  children.push(child);
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    stdout = `${stdout}${chunk}`.slice(-32_768);
+  });
+  child.stderr?.setEncoding("utf8");
+  child.stderr?.on("data", (chunk: string) => {
+    stderr = `${stderr}${chunk}`.slice(-32_768);
+  });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `Task 25 dev preparation timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    }, 30_000);
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `Task 25 dev preparation failed with code ${String(code)} and signal ${String(signal)}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+        ),
+      );
+    });
+  });
+}
+
 async function linuxProcessSnapshot(pid: number): Promise<string> {
   if (process.platform !== "linux") return "not-linux";
   try {
@@ -133,9 +177,10 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
         else throw error;
       }
     }
+    await prepareDev();
     const root = await mkdtemp(join(tmpdir(), "browserlogin-task25-"));
     roots.push(root);
-    const child = spawn(BUN, ["run", "dev"], {
+    const child = spawn(BUN, ["scripts/electrobun.ts", "dev"], {
       cwd: process.cwd(),
       detached: process.platform !== "win32",
       env: {
