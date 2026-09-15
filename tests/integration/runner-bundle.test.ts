@@ -184,18 +184,22 @@ describe("runner child bundle", () => {
           stdio: ["ignore", "ignore", diagnostic.fd],
         },
       );
-      const childCode = await Promise.race([
-        new Promise<number | null>((resolve, reject) => {
-          child.once("error", reject);
-          child.once("exit", resolve);
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => {
-            child.kill("SIGKILL");
-            reject(new Error("relocated runner did not exit"));
-          }, 5_000),
-        ),
-      ]);
+      const childCode = await new Promise<number | null>((resolve, reject) => {
+        let timedOut = false;
+        const timer = setTimeout(() => {
+          timedOut = true;
+          child.kill("SIGKILL");
+        }, 5_000);
+        child.once("error", (error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+        child.once("close", (code) => {
+          clearTimeout(timer);
+          if (timedOut) reject(new Error("relocated runner did not exit"));
+          else resolve(code);
+        });
+      });
       await diagnostic.sync();
       const diagnostics = await readFile(diagnosticPath, "utf8");
       expect(childCode).toBe(1);
