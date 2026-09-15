@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -11,6 +11,7 @@ import {
   type RecoveryState,
 } from "../../src/core/coordinator/state.js";
 import type { KeychainFacade } from "../../src/core/keychain/index.js";
+import { readAutoCheckUpdates } from "../../src/core/app/settings.js";
 import { createCoreAppRuntime } from "../../src/bun/services.js";
 import type { UpdateController } from "../../src/bun/updater.js";
 
@@ -66,6 +67,7 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
   } as unknown as LifecycleCoordinator;
   const updateController = {
     checkForUpdate: vi.fn(),
+    latestCheck: vi.fn(),
     downloadUpdate: vi.fn(),
     applyAfterConfirmation: vi.fn(),
   } as unknown as UpdateController;
@@ -84,10 +86,24 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
     services: runtime.services,
     recover: runtime.recover,
     coordinator,
+    updateController,
   };
 }
 
 describe("Task 25 core service composition", () => {
+  test("reads the startup update preference without keychain access", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-update-setting-"));
+    roots.push(root);
+
+    await expect(readAutoCheckUpdates(root)).resolves.toBe(true);
+    await writeFile(
+      join(root, "settings.json"),
+      JSON.stringify({ auto_check_updates: false }),
+      { mode: 0o600 },
+    );
+    await expect(readAutoCheckUpdates(root)).resolves.toBe(false);
+  });
+
   test("strips proxy passwords and enforces exact force-stop confirmation", async () => {
     const { services, coordinator } = await fixture();
     const proxies = await services.proxiesList?.({});
@@ -127,6 +143,45 @@ describe("Task 25 core service composition", () => {
       custom_download_url: "https://downloads.example.test",
       update_channel: "stable",
     });
+  });
+
+  test("persists the automatic update-check preference", async () => {
+    const { services } = await fixture();
+
+    await expect(services.settingsGet?.({})).resolves.toMatchObject({
+      auto_check_updates: true,
+    });
+    await expect(
+      services.settingsSet?.({ autoCheckUpdates: false }),
+    ).resolves.toMatchObject({ auto_check_updates: false });
+    await expect(services.settingsGet?.({})).resolves.toMatchObject({
+      auto_check_updates: false,
+    });
+  });
+
+  test("reads cached launch state without refreshing the updater", async () => {
+    const { services, updateController } = await fixture();
+    const cached = {
+      channel: "stable" as const,
+      updateAvailable: true,
+      updateReady: false,
+      version: "0.2.0",
+    };
+    vi.mocked(updateController.latestCheck).mockResolvedValue(cached);
+    vi.mocked(updateController.checkForUpdate).mockResolvedValue({
+      ...cached,
+      updateAvailable: false,
+    });
+
+    await expect(services.updatesCheck?.({ mode: "latest" })).resolves.toEqual(
+      cached,
+    );
+    expect(updateController.latestCheck).toHaveBeenCalledTimes(1);
+    expect(updateController.checkForUpdate).not.toHaveBeenCalled();
+
+    await services.updatesCheck?.({ mode: "refresh" });
+    await services.updatesCheck?.({});
+    expect(updateController.checkForUpdate).toHaveBeenCalledTimes(2);
   });
 
   test("keeps binary download progress in main-process services across renderer queries", async () => {

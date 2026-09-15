@@ -79,11 +79,11 @@ test("CLI, update states, logs, and disconnect use narrow RPC methods", async ({
   await expect(page.getByRole("status")).toContainText("CLI not installed");
   await page.getByRole("button", { name: "Check now" }).click();
   await expect(
-    page.getByText("Update available", { exact: false }),
+    page.getByText("Version 0.2.0 available", { exact: false }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Download update" }).click();
   await expect(
-    page.getByText("Ready to relaunch", { exact: false }),
+    page.getByText("Ready to install", { exact: false }),
   ).toBeVisible();
   await expect(page.getByText("No matching log lines.")).toBeVisible();
   const methods = await page.evaluate(() =>
@@ -172,9 +172,7 @@ test("successful connection save clears the key and refreshes connection reads",
   const apiKey = page.getByLabel("Re-enter API key");
   await apiKey.fill("bl_test_fake_accepted_key");
   await page.getByRole("button", { name: "Save and test" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Connection verified.",
-  );
+  await expect(page.getByRole("status")).toContainText("Connection verified.");
   await expect(apiKey).toHaveValue("");
   await expect(page.locator("body")).not.toContainText(
     "bl_test_fake_accepted_key",

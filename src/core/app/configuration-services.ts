@@ -111,6 +111,8 @@ export function createConfigurationServices(
         browser_cache_max_bytes:
           input.browserCacheMaxBytes ?? current.browser_cache_max_bytes,
         update_channel: "stable",
+        auto_check_updates:
+          input.autoCheckUpdates ?? current.auto_check_updates,
       });
       await writeApplicationSettings(options.root, next);
       options.invalidateSessions();

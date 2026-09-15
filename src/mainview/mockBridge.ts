@@ -210,6 +210,7 @@ const values: Record<AppRPCMethod, unknown> = {
     custom_download_url: null,
     browser_cache_max_bytes: 536870912,
     update_channel: "stable",
+    auto_check_updates: true,
   },
   settingsSet: {
     has_license: false,
@@ -217,6 +218,7 @@ const values: Record<AppRPCMethod, unknown> = {
     custom_download_url: null,
     browser_cache_max_bytes: 536870912,
     update_channel: "stable",
+    auto_check_updates: true,
   },
   updatesCheck: {
     channel: "stable",
@@ -250,6 +252,7 @@ export function createMockBridge(
     typeof window === "undefined"
       ? new URLSearchParams()
       : new URLSearchParams(window.location.search);
+  let autoCheckUpdates = initialSearch.get("autoCheck") !== "0";
   const binaryStatusControl = initialSearch.get("binaryStatus");
   const profilesListControl = initialSearch.get("profilesList");
   const sessionsStartControl = initialSearch.get("sessionsStart");
@@ -461,18 +464,84 @@ export function createMockBridge(
           }) as BridgeResult<K>,
         };
       }
-      if (method === "updatesCheck" || method === "updatesDownload") {
+      if (method === "settingsGet") {
+        const override = overrides.settingsGet as
+          Record<string, unknown> | undefined;
+        const value = AppRPCSchemas.settingsGet.result.parse({
+          ...(values.settingsGet as Record<string, unknown>),
+          ...override,
+          auto_check_updates: override?.auto_check_updates ?? autoCheckUpdates,
+        }) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "settingsSet") {
+        const input = AppRPCSchemas.settingsSet.params.parse(params);
+        autoCheckUpdates = input.autoCheckUpdates ?? autoCheckUpdates;
+        const value = AppRPCSchemas.settingsSet.result.parse({
+          ...(values.settingsSet as Record<string, unknown>),
+          auto_check_updates: autoCheckUpdates,
+        }) as BridgeResult<K>;
+        return { ok: true, value };
+      }
+      if (method === "updatesCheck") {
+        const input = AppRPCSchemas.updatesCheck.params.parse(params);
+        if (input.mode === "latest" && !autoCheckUpdates) {
+          return {
+            ok: true,
+            value: AppRPCSchemas.updatesCheck.result.parse(
+              null,
+            ) as BridgeResult<K>,
+          };
+        }
+        const control = initialSearch.get("update");
+        const failed = control === "check-error";
         const available =
-          typeof window !== "undefined" &&
-          new URLSearchParams(window.location.search).get("update") ===
-            "available";
+          control === "available" ||
+          control === "download-error" ||
+          control === "apply-error";
         return {
           ok: true,
-          value: AppRPCSchemas[method].result.parse({
+          value: AppRPCSchemas.updatesCheck.result.parse({
+            channel: "stable",
+            updateAvailable: failed ? false : available,
+            updateReady: false,
+            ...(available ? { version: "0.2.0" } : {}),
+            ...(failed ? { error: "Update check failed" } : {}),
+          }) as BridgeResult<K>,
+        };
+      }
+      if (method === "updatesDownload") {
+        const control = initialSearch.get("update");
+        const available =
+          control === "available" ||
+          control === "download-error" ||
+          control === "apply-error";
+        return {
+          ok: true,
+          value: AppRPCSchemas.updatesDownload.result.parse({
             channel: "stable",
             updateAvailable: available,
-            updateReady: method === "updatesDownload" && available,
+            updateReady: available && control !== "download-error",
             ...(available ? { version: "0.2.0" } : {}),
+            ...(control === "download-error"
+              ? { error: "Update download failed" }
+              : {}),
+          }) as BridgeResult<K>,
+        };
+      }
+      if (
+        method === "updatesApply" &&
+        initialSearch.get("update") === "apply-error"
+      ) {
+        return {
+          ok: true,
+          value: AppRPCSchemas.updatesApply.result.parse({
+            channel: "stable",
+            updateAvailable: true,
+            updateReady: true,
+            error: "Update could not be applied automatically.",
+            fallbackUrl:
+              "https://github.com/iamkhalidbashir/browserlogin-client/releases",
           }) as BridgeResult<K>,
         };
       }

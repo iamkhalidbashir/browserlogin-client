@@ -73,4 +73,16 @@ describe("Electrobun renderer RPC", () => {
       {},
     );
   });
+
+  test("keeps application update downloads alive", async () => {
+    const bridge = await createElectrobunBridge();
+
+    await bridge.request("updatesDownload", {});
+
+    expect(electrobunMock.request).toHaveBeenCalledWith(
+      "updatesDownload",
+      {},
+      { maxRequestTime: Infinity },
+    );
+  });
 });

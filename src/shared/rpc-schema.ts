@@ -146,9 +146,7 @@ export const AppRPCSchemas = {
     }),
   },
   connectionSet: {
-    params: z
-      .object({ appOrigin, apiKey: secretInput })
-      .strict(),
+    params: z.object({ appOrigin, apiKey: secretInput }).strict(),
     result: z.object({ appOrigin, hasApiKey: z.literal(true) }),
   },
   connectionTest: {
@@ -280,7 +278,12 @@ export const AppRPCSchemas = {
       .strict(),
     result: LocalSettingsSchema,
   },
-  updatesCheck: { params: empty, result: updateState },
+  updatesCheck: {
+    params: z
+      .object({ mode: z.enum(["latest", "refresh"]).optional() })
+      .strict(),
+    result: updateState.nullable(),
+  },
   updatesDownload: { params: empty, result: updateState },
   updatesApply: {
     params: z.object({ confirmed: z.literal(true) }).strict(),

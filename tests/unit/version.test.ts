@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import electrobunConfig from "../../electrobun.config";
 import { VERSION } from "../../src/shared/version";
 
 describe("package version", () => {
-  it("exposes the scaffold release version", () => {
-    expect(VERSION).toBe("0.1.27");
+  it("keeps every release identity at 0.1.28", async () => {
+    const manifest: { readonly version: string } = JSON.parse(
+      await readFile(join(process.cwd(), "package.json"), "utf8"),
+    );
+
+    expect(VERSION).toBe("0.1.28");
+    expect(manifest.version).toBe(VERSION);
+    expect(electrobunConfig.app.version).toBe(VERSION);
   });
 });

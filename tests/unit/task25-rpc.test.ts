@@ -76,6 +76,20 @@ const validParams: Record<AppRPCMethod, unknown> = {
 };
 
 describe("Task 25 RPC contract", () => {
+  test("types cached and refreshed update checks", () => {
+    expect(AppRPCSchemas.updatesCheck.params.parse({})).toEqual({});
+    expect(AppRPCSchemas.updatesCheck.params.parse({ mode: "latest" })).toEqual(
+      { mode: "latest" },
+    );
+    expect(
+      AppRPCSchemas.updatesCheck.params.parse({ mode: "refresh" }),
+    ).toEqual({ mode: "refresh" });
+    expect(() =>
+      AppRPCSchemas.updatesCheck.params.parse({ mode: "production" }),
+    ).toThrow();
+    expect(AppRPCSchemas.updatesCheck.result.parse(null)).toBeNull();
+  });
+
   test("registers every RPC method as an object handler", async () => {
     electrobunMock.defineRPC.mockReturnValue({
       send: {

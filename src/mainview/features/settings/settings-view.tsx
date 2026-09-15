@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { VERSION } from "../../../shared/version.js";
 import { useBridge } from "../../rpc-client.js";
+import { ApplicationUpdates } from "./application-updates.js";
 
 const snippet = JSON.stringify(
   {
@@ -22,13 +24,11 @@ export default function SettingsView() {
   const [licenseKey, setLicenseKey] = useState("");
   const [advanced, setAdvanced] = useState(false);
   const [customUrl, setCustomUrl] = useState("");
-  const [updateState, setUpdateState] = useState("Current");
   const [binaryAction, setBinaryAction] = useState<
     "free" | "license" | "custom" | null
   >(null);
   const [message, setMessage] = useState("");
   const [logFilter, setLogFilter] = useState("");
-  const [autoCheck, setAutoCheck] = useState(true);
   const connection = useQuery({
     queryKey: ["settings-connection"],
     queryFn: async () => {
@@ -46,7 +46,7 @@ export default function SettingsView() {
       return result.value;
     },
   });
-  useQuery({
+  const settings = useQuery({
     queryKey: ["settings"],
     queryFn: async () => {
       const result = await bridge.request("settingsGet", {});
@@ -138,7 +138,6 @@ export default function SettingsView() {
       downloadSource: customUrl ? "custom" : "official",
       customDownloadUrl: customUrl || null,
       advancedEnabled: advanced,
-      autoCheckUpdates: autoCheck,
     });
     setMessage(result.ok ? "Download settings saved." : result.error.message);
   };
@@ -159,26 +158,6 @@ export default function SettingsView() {
       `CloakBrowser ${result.value.version ?? "custom"} is installed and active.`,
     );
     await Promise.all([binary.refetch(), binaryProgress.refetch()]);
-  };
-  const checkUpdate = async () => {
-    setUpdateState("Checking…");
-    const result = await bridge.request("updatesCheck", {});
-    setUpdateState(
-      result.ok && result.value.updateAvailable
-        ? "Update available"
-        : "Current",
-    );
-  };
-  const downloadUpdate = async () => {
-    setUpdateState("Downloading…");
-    const result = await bridge.request("updatesDownload", {});
-    setUpdateState(
-      result.ok && result.value.updateReady
-        ? "Ready to relaunch"
-        : result.ok && result.value.updateAvailable
-          ? "Update available"
-          : "Current",
-    );
   };
   const installCli = async () => {
     const result = await bridge.request("cliInstall", {});
@@ -362,38 +341,9 @@ export default function SettingsView() {
             Install browserlogin CLI
           </button>
         </article>
-        <article className="panel">
-          <h3 className="font-medium">Application updates</h3>
-          <p className="mt-1 text-sm text-zinc-500">
-            Channel: stable · {updateState}
-          </p>
-          <label className="check-field mt-3">
-            <input
-              type="checkbox"
-              checked={autoCheck}
-              onChange={(event) => setAutoCheck(event.target.checked)}
-            />
-            Check automatically
-          </label>
-          <div className="mt-4 flex gap-2">
-            <button
-              className="button-secondary"
-              onClick={() => void checkUpdate()}
-            >
-              Check now
-            </button>
-            <button
-              className="button-primary"
-              onClick={() => void downloadUpdate()}
-            >
-              Download update
-            </button>
-          </div>
-          <p className="mt-3 text-xs text-zinc-500">
-            Unsigned apply falls back to the GitHub Release page after
-            confirmation.
-          </p>
-        </article>
+        <ApplicationUpdates
+          autoCheckUpdates={settings.data?.auto_check_updates ?? null}
+        />
         <article className="panel">
           <h3 className="font-medium">Logs</h3>
           <input
@@ -415,7 +365,7 @@ export default function SettingsView() {
         </article>
       </div>
       <article className="panel mt-6">
-        <h3 className="font-medium">About BrowserLogin 0.1.0</h3>
+        <h3 className="font-medium">About BrowserLogin {VERSION}</h3>
         <p className="mt-2 text-sm text-zinc-500">
           Business Source License summary · third-party notices · system theme ·
           no telemetry.

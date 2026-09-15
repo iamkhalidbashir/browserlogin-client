@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { z } from "zod";
 import {
   DEFAULT_BROWSER_CACHE_BYTES,
   LocalSettingsSchema,
@@ -7,6 +8,10 @@ import {
 import type { KeychainFacade } from "../keychain/index.js";
 import { atomicWriteJson, readJson } from "../config/store.js";
 
+const AutoCheckUpdatesSchema = z.looseObject({
+  auto_check_updates: z.boolean().default(true),
+});
+
 function defaultSettings(hasLicense: boolean): LocalSettings {
   return {
     has_license: hasLicense,
@@ -14,7 +19,14 @@ function defaultSettings(hasLicense: boolean): LocalSettings {
     custom_download_url: null,
     browser_cache_max_bytes: DEFAULT_BROWSER_CACHE_BYTES,
     update_channel: "stable",
+    auto_check_updates: true,
   };
+}
+
+export async function readAutoCheckUpdates(root: string): Promise<boolean> {
+  const stored = await readJson<unknown>(join(root, "settings.json"));
+  if (stored === null) return true;
+  return AutoCheckUpdatesSchema.parse(stored).auto_check_updates;
 }
 
 export async function readApplicationSettings(
@@ -40,5 +52,6 @@ export async function writeApplicationSettings(
     custom_download_url: settings.custom_download_url,
     browser_cache_max_bytes: settings.browser_cache_max_bytes,
     update_channel: settings.update_channel,
+    auto_check_updates: settings.auto_check_updates,
   });
 }

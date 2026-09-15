@@ -349,6 +349,7 @@ describe("shared API contracts", () => {
       download_source: "official",
       browser_cache_max_bytes: 512 * 1024 * 1024,
       update_channel: "stable",
+      auto_check_updates: true,
     });
     expect(() =>
       LocalSettingsSchema.parse({ download_source: "custom" }),
@@ -357,6 +358,9 @@ describe("shared API contracts", () => {
       LocalSettingsSchema.parse({
         browser_cache_max_bytes: 8 * 1024 * 1024 * 1024 + 1,
       }),
+    ).toThrow();
+    expect(() =>
+      LocalSettingsSchema.parse({ update_channel: "beta" }),
     ).toThrow();
   });
 });

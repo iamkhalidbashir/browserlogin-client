@@ -30,6 +30,8 @@ export class UpdateController {
   private readonly download: UpdaterApi["downloadUpdate"];
   private readonly apply: UpdaterApi["applyUpdate"];
   private readonly info: () => UpdaterInfo | Promise<UpdaterInfo>;
+  private checkInFlight: Promise<UpdateState> | undefined;
+  private latestCheckState: UpdateState | null = null;
 
   constructor(options: UpdateControllerOptions = {}) {
     this.openExternal =
@@ -56,23 +58,70 @@ export class UpdateController {
   }
 
   async checkForUpdate(): Promise<UpdateState> {
-    const result = await this.check();
-    return {
-      channel: UPDATE_CHANNEL,
-      updateAvailable: Boolean(result.updateAvailable),
-      updateReady: Boolean(result.updateReady),
-      version: result.version || undefined,
-      error: result.error ? "Update check failed" : undefined,
-      fallbackUrl: result.updateAvailable ? RELEASE_PAGE : undefined,
-    };
+    if (this.checkInFlight) return this.checkInFlight;
+    const operation = this.runCheck();
+    this.checkInFlight = operation;
+    try {
+      return this.remember(await operation);
+    } finally {
+      if (this.checkInFlight === operation) this.checkInFlight = undefined;
+    }
+  }
+
+  async latestCheck(): Promise<UpdateState | null> {
+    return this.checkInFlight ?? this.latestCheckState;
+  }
+
+  private async runCheck(): Promise<UpdateState> {
+    try {
+      const result = await this.check();
+      if (result.error)
+        return {
+          channel: UPDATE_CHANNEL,
+          updateAvailable: false,
+          updateReady: false,
+          error: "Update check failed",
+        };
+      return {
+        channel: UPDATE_CHANNEL,
+        updateAvailable: Boolean(result.updateAvailable),
+        updateReady: Boolean(result.updateReady),
+        version: result.version || undefined,
+        fallbackUrl: result.updateAvailable ? RELEASE_PAGE : undefined,
+      };
+    } catch {
+      return {
+        channel: UPDATE_CHANNEL,
+        updateAvailable: false,
+        updateReady: false,
+        error: "Update check failed",
+      };
+    }
   }
 
   async downloadUpdate(): Promise<UpdateState> {
     const checked = await this.checkForUpdate();
-    if (!checked.updateAvailable) return checked;
-    await this.download();
-    const info = await this.info();
-    return { ...checked, updateReady: Boolean(info?.updateReady) };
+    if (checked.error || !checked.updateAvailable) return checked;
+    try {
+      await this.download();
+      const info = await this.info();
+      if (info.error)
+        return this.remember({
+          ...checked,
+          updateReady: false,
+          error: "Update download failed",
+        });
+      return this.remember({
+        ...checked,
+        updateReady: Boolean(info.updateReady),
+      });
+    } catch {
+      return this.remember({
+        ...checked,
+        updateReady: false,
+        error: "Update download failed",
+      });
+    }
   }
 
   async applyAfterConfirmation(confirmed: boolean): Promise<UpdateState> {
@@ -86,28 +135,41 @@ export class UpdateController {
       };
     try {
       await this.apply();
-      return {
+      const info = await this.info();
+      if (info.error) return this.applyFailure();
+      return this.remember({
         channel: UPDATE_CHANNEL,
         updateAvailable: true,
         updateReady: false,
-      };
+      });
     } catch {
-      this.openExternal(RELEASE_PAGE);
-      return {
-        channel: UPDATE_CHANNEL,
-        updateAvailable: true,
-        updateReady: true,
-        error: "Update could not be applied automatically.",
-        fallbackUrl: RELEASE_PAGE,
-      };
+      return this.applyFailure();
     }
+  }
+
+  private applyFailure(): UpdateState {
+    this.openExternal(RELEASE_PAGE);
+    return this.remember({
+      channel: UPDATE_CHANNEL,
+      updateAvailable: true,
+      updateReady: true,
+      error: "Update could not be applied automatically.",
+      fallbackUrl: RELEASE_PAGE,
+    });
+  }
+
+  private remember(state: UpdateState): UpdateState {
+    this.latestCheckState = state;
+    return state;
   }
 }
 
 export function installLaunchUpdateCheck(
   notify: (state: UpdateState) => void,
   controller = new UpdateController(),
+  enabled = true,
 ): () => void {
+  if (!enabled) return () => undefined;
   let stopped = false;
   void controller
     .checkForUpdate()

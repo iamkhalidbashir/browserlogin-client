@@ -48,7 +48,12 @@ function adapterServices(
 ): AppServices {
   return {
     ...runtime.services,
-    updatesCheck: async () => context.updateController.checkForUpdate(),
+    updatesCheck: async (raw: unknown) => {
+      const input = AppRPCSchemas.updatesCheck.params.parse(raw);
+      return input.mode === "latest"
+        ? context.updateController.latestCheck()
+        : context.updateController.checkForUpdate();
+    },
     updatesDownload: async () => context.updateController.downloadUpdate(),
     updatesApply: async (raw: unknown) => {
       const input = AppRPCSchemas.updatesApply.params.parse(raw);

@@ -1,6 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BrowserWindow, Utils } from "electrobun/main";
+import { readAutoCheckUpdates } from "../core/app/settings.js";
 import { ConnectionStore } from "../core/config/connection.js";
 import { resolveStateRoot, statePaths } from "../core/config/paths.js";
 import { createKeychainBackend } from "../core/keychain/index.js";
@@ -109,6 +110,8 @@ export async function startMainProcess(
   const keychain = createKeychainBackend();
   const connection = new ConnectionStore(root, keychain);
   const updateController = new UpdateController();
+  const checkUpdates =
+    options.checkUpdates ?? (await readAutoCheckUpdates(root));
   const rpcBinding: {
     current?: Awaited<ReturnType<typeof defineAppRPC>>;
   } = {};
@@ -133,6 +136,15 @@ export async function startMainProcess(
     services,
   });
   rpcBinding.current = rpc;
+  const stopUpdates = installLaunchUpdateCheck(
+    (state) =>
+      rpc.emitUpdateStatus({
+        status: "available",
+        message: `BrowserLogin ${state.version ?? "update"} is available`,
+      }),
+    updateController,
+    checkUpdates,
+  );
   let window: unknown;
   if (options.createWindow) {
     window = options.createWindow(rpc);
@@ -147,17 +159,6 @@ export async function startMainProcess(
     window = browserWindow;
   }
   await writeReadiness(root);
-  const stopUpdates =
-    options.checkUpdates === false
-      ? () => undefined
-      : installLaunchUpdateCheck((state) =>
-          rpc.emitUpdateStatus({
-            status: state.updateAvailable ? "available" : "current",
-            message: state.updateAvailable
-              ? "Update available - download"
-              : "BrowserLogin is current",
-          }),
-        );
   return {
     window,
     stop: async () => {

@@ -39,7 +39,8 @@ export const LocalSettingsSchema = z
       .min(0)
       .max(MAX_BROWSER_CACHE_BYTES)
       .default(DEFAULT_BROWSER_CACHE_BYTES),
-    update_channel: z.enum(["stable", "beta"]).default("stable"),
+    update_channel: z.literal("stable").default("stable"),
+    auto_check_updates: z.boolean().default(true),
   })
   .strict()
   .superRefine((settings, context) => {

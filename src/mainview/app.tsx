@@ -173,7 +173,6 @@ export function App() {
                     : "Setup required"}
               </span>
               <span className="status-pill">Free</span>
-              <span className="status-pill">Up to date</span>
             </div>
             <StatusRefresh />
           </header>
