@@ -100,6 +100,7 @@ async function setup(
   let conflictAttempts = 0;
   let runnerStops = 0;
   let normalClose: (() => Promise<void>) | undefined;
+  let runnerInput: unknown;
   let adoptedArchive: string | undefined;
   let remoteStopped = false;
   const stopGeneration =
@@ -212,6 +213,7 @@ async function setup(
         }
       : undefined,
     runner: async (runnerOptions) => {
+      runnerInput = runnerOptions;
       normalClose = runnerOptions.onNormalStop;
       return {
         identity: { pid: 4321, process_start_time: "1000", cmdline_hash: SHA },
@@ -242,6 +244,7 @@ async function setup(
   return {
     root,
     coordinator,
+    runnerInput: () => runnerInput,
     counts: () => ({
       starts,
       uploads,
@@ -259,6 +262,17 @@ async function setup(
 }
 
 describe("Task 18 recovery state", () => {
+  it("allows enough time for cold runner initialization", async () => {
+    // Given
+    const { coordinator, runnerInput } = await setup();
+
+    // When
+    await coordinator.start("profile-1");
+
+    // Then
+    expect(runnerInput()).toMatchObject({ readyTimeoutMs: 180_000 });
+  });
+
   it("records ordered coordinator stages when an archive is restored", async () => {
     // Given
     const stages: string[] = [];

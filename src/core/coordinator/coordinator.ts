@@ -30,6 +30,7 @@ import {
 
 const CACHE_LIMIT = 512 * 1024 * 1024;
 const RECOVERY_LIMIT_MS = 30_000;
+const RUNNER_READY_TIMEOUT_MS = 180_000;
 
 export type CoordinatorApi = {
   startSession(profileId: string, key: string): Promise<StartResponse>;
@@ -77,6 +78,7 @@ export type RunnerFactory = (options: {
   onSpawned?: (identity: ProcessIdentity) => Promise<void>;
   healthCallback?: () => Promise<boolean>;
   timing?: LaunchTiming;
+  readyTimeoutMs: number;
 }) => Promise<RunnerHandle>;
 export type CrashPoint =
   | "after-start-intent-save"
@@ -591,6 +593,7 @@ export class LifecycleCoordinator {
         paths,
         healthCallback: this.options.health,
         timing,
+        readyTimeoutMs: RUNNER_READY_TIMEOUT_MS,
         onNormalStop: async () => {
           this.naturallyClosed.add(state.profile_id);
           await this.stop(state.profile_id);
