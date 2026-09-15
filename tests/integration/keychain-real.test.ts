@@ -65,6 +65,7 @@ describe("real keychain integration", () => {
         expect(frame).not.toContain(secret);
       }
     },
+    15_000,
   );
 
   it.skipIf(!realEnabled || !currentNativeOs)(
