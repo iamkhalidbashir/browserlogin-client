@@ -3,10 +3,12 @@ import { createRequire } from "node:module";
 import {
   access,
   cp,
+  mkdir,
   mkdtemp,
   open,
   readFile,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -33,6 +35,12 @@ describe("runner child bundle", () => {
     const cacheRoot = await mkdtemp(
       join(tmpdir(), "browserlogin-runner-cache-"),
     );
+    const preservedAssetPath = join(
+      repositoryRoot,
+      "dist",
+      "runner",
+      "appIcon-release-regression.png",
+    );
     const diagnosticPath = join(protocolRoot, "runner-diagnostic.log");
     const diagnostic = await open(diagnosticPath, "wx", 0o600);
     try {
@@ -49,6 +57,8 @@ describe("runner child bundle", () => {
       const bun = process.versions.bun
         ? process.execPath
         : (process.env.BROWSERLOGIN_BUN_PATH ?? "bun");
+      await mkdir(dirname(preservedAssetPath), { recursive: true });
+      await writeFile(preservedAssetPath, "electrobun-owned-asset");
       const build = spawn(bun, ["run", "build:runner-child"], {
         cwd: repositoryRoot,
         stdio: "inherit",
@@ -58,6 +68,9 @@ describe("runner child bundle", () => {
         build.once("exit", resolve);
       });
       expect(buildCode).toBe(0);
+      await expect(readFile(preservedAssetPath, "utf8")).resolves.toBe(
+        "electrobun-owned-asset",
+      );
 
       const relocatedRunner = join(bundleRoot, "runner");
       await cp(join(repositoryRoot, "dist", "runner"), relocatedRunner, {
@@ -195,6 +208,7 @@ describe("runner child bundle", () => {
         rm(protocolRoot, { recursive: true, force: true }),
         rm(profileRoot, { recursive: true, force: true }),
         rm(cacheRoot, { recursive: true, force: true }),
+        rm(preservedAssetPath, { force: true }),
       ]);
     }
   }, 120_000);

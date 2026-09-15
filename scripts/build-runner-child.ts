@@ -13,8 +13,11 @@ const copiedPlaywrightDirectory = join(
   "playwright-core",
 );
 
-await rm(outputDirectory, { recursive: true, force: true });
 await mkdir(outputDirectory, { recursive: true });
+await Promise.all([
+  rm(join(outputDirectory, "child.js"), { force: true }),
+  rm(copiedPlaywrightDirectory, { recursive: true, force: true }),
+]);
 
 const child = Bun.spawn(
   [
