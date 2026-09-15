@@ -707,6 +707,7 @@ jobs:
         shell: bash
         run: |
           verify_release_assets() {
+            local release_id="$1"
             expected="$RUNNER_TEMP/tagged-release-assets.expected"
             published="$RUNNER_TEMP/tagged-release-assets.published"
             : > "$expected"
@@ -716,50 +717,71 @@ jobs:
               printf '%s\tsha256:%s\n' "$name" "$digest" >> "$expected"
             done
             sort -o "$expected" "$expected"
-            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
               --jq '.assets[] | [.name, .digest] | @tsv' \
               | sort > "$published"
             diff -u "$expected" "$published"
           }
 
+          find_draft_id() {
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              | jq -r --arg tag "$RELEASE_TAG" \
+                '.[] | select(.draft == true and .tag_name == $tag) | .id' \
+              | head -n 1
+          }
+
           release_files=(tagged-release/*)
-          existing_state="$(
-            gh release view "$RELEASE_TAG" \
-              -R "$GITHUB_REPOSITORY" \
-              --json isDraft,isImmutable \
-              --jq '[.isDraft, .isImmutable] | @tsv' \
+          existing_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              --jq .id \
               2>/dev/null || true
           )"
-          if [[ -n "$existing_state" ]]; then
+          if [[ -n "$existing_id" ]]; then
+            existing_state="$(
+              gh api "repos/$GITHUB_REPOSITORY/releases/$existing_id" \
+                --jq '[.draft, .immutable] | @tsv'
+            )"
             read -r existing_draft existing_immutable <<< "$existing_state"
             if [[ "$existing_draft" != false || "$existing_immutable" != true ]]; then
               echo "existing versioned release is not immutable" >&2
               exit 1
             fi
-            verify_release_assets
+            verify_release_assets "$existing_id"
             echo "existing immutable release matches the verified assets"
             exit 0
           fi
+          orphaned_draft="$(find_draft_id)"
+          if [[ -n "$orphaned_draft" ]]; then
+            echo "versioned release draft already exists" >&2
+            exit 1
+          fi
 
           draft_created=false
+          release_id=""
           cleanup_draft() {
             if [[ "$draft_created" != true ]]; then return; fi
-            is_draft="$(
-              gh release view "$RELEASE_TAG" \
-                -R "$GITHUB_REPOSITORY" \
-                --json isDraft \
-                --jq .isDraft \
-                2>/dev/null || true
-            )"
-            if [[ "$is_draft" == true ]]; then
-              gh release delete "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --yes
+            if [[ -z "$release_id" ]]; then
+              release_id="$(find_draft_id 2>/dev/null || true)"
+            fi
+            if [[ -n "$release_id" ]]; then
+              is_draft="$(
+                gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+                  --jq .draft \
+                  2>/dev/null || true
+              )"
+              if [[ "$is_draft" == true ]]; then
+                gh api \
+                  --method DELETE \
+                  "repos/$GITHUB_REPOSITORY/releases/$release_id"
+              fi
             fi
           }
           trap cleanup_draft EXIT
 
           prerelease=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
-          gh release create "$RELEASE_TAG" \
+          draft_created=true
+          gh release create "$RELEASE_TAG" "${release_files[@]}" \
             -R "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "BrowserLogin ${RELEASE_TAG}" \
@@ -767,18 +789,20 @@ jobs:
             --latest=false \
             --draft \
             "${prerelease[@]}"
-          draft_created=true
-          gh release upload "$RELEASE_TAG" "${release_files[@]}" \
-            -R "$GITHUB_REPOSITORY"
-          verify_release_assets
-          gh release edit "$RELEASE_TAG" \
-            -R "$GITHUB_REPOSITORY" \
-            --draft=false
+          release_id="$(find_draft_id)"
+          if [[ -z "$release_id" ]]; then
+            echo "created release draft could not be resolved" >&2
+            exit 1
+          fi
+          verify_release_assets "$release_id"
+          gh api \
+            --method PATCH \
+            "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F draft=false \
+            >/dev/null
           immutable="$(
-            gh release view "$RELEASE_TAG" \
-              -R "$GITHUB_REPOSITORY" \
-              --json isImmutable \
-              --jq .isImmutable
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+              --jq .immutable
           )"
           if [[ "$immutable" != true ]]; then
             echo "published versioned release is not immutable" >&2
