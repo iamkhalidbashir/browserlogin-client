@@ -706,20 +706,86 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
+          verify_release_assets() {
+            expected="$RUNNER_TEMP/tagged-release-assets.expected"
+            published="$RUNNER_TEMP/tagged-release-assets.published"
+            : > "$expected"
+            for path in tagged-release/*; do
+              name="$(basename "$path")"
+              digest="$(sha256sum "$path" | cut -d ' ' -f 1)"
+              printf '%s\tsha256:%s\n' "$name" "$digest" >> "$expected"
+            done
+            sort -o "$expected" "$expected"
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+              --jq '.assets[] | [.name, .digest] | @tsv' \
+              | sort > "$published"
+            diff -u "$expected" "$published"
+          }
+
+          release_files=(tagged-release/*)
+          existing_state="$(
+            gh release view "$RELEASE_TAG" \
+              -R "$GITHUB_REPOSITORY" \
+              --json isDraft,isImmutable \
+              --jq '[.isDraft, .isImmutable] | @tsv' \
+              2>/dev/null || true
+          )"
+          if [[ -n "$existing_state" ]]; then
+            read -r existing_draft existing_immutable <<< "$existing_state"
+            if [[ "$existing_draft" != false || "$existing_immutable" != true ]]; then
+              echo "existing versioned release is not immutable" >&2
+              exit 1
+            fi
+            verify_release_assets
+            echo "existing immutable release matches the verified assets"
+            exit 0
+          fi
+
+          draft_created=false
+          cleanup_draft() {
+            if [[ "$draft_created" != true ]]; then return; fi
+            is_draft="$(
+              gh release view "$RELEASE_TAG" \
+                -R "$GITHUB_REPOSITORY" \
+                --json isDraft \
+                --jq .isDraft \
+                2>/dev/null || true
+            )"
+            if [[ "$is_draft" == true ]]; then
+              gh release delete "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" --yes
+            fi
+          }
+          trap cleanup_draft EXIT
+
           prerelease=()
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease+=(--prerelease); fi
-          if gh release view "$RELEASE_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "versioned release already exists; refusing to replace immutable assets" >&2
-            exit 1
-          fi
-          release_files=(tagged-release/*)
-          gh release create "$RELEASE_TAG" "${release_files[@]}" \
+          gh release create "$RELEASE_TAG" \
             -R "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "BrowserLogin ${RELEASE_TAG}" \
             --generate-notes \
             --latest=false \
+            --draft \
             "${prerelease[@]}"
+          draft_created=true
+          gh release upload "$RELEASE_TAG" "${release_files[@]}" \
+            -R "$GITHUB_REPOSITORY"
+          verify_release_assets
+          gh release edit "$RELEASE_TAG" \
+            -R "$GITHUB_REPOSITORY" \
+            --draft=false
+          immutable="$(
+            gh release view "$RELEASE_TAG" \
+              -R "$GITHUB_REPOSITORY" \
+              --json isImmutable \
+              --jq .isImmutable
+          )"
+          if [[ "$immutable" != true ]]; then
+            echo "published versioned release is not immutable" >&2
+            exit 1
+          fi
+          draft_created=false
+          trap - EXIT
 
   publish-updater:
     name: publish-stable-updater
@@ -788,86 +854,95 @@ jobs:
           rollback_dir="$RUNNER_TEMP/stable-rollback"
           mkdir -p "$rollback_dir"
           echo "STABLE_ROLLBACK_DIR=$rollback_dir" >> "$GITHUB_ENV"
-          if gh release view stable -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "STABLE_EXISTS=1" >> "$GITHUB_ENV"
-            stable_assets="$RUNNER_TEMP/stable-assets-before.txt"
-            gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$stable_assets"
-            legacy_core_assets=(
-              production-macos-arm64-BrowserLogin.app.tar.zst
-              production-macos-arm64-update.json
-              production-win-x64-BrowserLogin.tar.zst
-              production-win-x64-update.json
-              production-linux-x64-BrowserLogin.tar.zst
-              production-linux-x64-update.json
-            )
-            while IFS= read -r name; do
-              case "$name" in
-                stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json|production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
-                *)
-                  if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
-                    echo "unexpected stable asset: $name" >&2
-                    exit 1
-                  fi
-                  ;;
-              esac
-            done < "$stable_assets"
-            gh release download stable \
+          stable_state="$(
+            gh release view stable \
               -R "$GITHUB_REPOSITORY" \
-              --dir "$rollback_dir"
-            stable_core_assets=(
-              stable-macos-arm64-BrowserLogin.app.tar.zst
-              stable-macos-arm64-update.json
-              stable-win-x64-BrowserLogin.tar.zst
-              stable-win-x64-update.json
-              stable-linux-x64-BrowserLogin.tar.zst
-              stable-linux-x64-update.json
-            )
-            for index in "${!legacy_core_assets[@]}"; do
-              legacy="${legacy_core_assets[$index]}"
-              stable="${stable_core_assets[$index]}"
-              if [[ -f "$rollback_dir/$legacy" ]]; then
-                if [[ ! -f "$rollback_dir/$stable" ]]; then
-                  cp "$rollback_dir/$legacy" "$rollback_dir/$stable"
-                fi
-                rm -f "$rollback_dir/$legacy"
-              fi
-            done
-            (
-              cd "$rollback_dir"
-              find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
-                | sort -z \
-                | xargs -0 sha256sum \
-                | sed 's#  \./#  #'
-            ) > "$rollback_dir/SHA256SUMS"
-            (cd "$rollback_dir" && sha256sum -c SHA256SUMS)
-            shopt -s nullglob
-            candidate_patches=(release/production-*.patch)
-            candidate_patches_complete=1
-            for patch in "${candidate_patches[@]}"; do
-              name="$(basename "$patch")"
-              if grep -Fxq "$name" "$stable_assets"; then
-                if ! cmp -s "$patch" "$rollback_dir/$name"; then
-                  echo "stable patch collision: $name" >&2
+              --json isDraft,isImmutable \
+              --jq '[.isDraft, .isImmutable] | @tsv'
+          )" || {
+            echo "stable updater release must already exist" >&2
+            exit 1
+          }
+          read -r stable_draft stable_immutable <<< "$stable_state"
+          if [[ "$stable_draft" != false || "$stable_immutable" != false ]]; then
+            echo "stable updater release must remain published and mutable" >&2
+            exit 1
+          fi
+          stable_assets="$RUNNER_TEMP/stable-assets-before.txt"
+          gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$stable_assets"
+          legacy_core_assets=(
+            production-macos-arm64-BrowserLogin.app.tar.zst
+            production-macos-arm64-update.json
+            production-win-x64-BrowserLogin.tar.zst
+            production-win-x64-update.json
+            production-linux-x64-BrowserLogin.tar.zst
+            production-linux-x64-update.json
+          )
+          while IFS= read -r name; do
+            case "$name" in
+              stable-macos-arm64-BrowserLogin.app.tar.zst|stable-macos-arm64-update.json|stable-win-x64-BrowserLogin.tar.zst|stable-win-x64-update.json|stable-linux-x64-BrowserLogin.tar.zst|stable-linux-x64-update.json|production-macos-arm64-BrowserLogin.app.tar.zst|production-macos-arm64-update.json|production-win-x64-BrowserLogin.tar.zst|production-win-x64-update.json|production-linux-x64-BrowserLogin.tar.zst|production-linux-x64-update.json) ;;
+              *)
+                if [[ ! "$name" =~ ^production-(macos-arm64|win-x64|linux-x64)-[a-z0-9]+\.patch$ ]]; then
+                  echo "unexpected stable asset: $name" >&2
                   exit 1
                 fi
-              else
-                candidate_patches_complete=0
+                ;;
+            esac
+          done < "$stable_assets"
+          gh release download stable \
+            -R "$GITHUB_REPOSITORY" \
+            --dir "$rollback_dir"
+          stable_core_assets=(
+            stable-macos-arm64-BrowserLogin.app.tar.zst
+            stable-macos-arm64-update.json
+            stable-win-x64-BrowserLogin.tar.zst
+            stable-win-x64-update.json
+            stable-linux-x64-BrowserLogin.tar.zst
+            stable-linux-x64-update.json
+          )
+          for index in "${!legacy_core_assets[@]}"; do
+            legacy="${legacy_core_assets[$index]}"
+            stable="${stable_core_assets[$index]}"
+            if [[ -f "$rollback_dir/$legacy" ]]; then
+              if [[ ! -f "$rollback_dir/$stable" ]]; then
+                cp "$rollback_dir/$legacy" "$rollback_dir/$stable"
               fi
-            done
-            current_version="$(jq -r '.version' "$rollback_dir/stable-macos-arm64-update.json")"
-            candidate_version="$RELEASE_VERSION"
-            if [[ "$current_version" == "$candidate_version" ]]; then
-              if [[ "$candidate_patches_complete" != 1 ]]; then
-                echo "candidate patch missing from stable retry; republishing stable assets"
-              else
-                echo "STABLE_ALREADY_CURRENT=1" >> "$GITHUB_ENV"
-              fi
-            elif [[ "$(printf '%s\n' "$current_version" "$candidate_version" | sort -V | tail -1)" != "$candidate_version" ]]; then
-              echo "refusing to move stable backward from $current_version to $candidate_version" >&2
-              exit 1
+              rm -f "$rollback_dir/$legacy"
             fi
-          else
-            echo "STABLE_EXISTS=0" >> "$GITHUB_ENV"
+          done
+          (
+            cd "$rollback_dir"
+            find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum \
+              | sed 's#  \./#  #'
+          ) > "$rollback_dir/SHA256SUMS"
+          (cd "$rollback_dir" && sha256sum -c SHA256SUMS)
+          shopt -s nullglob
+          candidate_patches=(release/production-*.patch)
+          candidate_patches_complete=1
+          for patch in "${candidate_patches[@]}"; do
+            name="$(basename "$patch")"
+            if grep -Fxq "$name" "$stable_assets"; then
+              if ! cmp -s "$patch" "$rollback_dir/$name"; then
+                echo "stable patch collision: $name" >&2
+                exit 1
+              fi
+            else
+              candidate_patches_complete=0
+            fi
+          done
+          current_version="$(jq -r '.version' "$rollback_dir/stable-macos-arm64-update.json")"
+          candidate_version="$RELEASE_VERSION"
+          if [[ "$current_version" == "$candidate_version" ]]; then
+            if [[ "$candidate_patches_complete" != 1 ]]; then
+              echo "candidate patch missing from stable retry; republishing stable assets"
+            else
+              echo "STABLE_ALREADY_CURRENT=1" >> "$GITHUB_ENV"
+            fi
+          elif [[ "$(printf '%s\n' "$current_version" "$candidate_version" | sort -V | tail -1)" != "$candidate_version" ]]; then
+            echo "refusing to move stable backward from $current_version to $candidate_version" >&2
+            exit 1
           fi
 
       - name: Publish full bundles before metadata
@@ -898,19 +973,6 @@ jobs:
           patches=(release/production-*.patch)
           echo "STABLE_MUTATION_STARTED=1" >> "$GITHUB_ENV"
 
-          if [[ "$STABLE_EXISTS" == 0 ]]; then
-            echo "STABLE_CREATED=1" >> "$GITHUB_ENV"
-            gh release create stable \
-              -R "$GITHUB_REPOSITORY" \
-              --target "$RELEASE_SHA" \
-              --title "BrowserLogin stable updater channel" \
-              --notes "Rolling updater assets. Installers remain on versioned releases." \
-              --latest=false \
-              --draft
-          else
-            echo "STABLE_CREATED=0" >> "$GITHUB_ENV"
-          fi
-
           gh release view stable -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/stable-assets.txt"
 
           for file in "${metadata[@]}" "${bundles[@]}" "${legacy_core_assets[@]}"; do
@@ -931,9 +993,6 @@ jobs:
             fi
           done
           gh release upload stable "${metadata[@]}" -R "$GITHUB_REPOSITORY"
-          if [[ "$STABLE_EXISTS" == 0 ]]; then
-            gh release edit stable -R "$GITHUB_REPOSITORY" --draft=false
-          fi
 
       - name: Verify published stable metadata
         env:
@@ -989,13 +1048,6 @@ jobs:
         shell: bash
         run: |
           echo "::error::Stable updater publication failed after mutation began; restoring the previous stable core assets."
-          if [[ "$STABLE_CREATED" == 1 ]]; then
-            if gh release view stable -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release delete stable -R "$GITHUB_REPOSITORY" --yes --cleanup-tag
-            fi
-            exit 1
-          fi
-
           bundles=(
             "$STABLE_ROLLBACK_DIR/stable-macos-arm64-BrowserLogin.app.tar.zst"
             "$STABLE_ROLLBACK_DIR/stable-win-x64-BrowserLogin.tar.zst"
