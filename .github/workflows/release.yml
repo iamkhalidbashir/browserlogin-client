@@ -731,11 +731,13 @@ jobs:
           }
 
           release_files=(tagged-release/*)
-          existing_id="$(
+          existing_id=""
+          if existing_release="$(
             gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
-              --jq .id \
-              2>/dev/null || true
-          )"
+              2>/dev/null
+          )"; then
+            existing_id="$(jq -r .id <<< "$existing_release")"
+          fi
           if [[ -n "$existing_id" ]]; then
             existing_state="$(
               gh api "repos/$GITHUB_REPOSITORY/releases/$existing_id" \
