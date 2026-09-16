@@ -259,6 +259,27 @@ export function createMockBridge(
   const multi =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
+  let proxyRecords = AppRPCSchemas.proxiesList.result.parse(
+    initialSearch.get("proxies") === "empty"
+      ? []
+      : [
+          ...AppRPCSchemas.proxiesList.result.parse(values.proxiesList),
+          ...(multi
+            ? [
+                {
+                  id: "proxy-2",
+                  name: "Backup",
+                  protocol: "socks5",
+                  host: "10.0.0.2",
+                  port: 1080,
+                  username: null,
+                  last_ip: null,
+                  last_ip_changed_at: null,
+                },
+              ]
+            : []),
+        ],
+  );
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
   let liveSessions: Array<Record<string, unknown>> =
     initialSearch.get("profileRunning") === "1"
@@ -571,6 +592,43 @@ export function createMockBridge(
         ]) as BridgeResult<K>;
         return { ok: true, value };
       }
+      if (method === "proxiesCreate") {
+        const input = AppRPCSchemas.proxiesCreate.params.parse(params);
+        const value = AppRPCSchemas.proxiesCreate.result.parse({
+          id: `proxy-${proxyRecords.length + 1}`,
+          name: input.name,
+          protocol: input.protocol,
+          host: input.host,
+          port: input.port,
+          username: input.username ?? null,
+          change_ip_url: input.change_ip_url ?? null,
+          last_ip: null,
+          last_ip_changed_at: null,
+        });
+        proxyRecords = [...proxyRecords, value];
+        return { ok: true, value: value as BridgeResult<K> };
+      }
+      if (method === "proxiesUpdate") {
+        const input = AppRPCSchemas.proxiesUpdate.params.parse(params);
+        const current = proxyRecords.find(
+          (candidate) => candidate.id === input.proxyId,
+        );
+        const value = AppRPCSchemas.proxiesUpdate.result.parse({
+          id: input.proxyId,
+          name: input.name,
+          protocol: input.protocol,
+          host: input.host,
+          port: input.port,
+          username: input.username ?? null,
+          change_ip_url: input.change_ip_url ?? null,
+          last_ip: current?.last_ip ?? null,
+          last_ip_changed_at: current?.last_ip_changed_at ?? null,
+        });
+        proxyRecords = proxyRecords.map((candidate) =>
+          candidate.id === input.proxyId ? value : candidate,
+        );
+        return { ok: true, value: value as BridgeResult<K> };
+      }
       if (method === "profilesList") {
         profilesListCalls += 1;
         if (
@@ -684,21 +742,8 @@ export function createMockBridge(
           ]) as BridgeResult<K>,
         };
       }
-      if (method === "proxiesList" && multi && !overrides.proxiesList) {
-        const value = AppRPCSchemas.proxiesList.result.parse([
-          ...(values.proxiesList as Array<Record<string, unknown>>),
-          {
-            id: "proxy-2",
-            name: "Backup",
-            protocol: "socks5",
-            host: "10.0.0.2",
-            port: 1080,
-            username: null,
-            last_ip: null,
-            last_ip_changed_at: null,
-          },
-        ]) as BridgeResult<K>;
-        return { ok: true, value };
+      if (method === "proxiesList" && !overrides.proxiesList) {
+        return { ok: true, value: proxyRecords as BridgeResult<K> };
       }
       if (method === "sessionsStart") {
         const delay = Number.parseInt(
