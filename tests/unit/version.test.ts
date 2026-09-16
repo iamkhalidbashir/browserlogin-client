@@ -6,12 +6,12 @@ import electrobunConfig from "../../electrobun.config";
 import { VERSION } from "../../src/shared/version";
 
 describe("package version", () => {
-  it("keeps every release identity at 0.1.31", async () => {
+  it("keeps every release identity at 0.1.32", async () => {
     const manifest: { readonly version: string } = JSON.parse(
       await readFile(join(process.cwd(), "package.json"), "utf8"),
     );
 
-    expect(VERSION).toBe("0.1.31");
+    expect(VERSION).toBe("0.1.32");
     expect(manifest.version).toBe(VERSION);
     expect(electrobunConfig.app.version).toBe(VERSION);
   });
