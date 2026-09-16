@@ -537,6 +537,7 @@ export class BrowserLoginClient {
       `/profiles/${validateId(profileId, "profile id")}`,
       statusSchema,
       "delete profile",
+      { body: { profile_id: profileId } },
     );
   }
   restoreProfile(profileId: string): Promise<{ status: string }> {

@@ -201,6 +201,13 @@ describe("BrowserLogin REST client", () => {
     const start = seen.find((request) =>
       request.path.endsWith("/profiles/profile-1/sessions"),
     );
+    expect(
+      seen.find(
+        (request) =>
+          request.method === "DELETE" &&
+          request.path === "/api/v1/profiles/profile-1",
+      )?.body,
+    ).toBe('{"profile_id":"profile-1"}');
     expect(start).toMatchObject({ method: "POST", body: "{}" });
     expect(start?.headers.get("authorization")).toBe(`Bearer ${key}`);
     expect(start?.headers.get("idempotency-key")).toBe("start-1");
