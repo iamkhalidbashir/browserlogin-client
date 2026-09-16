@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConflictError } from "../../src/shared/errors.js";
 import { SafeZipArchive } from "../../src/core/archive/index.js";
 import type { LaunchTiming } from "../../src/core/launch-timing.js";
@@ -100,6 +100,7 @@ async function setup(
   let conflictAttempts = 0;
   let runnerStops = 0;
   let normalClose: (() => Promise<void>) | undefined;
+  let resolveRunnerClosed: (() => void) | undefined;
   let runnerInput: unknown;
   let adoptedArchive: string | undefined;
   let remoteStopped = false;
@@ -215,13 +216,16 @@ async function setup(
     runner: async (runnerOptions) => {
       runnerInput = runnerOptions;
       normalClose = runnerOptions.onNormalStop;
+      const closed = new Promise<void>((resolve) => {
+        resolveRunnerClosed = resolve;
+      });
       return {
         identity: { pid: 4321, process_start_time: "1000", cmdline_hash: SHA },
         relayCdpUrl: "ws://127.0.0.1:43123/",
         stop: async () => {
           runnerStops += 1;
         },
-        closed: new Promise(() => undefined),
+        closed,
       };
     },
     ...(options.archiveOnStart ? { archive: new RestoreArchive() } : {}),
@@ -257,6 +261,11 @@ async function setup(
     closeBrowser: async () => {
       if (!normalClose) throw new Error("runner normal-close callback missing");
       await normalClose();
+    },
+    completeRunner: () => {
+      if (!resolveRunnerClosed)
+        throw new Error("runner closed resolver missing");
+      resolveRunnerClosed();
     },
   };
 }
@@ -379,6 +388,31 @@ describe("Task 18 recovery state", () => {
     });
     expect(await fixture.coordinator.store.load("profile-1")).toBeNull();
     expect(await stat(fixture.counts().adoptedArchive!)).toBeTruthy();
+  });
+
+  it("finalizes a running profile when the runner process closes", async () => {
+    // Given
+    const fixture = await setup();
+    await fixture.coordinator.start("profile-1");
+
+    // When
+    fixture.completeRunner();
+
+    // Then
+    await vi.waitFor(
+      async () => {
+        expect({
+          stops: fixture.counts().stops,
+          state: await fixture.coordinator.store.load("profile-1"),
+        }).toEqual({ stops: 1, state: null });
+      },
+      { timeout: 500 },
+    );
+    expect(fixture.counts()).toMatchObject({
+      uploads: 1,
+      stops: 1,
+      runnerStops: 0,
+    });
   });
 
   it("preserves ambiguous upload recovery after a native browser close", async () => {

@@ -613,22 +613,27 @@ export class LifecycleCoordinator {
         },
       });
       this.runnerHandles.set(state.profile_id, runner);
-      void runner.closed.catch(async () => {
-        try {
-          await this.store.withTransition(state.profile_id, async () => {
-            const current = await this.store.load(state.profile_id);
-            if (current)
-              await this.store.save({
-                ...current,
-                retry_count: current.retry_count + 1,
-                retry_after: new Date(Date.now() + 1_000).toISOString(),
-                updated_at: this.now().toISOString(),
-              });
-          });
-        } catch (error) {
-          void error;
-        }
-      });
+      const profileId = state.profile_id;
+      const runId = state.run_id;
+      const runnerPid = runner.identity.pid;
+      void runner.closed
+        .then(() => this.browserProcessClosed(profileId, runId, runnerPid))
+        .catch(async () => {
+          try {
+            await this.store.withTransition(profileId, async () => {
+              const current = await this.store.load(profileId);
+              if (current)
+                await this.store.save({
+                  ...current,
+                  retry_count: current.retry_count + 1,
+                  retry_after: new Date(Date.now() + 1_000).toISOString(),
+                  updated_at: this.now().toISOString(),
+                });
+            });
+          } catch (error) {
+            void error;
+          }
+        });
       state = transition(
         {
           ...state,
