@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 const evidence =
   process.env.BROWSERLOGIN_EVIDENCE_DIR ?? join(process.cwd(), "test-results");
 
-test("proxy create and change-ip never render the password", async ({
+test("proxy create refreshes the list and change-ip never renders the password", async ({
   page,
 }) => {
   await page.goto("/proxies");
@@ -20,6 +20,8 @@ test("proxy create and change-ip never render the password", async ({
   await dialog.getByRole("button", { name: "Save proxy" }).click();
   await expect(page.getByRole("status")).toContainText("Proxy saved");
   await expect(page.locator("body")).not.toContainText("proxy-password-secret");
+  const createdRow = page.getByRole("row", { name: /Created proxy/ });
+  await expect(createdRow).toContainText("proxy.example.test:8080");
   const call = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
       (item) => item.method === "proxiesCreate",
@@ -32,7 +34,7 @@ test("proxy create and change-ip never render the password", async ({
     username: "proxy-user",
     password: "proxy-password-secret",
   });
-  await page.getByRole("button", { name: "Change IP" }).click();
+  await createdRow.getByRole("button", { name: "Change IP" }).click();
   await expect(page.getByRole("status")).toContainText("203.0.113.10");
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
@@ -41,7 +43,7 @@ test("proxy create and change-ip never render the password", async ({
   });
 });
 
-test("proxy update targets the selected proxy row", async ({ page }) => {
+test("proxy update refreshes the selected proxy row", async ({ page }) => {
   await page.goto("/proxies?multi=1");
   const row = page.getByRole("row", { name: /Backup/ });
   await row.getByRole("button", { name: "Edit" }).click();
@@ -52,6 +54,7 @@ test("proxy update targets the selected proxy row", async ({ page }) => {
   await dialog.getByLabel("Host", { exact: true }).fill("backup.example.test");
   await dialog.getByRole("button", { name: "Save proxy" }).click();
   await expect(page.getByRole("status")).toContainText("Proxy saved");
+  await expect(row).toContainText("backup.example.test:1080");
   const call = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
       (item) => item.method === "proxiesUpdate",
@@ -64,6 +67,42 @@ test("proxy update targets the selected proxy row", async ({ page }) => {
     host: "backup.example.test",
     port: 1080,
   });
+});
+
+test("owner zero-proxy state offers proxy creation", async ({ page }) => {
+  // Given
+  await page.goto("/proxies?proxies=empty");
+
+  // Then
+  await expect(
+    page.getByRole("heading", { name: "No proxies yet" }),
+  ).toBeVisible();
+  const createButton = page.getByRole("button", { name: "Create proxy" });
+  await expect(createButton).toBeVisible();
+
+  // When
+  await createButton.click();
+
+  // Then
+  await expect(
+    page.getByRole("dialog", { name: "Create proxy" }),
+  ).toBeVisible();
+});
+
+test("member zero-proxy state explains the owner requirement", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/proxies?proxies=empty&owner=0");
+
+  // Then
+  await expect(
+    page.getByRole("heading", { name: "No proxies yet" }),
+  ).toBeVisible();
+  await expect(page.getByText(/workspace owner/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Create proxy" }),
+  ).toHaveCount(0);
 });
 
 test("user and member actions target the selected rows and profile", async ({
