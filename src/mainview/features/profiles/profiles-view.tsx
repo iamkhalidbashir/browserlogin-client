@@ -212,23 +212,6 @@ export default function ProfilesView() {
       });
     }
   };
-  const restoreProfile = async (profileId: string) => {
-    setPendingActions((current) => ({
-      ...current,
-      [profileId]: "restore",
-    }));
-    try {
-      const result = await bridge.request("profilesRestore", { profileId });
-      if (result.ok)
-        await queryClient.invalidateQueries({ queryKey: ["profiles"] });
-    } finally {
-      setPendingActions((current) => {
-        const next = { ...current };
-        delete next[profileId];
-        return next;
-      });
-    }
-  };
   const rotateProfileProxy = async (profileId: string) => {
     const profile = profiles.data?.find((candidate) => candidate.id === profileId);
     if (!profile?.proxy) return;
@@ -304,7 +287,6 @@ export default function ProfilesView() {
           setForceStopText("");
         }}
         onEdit={editProfile}
-        onRestore={(profileId) => void restoreProfile(profileId)}
         onRotate={(profileId) => void rotateProfileProxy(profileId)}
         onDelete={(profileId) => {
           setDeleteTargetId(profileId);

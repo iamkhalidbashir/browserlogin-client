@@ -4,7 +4,6 @@ export type ProfileAction =
   | "launch"
   | "stop"
   | "force-stop"
-  | "restore"
   | "rotate"
   | "delete";
 type Profile = BridgeResult<"profilesList">[number];
@@ -18,7 +17,6 @@ type ProfileTableProps = {
   readonly onStop: (profileId: string) => void;
   readonly onForceStop: (profileId: string) => void;
   readonly onEdit: (profileId: string) => void;
-  readonly onRestore: (profileId: string) => void;
   readonly onRotate: (profileId: string) => void;
   readonly onDelete: (profileId: string) => void;
 };
@@ -32,7 +30,6 @@ export function ProfileTable({
   onStop,
   onForceStop,
   onEdit,
-  onRestore,
   onRotate,
   onDelete,
 }: ProfileTableProps) {
@@ -124,13 +121,6 @@ export function ProfileTable({
                       onClick={() => onEdit(profile.id)}
                     >
                       Edit
-                    </button>
-                    <button
-                      className="table-action"
-                      disabled={rowPending}
-                      onClick={() => onRestore(profile.id)}
-                    >
-                      {pendingAction === "restore" ? "Restoring…" : "Restore"}
                     </button>
                     <button
                       className="table-action table-action-danger"

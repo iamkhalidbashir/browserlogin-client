@@ -329,7 +329,9 @@ test("delete targets the explicitly chosen row and clears after success", async 
   expect(listsAfter).toBeGreaterThan(listsBefore);
 });
 
-test("edit and restore target the selected profile row", async ({ page }) => {
+test("edit targets the selected profile row and active profiles have no restore action", async ({
+  page,
+}) => {
   await page.goto("/profiles?multi=1");
   const row = page.getByRole("row", { name: /Secondary profile/ });
   await row.getByRole("button", { name: "Edit" }).click();
@@ -348,13 +350,15 @@ test("edit and restore target the selected profile row", async ({ page }) => {
     expectedConfigVersion: 0,
     name: "Secondary renamed",
   });
-  await row.getByRole("button", { name: "Restore" }).click();
-  const restoreCall = await page.evaluate(() =>
-    window.__browserloginMockCalls?.find(
+  await expect(
+    page.getByRole("button", { name: "Restore" }),
+  ).toHaveCount(0);
+  const restoreCalls = await page.evaluate(() =>
+    (window.__browserloginMockCalls ?? []).filter(
       (call) => call.method === "profilesRestore",
     ),
   );
-  expect(restoreCall?.params).toMatchObject({ profileId: "profile-2" });
+  expect(restoreCalls).toHaveLength(0);
 });
 
 test("profile row rotates its assigned proxy and handles an unverified result", async ({
