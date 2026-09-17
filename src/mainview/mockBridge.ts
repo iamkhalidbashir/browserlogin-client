@@ -292,6 +292,7 @@ export function createMockBridge(
   const profilesListControl = initialSearch.get("profilesList");
   const profilesDeleteControl = initialSearch.get("profilesDelete");
   const sessionsStartControl = initialSearch.get("sessionsStart");
+  const forceStopControl = initialSearch.get("forceStop");
   const transferProgressControl = initialSearch.get("transferProgress");
   const multi =
     typeof window !== "undefined" &&
@@ -942,6 +943,15 @@ export function createMockBridge(
             error: {
               code: "SESSION_STOP_FAILED",
               message: "Profile upload failed at the mock transfer boundary.",
+            },
+          };
+        }
+        if (method === "sessionsForceStop" && forceStopControl === "fail") {
+          return {
+            ok: false,
+            error: {
+              code: "FORCE_STOP_FAILED",
+              message: "Mock force close was rejected by the remote session.",
             },
           };
         }

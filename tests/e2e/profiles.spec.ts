@@ -657,6 +657,44 @@ test("profile table Force stop requires the exact confirmation phrase", async ({
   ]);
 });
 
+test("force close surfaces the RPC reason and keeps confirmation available", async ({
+  page,
+}) => {
+  // Given
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
+  await page.goto("/profiles?profileRunning=1&forceStop=fail");
+  const runningRow = page.getByRole("row", { name: /Research profile/ });
+  await runningRow.getByRole("button", { name: "Force stop" }).click();
+  const dialog = page.getByRole("dialog", { name: "Force stop profile" });
+  await dialog
+    .getByLabel("Force confirmation profile-1")
+    .fill("FORCE CLOSE profile-1");
+
+  // When
+  await dialog
+    .getByRole("button", { name: "Force stop profile-1" })
+    .click();
+
+  // Then
+  await expect(dialog).toBeVisible();
+  await expect(
+    page.getByRole("complementary", { name: "Profile activity" }),
+  ).toContainText(
+    "Force close failed (FORCE_STOP_FAILED): Mock force close was rejected by the remote session.",
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Force stop profile-1" }),
+  ).toBeEnabled();
+  expect(
+    consoleErrors.some((message) =>
+      message.includes("Profile lifecycle action failed"),
+    ),
+  ).toBe(true);
+});
+
 test("dashboard keeps sessions visible without profile activity", async ({
   page,
 }) => {
