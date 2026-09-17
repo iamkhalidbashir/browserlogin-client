@@ -7,28 +7,48 @@ import {
   readActiveBinary,
 } from "../binary/index.js";
 import { statePaths } from "../config/paths.js";
+import { validateAppOrigin } from "../config/origin.js";
 import { LifecycleCoordinator } from "../coordinator/index.js";
+import { ProfileArchiveCache } from "../archive/index.js";
+import type { CoordinatorArchiveCache } from "../coordinator/index.js";
+import type { TransferProgress } from "../api/archive-transfer.js";
 import type { RecoveryState } from "../coordinator/state.js";
 import { ApplicationOperationError } from "./contracts.js";
 import { createLaunchTiming } from "../launch-timing.js";
 import { profileLaunchSpec } from "./profile-launch.js";
 import type { Session } from "../../shared/api-types.js";
+import {
+  SessionTransferProgressStore,
+  type SessionTransferProgressSnapshot,
+} from "./session-transfer-progress.js";
 
 export type LifecycleOperations = Pick<
   LifecycleCoordinator,
   "start" | "stop" | "forceStop" | "recover"
 >;
 
+export type ApplicationCoordinatorFactoryOptions = Readonly<{
+  client: BrowserLoginClient;
+  appOrigin: string;
+  archiveCache: CoordinatorArchiveCache;
+  transferProgress: (profileId: string, progress: TransferProgress) => void;
+}>;
+
 type ApplicationSessionsOptions = {
   readonly root: string;
   readonly client: () => Promise<BrowserLoginClient>;
+  readonly remoteConnection?: () => Promise<{ readonly appOrigin: string }>;
   readonly coordinator?: LifecycleOperations;
+  readonly coordinatorFactory?: (
+    options: ApplicationCoordinatorFactoryOptions,
+  ) => LifecycleOperations;
 };
 
 const persistedProfile = z.object({ profile_id: z.string() }).passthrough();
 
 export class ApplicationSessions {
   private readonly live = new Map<string, RecoveryState>();
+  private readonly transferProgress = new SessionTransferProgressStore();
   private coordinatorPromise: Promise<LifecycleOperations> | undefined;
   private runtimeStop: ((profileId: string) => Promise<void>) | undefined;
 
@@ -58,15 +78,25 @@ export class ApplicationSessions {
   async start(profileId: string): Promise<RecoveryState> {
     const timing = createLaunchTiming({ env: process.env });
     const coordinator = await this.coordinator();
-    const state = await coordinator.start(profileId, timing);
-    this.live.set(profileId, state);
-    return state;
+    try {
+      const state = await coordinator.start(profileId, timing);
+      this.live.set(profileId, state);
+      return state;
+    } catch (error) {
+      this.transferProgress.fail(profileId, "download");
+      throw error;
+    }
   }
 
   async stop(profileId: string): Promise<Session> {
-    const state = await (await this.coordinator()).stop(profileId);
-    this.live.delete(profileId);
-    return state;
+    try {
+      const state = await (await this.coordinator()).stop(profileId);
+      this.live.delete(profileId);
+      return state;
+    } catch (error) {
+      this.transferProgress.fail(profileId, "upload");
+      throw error;
+    }
   }
 
   async forceStop(profileId: string, confirmation?: string): Promise<Session> {
@@ -99,6 +129,10 @@ export class ApplicationSessions {
     return [...this.live.values()];
   }
 
+  transferProgressSnapshot(): readonly SessionTransferProgressSnapshot[] {
+    return this.transferProgress.snapshot();
+  }
+
   async recover(): Promise<void> {
     const directory = statePaths(this.options.root).state;
     const files = await readdir(directory).catch(
@@ -125,11 +159,28 @@ export class ApplicationSessions {
     }
   }
 
-  private async createCoordinator(): Promise<LifecycleCoordinator> {
+  private async createCoordinator(): Promise<LifecycleOperations> {
     const client = await this.options.client();
+    if (!this.options.remoteConnection)
+      throw new TypeError("session coordinator requires a remote connection");
+    const { appOrigin: rawAppOrigin } = await this.options.remoteConnection();
+    const appOrigin = validateAppOrigin(rawAppOrigin);
+    const archiveCache = new ProfileArchiveCache(this.options.root);
+    const transferProgress = (profileId: string, progress: TransferProgress) =>
+      this.transferProgress.record(profileId, progress);
+    if (this.options.coordinatorFactory)
+      return this.options.coordinatorFactory({
+        client,
+        appOrigin,
+        archiveCache,
+        transferProgress,
+      });
     return new LifecycleCoordinator({
       root: this.options.root,
       api: client,
+      archiveCache,
+      appOrigin,
+      transferProgress,
       profile: async (profileId) => {
         const binary = await readActiveBinary(this.options.root, {
           env: process.env,

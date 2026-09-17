@@ -15,6 +15,7 @@ import { createConfigurationServices } from "./configuration-services.js";
 import { ApplicationSessions, type LifecycleOperations } from "./sessions.js";
 import type { RecoveryState } from "../coordinator/state.js";
 import type { Session } from "../../shared/api-types.js";
+import type { SessionTransferProgressSnapshot } from "./session-transfer-progress.js";
 
 export type ApplicationRuntimeOptions = {
   readonly root: string;
@@ -40,6 +41,7 @@ export type ApplicationRuntime = {
   recover(): Promise<void>;
   remoteConnection(): Promise<ApplicationConnection>;
   loadSessionState(profileId: string): Promise<RecoveryState | null>;
+  sessionTransferProgress(): readonly SessionTransferProgressSnapshot[];
   setRuntimeStop(stop: (profileId: string) => Promise<void>): void;
   close(): Promise<void>;
 };
@@ -51,6 +53,7 @@ export function createApplicationRuntime(
   const sessions = new ApplicationSessions({
     root: options.root,
     client: () => client.client(),
+    remoteConnection: () => client.remoteConnection(),
     ...(options.coordinator ? { coordinator: options.coordinator } : {}),
   });
   const binary = new ApplicationBinary({
@@ -102,6 +105,7 @@ export function createApplicationRuntime(
     recover: () => sessions.recover(),
     remoteConnection: () => client.remoteConnection(),
     loadSessionState: (profileId) => sessions.loadState(profileId),
+    sessionTransferProgress: () => sessions.transferProgressSnapshot(),
     setRuntimeStop: (stop) => sessions.setRuntimeStop(stop),
     close: async () => undefined,
   };
