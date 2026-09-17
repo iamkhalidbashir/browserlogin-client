@@ -48,4 +48,42 @@ describe("complete RPC contract", () => {
       error: { code: "RPC_ERROR" },
     });
   });
+
+  test("round-trips simultaneous session transfer progress and idle state", async () => {
+    // Given
+    const snapshots = [
+      {
+        profileId: "profile-download",
+        direction: "download",
+        transferred: 40,
+        total: 100,
+        percentage: 40,
+        status: "running",
+      },
+      {
+        profileId: "profile-upload",
+        direction: "upload",
+        transferred: 100,
+        total: 100,
+        percentage: 100,
+        status: "completed",
+      },
+    ] as const;
+    const activeBridge = createMockBridge({
+      sessionsTransferProgress: snapshots,
+    });
+    const idleBridge = createMockBridge({ sessionsTransferProgress: [] });
+
+    // When
+    const active = await activeBridge.request("sessionsTransferProgress", {});
+    const idle = await idleBridge.request("sessionsTransferProgress", {});
+
+    // Then
+    expect(active).toEqual({ ok: true, value: snapshots });
+    expect(idle).toEqual({ ok: true, value: [] });
+    if (active.ok)
+      expect(
+        AppRPCSchemas.sessionsTransferProgress.result.parse(active.value),
+      ).toEqual(snapshots);
+  });
 });

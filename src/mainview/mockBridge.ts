@@ -48,6 +48,7 @@ export const mockParams: Record<AppRPCMethod, unknown> = {
     confirmation: "FORCE CLOSE profile-1",
   },
   sessionsLive: {},
+  sessionsTransferProgress: {},
   proxiesList: {},
   proxiesCreate: {
     name: "Local",
@@ -107,6 +108,24 @@ const values: Record<AppRPCMethod, unknown> = {
   sessionsStop: { profile_id: "profile-1", status: "stopped" },
   sessionsForceStop: { profile_id: "profile-1", status: "force-stopped" },
   sessionsLive: [],
+  sessionsTransferProgress: [
+    {
+      profileId: "profile-1",
+      direction: "download",
+      transferred: 40,
+      total: 100,
+      percentage: 40,
+      status: "running",
+    },
+    {
+      profileId: "profile-2",
+      direction: "upload",
+      transferred: 65,
+      total: 100,
+      percentage: 65,
+      status: "running",
+    },
+  ],
   proxiesList: [
     {
       id: "proxy-1",

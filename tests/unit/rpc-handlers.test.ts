@@ -34,6 +34,7 @@ const validParams: Record<AppRPCMethod, unknown> = {
   sessionsStop: { profileId: "profile-1" },
   sessionsForceStop: { profileId: "profile-1", confirmation: "FORCE CLOSE" },
   sessionsLive: {},
+  sessionsTransferProgress: {},
   proxiesList: {},
   proxiesCreate: {
     name: "proxy",
@@ -201,6 +202,141 @@ describe("application RPC contract", () => {
         message: "profilesGet is not configured",
       },
     });
+  });
+
+  test("returns all session transfer progress through one generated handler", async () => {
+    // Given
+    const snapshots = [
+      {
+        profileId: "profile-download",
+        direction: "download",
+        transferred: 40,
+        total: 100,
+        percentage: 40,
+        status: "running",
+      },
+      {
+        profileId: "profile-upload",
+        direction: "upload",
+        transferred: 65,
+        total: 100,
+        percentage: 65,
+        status: "failed",
+      },
+    ] as const;
+    const service = vi.fn(async () => snapshots);
+    const handler = createRPCHandlers({
+      services: { sessionsTransferProgress: service },
+    }).sessionsTransferProgress;
+
+    // When
+    const result = await handler({});
+
+    // Then
+    expect(result).toEqual({ ok: true, value: snapshots });
+    expect(service).toHaveBeenCalledOnce();
+    expect(service).toHaveBeenCalledWith({});
+  });
+
+  test("rejects malformed session transfer requests and service responses", async () => {
+    // Given
+    const malformedSnapshots = [
+      {
+        profileId: "",
+        direction: "download",
+        transferred: 0,
+        total: 1,
+        percentage: 0,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "sideways",
+        transferred: 0,
+        total: 1,
+        percentage: 0,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: -1,
+        total: 1,
+        percentage: 0,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: 0.5,
+        total: 1,
+        percentage: 0,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: 0,
+        total: Number.MAX_SAFE_INTEGER + 1,
+        percentage: 0,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: 0,
+        total: 1,
+        percentage: 101,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: 0,
+        total: 1,
+        percentage: 0.5,
+        status: "running",
+      },
+      {
+        profileId: "profile-1",
+        direction: "download",
+        transferred: 0,
+        total: 1,
+        percentage: 0,
+        status: "paused",
+      },
+    ];
+
+    // When / Then
+    expect(() =>
+      AppRPCSchemas.sessionsTransferProgress.params.parse({ extra: true }),
+    ).toThrow();
+    for (const snapshot of malformedSnapshots) {
+      const handler = createRPCHandlers({
+        services: { sessionsTransferProgress: async () => [snapshot] },
+      }).sessionsTransferProgress;
+      await expect(handler({})).resolves.toMatchObject({
+        ok: false,
+        error: { code: "RPC_ERROR" },
+      });
+    }
+  });
+
+  test("preserves the binary progress request and result contract", () => {
+    // Given / When
+    const params = AppRPCSchemas.binaryProgress.params.parse({});
+    const result = AppRPCSchemas.binaryProgress.result.parse({
+      downloaded: 25,
+      total: 100,
+      done: false,
+    });
+
+    // Then
+    expect(params).toEqual({});
+    expect(result).toEqual({ downloaded: 25, total: 100, done: false });
+    expect(() =>
+      AppRPCSchemas.binaryProgress.params.parse({ extra: true }),
+    ).toThrow();
   });
 
   test("throttles binary progress to four messages per second", () => {

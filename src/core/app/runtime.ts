@@ -87,6 +87,7 @@ export function createApplicationRuntime(
       return sessions.forceStop(input.profileId, input.confirmation);
     },
     sessionsLive: async () => sessions.listLive(),
+    sessionsTransferProgress: async () => sessions.transferProgressSnapshot(),
     binaryStatus: async () => binary.status(),
     binaryDownload: async (raw) =>
       binary.download(AppRPCSchemas.binaryDownload.params.parse(raw)),

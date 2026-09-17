@@ -12,6 +12,21 @@ import {
 } from "./config-types.js";
 
 const empty = z.object({}).strict();
+const safeNonnegativeInteger = z
+  .number()
+  .int()
+  .min(0)
+  .max(Number.MAX_SAFE_INTEGER);
+const sessionTransferProgressSnapshot = z
+  .object({
+    profileId: z.string().min(1),
+    direction: z.enum(["download", "upload"]),
+    transferred: safeNonnegativeInteger,
+    total: safeNonnegativeInteger,
+    percentage: z.number().int().min(0).max(100),
+    status: z.enum(["running", "completed", "failed"]),
+  })
+  .strict();
 const profileId = z.object({ profileId: z.string().min(1).max(256) }).strict();
 const proxyId = z.object({ proxyId: z.string().min(1).max(256) }).strict();
 const userId = z.object({ userId: z.string().min(1).max(256) }).strict();
@@ -184,6 +199,10 @@ export const AppRPCSchemas = {
     result: jsonObject,
   },
   sessionsLive: { params: empty, result: z.array(jsonObject) },
+  sessionsTransferProgress: {
+    params: empty,
+    result: z.array(sessionTransferProgressSnapshot),
+  },
   proxiesList: { params: empty, result: z.array(safeProxy) },
   proxiesCreate: { params: proxyFields, result: safeProxy },
   proxiesUpdate: { params: proxyId.merge(proxyFields), result: safeProxy },
