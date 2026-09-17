@@ -1,17 +1,18 @@
 import type { BridgeResult } from "../../rpc-client.js";
+import {
+  transferPresentation,
+  type ProfileTransferProgress,
+} from "./use-profile-transfer-progress.js";
 
 export type ProfileAction =
-  | "launch"
-  | "stop"
-  | "force-stop"
-  | "rotate"
-  | "delete";
+  "launch" | "stop" | "force-stop" | "rotate" | "delete";
 type Profile = BridgeResult<"profilesList">[number];
 
 type ProfileTableProps = {
   readonly profiles: readonly Profile[];
   readonly selected: readonly string[];
   readonly pendingActions: Readonly<Record<string, ProfileAction>>;
+  readonly transferProgress: ProfileTransferProgress;
   readonly onSelectionChange: (profileId: string, selected: boolean) => void;
   readonly onLaunch: (profileId: string) => void;
   readonly onStop: (profileId: string) => void;
@@ -25,6 +26,7 @@ export function ProfileTable({
   profiles,
   selected,
   pendingActions,
+  transferProgress,
   onSelectionChange,
   onLaunch,
   onStop,
@@ -51,6 +53,11 @@ export function ProfileTable({
           {profiles.map((profile) => {
             const pendingAction = pendingActions[profile.id];
             const rowPending = pendingAction !== undefined;
+            const progress = transferPresentation(
+              profile.name,
+              pendingAction,
+              transferProgress[profile.id],
+            );
             return (
               <tr key={profile.id} aria-busy={rowPending}>
                 <td>
@@ -72,6 +79,21 @@ export function ProfileTable({
                   {profile.cloud.current_session_id ? "Running" : "Stopped"}
                 </td>
                 <td>
+                  {progress ? (
+                    <div
+                      className="profile-transfer-progress"
+                      data-state={progress.state}
+                    >
+                      <span>{progress.label}</span>
+                      <progress
+                        className="runtime-progress"
+                        max={100}
+                        value={progress.percentage}
+                        aria-label={progress.accessibleName}
+                        aria-valuetext={progress.valueText}
+                      />
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     {profile.cloud.current_session_id ? (
                       <>

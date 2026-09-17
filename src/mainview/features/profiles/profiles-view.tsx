@@ -13,6 +13,7 @@ import { ForceStopConfirmation } from "./force-stop-confirmation.js";
 import { ProfileDeleteConfirmation } from "./profile-delete-confirmation.js";
 import { useProfileActions } from "./use-profile-actions.js";
 import { useProfileLaunch } from "./use-profile-launch.js";
+import { useProfileTransferProgress } from "./use-profile-transfer-progress.js";
 import DashboardView from "../launch/dashboard-view.js";
 
 export default function ProfilesView() {
@@ -38,6 +39,11 @@ export default function ProfilesView() {
   });
   const actions = useProfileActions(profiles.data);
   const { launch, launchActions, feedback } = useProfileLaunch(profiles.data);
+  const pendingActions = useMemo(
+    () => ({ ...actions.pendingActions, ...launchActions }),
+    [actions.pendingActions, launchActions],
+  );
+  const transferProgress = useProfileTransferProgress(pendingActions);
   const proxies = useQuery({
     queryKey: ["proxies"],
     queryFn: async () => {
@@ -136,7 +142,8 @@ export default function ProfilesView() {
       <ProfileTable
         profiles={visible}
         selected={selected}
-        pendingActions={{ ...actions.pendingActions, ...launchActions }}
+        pendingActions={pendingActions}
+        transferProgress={transferProgress}
         onSelectionChange={(profileId, checked) =>
           setSelected(
             checked

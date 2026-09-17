@@ -291,6 +291,7 @@ export function createMockBridge(
   const binaryStatusControl = initialSearch.get("binaryStatus");
   const profilesListControl = initialSearch.get("profilesList");
   const sessionsStartControl = initialSearch.get("sessionsStart");
+  const transferProgressControl = initialSearch.get("transferProgress");
   const multi =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
@@ -317,10 +318,14 @@ export function createMockBridge(
   );
   const calls: Array<{ method: AppRPCMethod; params: unknown }> = [];
   let liveSessions: Array<Record<string, unknown>> =
-    initialSearch.get("profileRunning") === "1"
+    initialSearch.get("profileRunning") === "1" ||
+    initialSearch.get("profile2Running") === "1"
       ? [
           {
-            profile_id: profile.id,
+            profile_id:
+              initialSearch.get("profile2Running") === "1"
+                ? "profile-2"
+                : profile.id,
             status: "running",
             started_at: new Date().toISOString(),
             generation: 1,
@@ -332,6 +337,7 @@ export function createMockBridge(
   let binaryInstalled = initialSearch.get("binary") !== "missing";
   let binaryStatusCalls = 0;
   let profilesListCalls = 0;
+  let transferProgressCalls = 0;
   let binaryProgress: BridgeResult<"binaryProgress"> =
     AppRPCSchemas.binaryProgress.result.parse(values.binaryProgress);
   const downloadDelayMs = (() => {
@@ -348,6 +354,12 @@ export function createMockBridge(
     const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
     if (!Number.isFinite(parsed)) return 0;
     return Math.min(2000, Math.max(0, parsed));
+  })();
+  const profileActionDelayMs = (() => {
+    const raw = initialSearch.get("profileActionDelayMs");
+    const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(2_000, Math.max(0, parsed));
   })();
   if (typeof window !== "undefined") window.__browserloginMockCalls = calls;
   return {
@@ -787,13 +799,9 @@ export function createMockBridge(
         return { ok: true, value: proxyRecords as BridgeResult<K> };
       }
       if (method === "sessionsStart") {
-        const delay = Number.parseInt(
-          initialSearch.get("profileActionDelayMs") ?? "0",
-          10,
-        );
-        if (Number.isFinite(delay) && delay > 0)
+        if (profileActionDelayMs > 0)
           await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(delay, 2_000)),
+            setTimeout(resolve, profileActionDelayMs),
           );
         const profileId = (params as { profileId: string }).profileId;
         if (sessionsStartControl === "reject") {
@@ -851,8 +859,91 @@ export function createMockBridge(
           ) as BridgeResult<K>,
         };
       }
+      if (method === "sessionsTransferProgress") {
+        transferProgressCalls += 1;
+        const controlled =
+          transferProgressControl === "cache-hit"
+            ? []
+            : transferProgressControl === "completed"
+              ? [
+                  {
+                    profileId: "profile-1",
+                    direction: "download",
+                    transferred: 100,
+                    total: 100,
+                    percentage: 100,
+                    status: "completed",
+                  },
+                ]
+              : transferProgressControl === "failed-upload"
+                ? [
+                    {
+                      profileId: "profile-2",
+                      direction: "upload",
+                      transferred: 65,
+                      total: 100,
+                      percentage: 65,
+                      status: "failed",
+                    },
+                  ]
+                : transferProgressControl === "malformed"
+                  ? [
+                      {
+                        profileId: "profile-1",
+                        direction: "download",
+                        transferred: 40,
+                        total: 100,
+                        percentage: 140,
+                        status: "running",
+                      },
+                    ]
+                  : transferProgressControl === "happy" &&
+                      transferProgressCalls === 1
+                    ? [
+                        {
+                          profileId: "profile-1",
+                          direction: "download",
+                          transferred: 20,
+                          total: 100,
+                          percentage: 20,
+                          status: "running",
+                        },
+                        {
+                          profileId: "profile-2",
+                          direction: "upload",
+                          transferred: 30,
+                          total: 100,
+                          percentage: 30,
+                          status: "running",
+                        },
+                      ]
+                    : (overrides.sessionsTransferProgress ??
+                      values.sessionsTransferProgress);
+        return {
+          ok: true,
+          value: AppRPCSchemas.sessionsTransferProgress.result.parse(
+            controlled,
+          ) as BridgeResult<K>,
+        };
+      }
       if (method === "sessionsStop" || method === "sessionsForceStop") {
         const profileId = (params as { profileId: string }).profileId;
+        if (method === "sessionsStop" && profileActionDelayMs > 0)
+          await new Promise((resolve) =>
+            setTimeout(resolve, profileActionDelayMs),
+          );
+        if (
+          method === "sessionsStop" &&
+          transferProgressControl === "failed-upload"
+        ) {
+          return {
+            ok: false,
+            error: {
+              code: "SESSION_STOP_FAILED",
+              message: "Profile upload failed at the mock transfer boundary.",
+            },
+          };
+        }
         liveSessions = liveSessions.filter(
           (session) => session.profile_id !== profileId,
         );
