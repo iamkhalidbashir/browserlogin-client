@@ -33,6 +33,9 @@ copy.
   speculative operations.
 - Announce asynchronous status with an accessible live region and preserve
   keyboard focus visibility.
+- Keep profile launch and stop activity visible in the bottom-right activity
+  stack. Show indeterminate progress while preparing, then switch to verified
+  transfer percentages when byte counts are available.
 - Collect contextual input and destructive confirmations in a fixed modal,
   never by appending controls below the triggering table or panel. Label every
   dialog, move focus inside it, contain keyboard focus, support Escape, and
@@ -42,6 +45,9 @@ copy.
 
 - Preserve the existing sidebar, header, two-column Settings grid, and panel
   order.
+- On desktop, bound the application shell to the dynamic viewport. Keep the
+  left sidebar stationary and let the right content column own vertical
+  scrolling; retain normal document flow on narrow layouts.
 - Behavior-only work must not add ornamental layout, animation, or dependencies.
 - Long status text must wrap within its panel without changing the application
   minimum window size.
