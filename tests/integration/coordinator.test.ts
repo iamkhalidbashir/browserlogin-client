@@ -270,7 +270,7 @@ async function setup(
   };
 }
 
-describe("Task 18 recovery state", () => {
+describe("recovery state", () => {
   it("allows enough time for cold runner initialization", async () => {
     // Given
     const { coordinator, runnerInput } = await setup();

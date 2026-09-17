@@ -1,5 +1,5 @@
-Task 4 F1 bundled evidence
-Command: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 ~/.bun/bin/bun build scripts/spike-playwright-mcp.ts --compile --outfile /tmp/playwright-mcp-spike-task4
+Playwright MCP F1 bundled evidence
+Command: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 ~/.bun/bin/bun build scripts/spike-playwright-mcp.ts --compile --outfile /tmp/playwright-mcp-spike
 34 | var bidiMapper = __toESM(require("chromium-bidi/lib/cjs/bidiMapper/BidiMapper"));
                                       ^
 error: Could not resolve: "chromium-bidi/lib/cjs/bidiMapper/BidiMapper". Maybe you need to "bun install"?

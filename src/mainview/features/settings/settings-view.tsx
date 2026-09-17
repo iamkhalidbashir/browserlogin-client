@@ -4,18 +4,6 @@ import { VERSION } from "../../../shared/version.js";
 import { useBridge } from "../../rpc-client.js";
 import { ApplicationUpdates } from "./application-updates.js";
 
-const snippet = JSON.stringify(
-  {
-    browserlogin: {
-      type: "local",
-      command: ["browserlogin", "mcp"],
-      enabled: true,
-    },
-  },
-  null,
-  2,
-);
-
 export default function SettingsView() {
   const bridge = useBridge();
   const queryClient = useQueryClient();
@@ -159,10 +147,6 @@ export default function SettingsView() {
     );
     await Promise.all([binary.refetch(), binaryProgress.refetch()]);
   };
-  const installCli = async () => {
-    const result = await bridge.request("cliInstall", {});
-    setMessage(result.ok ? result.value.message : result.error.message);
-  };
   const validCustom =
     !customUrl ||
     /^https:\/\//.test(customUrl) ||
@@ -172,8 +156,7 @@ export default function SettingsView() {
       <p className="eyebrow">Application</p>
       <h2 className="text-3xl font-semibold">Settings</h2>
       <p className="mt-2 text-zinc-500">
-        Connection, license, trusted downloads, CLI, updates, and local
-        diagnostics.
+        Connection, license, trusted downloads, updates, and local diagnostics.
       </p>
       <div className="settings-grid mt-6">
         <article className="panel">
@@ -327,19 +310,6 @@ export default function SettingsView() {
               </p>
             </div>
           ) : null}
-        </article>
-        <article className="panel">
-          <h3 className="font-medium">CLI integration</h3>
-          <p className="mt-1 text-sm text-zinc-500">
-            Replaces both bl_client and browserSessionMCP entries.
-          </p>
-          <pre className="code-block mt-3">{snippet}</pre>
-          <button
-            className="button-primary mt-3"
-            onClick={() => void installCli()}
-          >
-            Install browserlogin CLI
-          </button>
         </article>
         <ApplicationUpdates
           autoCheckUpdates={settings.data?.auto_check_updates ?? null}

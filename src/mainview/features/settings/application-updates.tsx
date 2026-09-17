@@ -165,7 +165,7 @@ export function ApplicationUpdates({
     <article className="panel">
       <h3 className="font-medium">Application updates</h3>
       <p
-        className={`mt-1 text-sm ${updateError ? "text-red-600 dark:text-red-400" : "text-zinc-600 dark:text-zinc-400"}`}
+        className={`mt-1 text-sm ${updateError ? "text-red-600" : "text-zinc-600"}`}
         aria-live={updateError ? "assertive" : "polite"}
         aria-atomic="true"
         {...(updateError ? { role: "alert" as const } : {})}
@@ -215,7 +215,7 @@ export function ApplicationUpdates({
           </button>
         ) : null}
       </div>
-      <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
+      <p className="mt-3 text-xs text-zinc-600">
         Automatic checks never download or install an update. Those actions stay
         explicit.
       </p>

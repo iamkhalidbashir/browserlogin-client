@@ -38,7 +38,7 @@ test("proxy create refreshes the list and change-ip never renders the password",
   await expect(page.getByRole("status")).toContainText("203.0.113.10");
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
-    path: join(evidence, "task-28-proxies.png"),
+    path: join(evidence, "proxy-management.png"),
     fullPage: true,
   });
 });
@@ -100,9 +100,9 @@ test("member zero-proxy state explains the owner requirement", async ({
     page.getByRole("heading", { name: "No proxies yet" }),
   ).toBeVisible();
   await expect(page.getByText(/workspace owner/i)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Create proxy" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Create proxy" })).toHaveCount(
+    0,
+  );
 });
 
 test("user and member actions target the selected rows and profile", async ({
@@ -114,11 +114,12 @@ test("user and member actions target the selected rows and profile", async ({
     .selectOption({ label: "Secondary profile" });
   const memberRow = page.getByRole("row", { name: /Second member/ });
   await memberRow.getByRole("button", { name: "Disable user" }).click();
-  await expect(page.getByRole("alert")).toContainText("Second member");
-  await expect(page.getByRole("alert")).toContainText(
+  const disableDialog = page.getByRole("dialog", { name: "Disable user" });
+  await expect(disableDialog).toContainText("Second member");
+  await expect(disableDialog).toContainText(
     "force-stops all of their active sessions",
   );
-  await page.getByRole("button", { name: "Confirm disable" }).click();
+  await disableDialog.getByRole("button", { name: "Confirm disable" }).click();
   await expect(page.getByRole("status")).toContainText("User disabled");
   await page.getByLabel("Share user").selectOption({ label: "Second member" });
   await page.getByRole("button", { name: "Share profile" }).click();
@@ -185,10 +186,11 @@ test("owner controls users and profile members with consequence confirmation", a
 }) => {
   await page.goto("/users");
   await page.getByRole("button", { name: "Disable user" }).click();
-  await expect(page.getByRole("alert")).toContainText(
+  const disableDialog = page.getByRole("dialog", { name: "Disable user" });
+  await expect(disableDialog).toContainText(
     "force-stops all of their active sessions",
   );
-  await page.getByRole("button", { name: "Confirm disable" }).click();
+  await disableDialog.getByRole("button", { name: "Confirm disable" }).click();
   await expect(page.getByRole("status")).toContainText("User disabled");
   await page.getByLabel("Share role").selectOption("editor");
   await page.getByRole("button", { name: "Share profile" }).click();
@@ -233,7 +235,7 @@ test("notes save/history and audit filtering are version-aware", async ({
     notes: "Updated profile note",
   });
   await page.screenshot({
-    path: join(evidence, "task-28-admin.png"),
+    path: join(evidence, "administration.png"),
     fullPage: true,
   });
 });
@@ -257,7 +259,7 @@ test("notes conflict is explicit and non-owner actions are absent", async ({
   await expect(page.getByRole("button", { name: "Add proxy" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Change IP" })).toHaveCount(0);
   await page.screenshot({
-    path: join(evidence, "task-28-roles.png"),
+    path: join(evidence, "member-roles.png"),
     fullPage: true,
   });
 });

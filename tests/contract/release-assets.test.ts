@@ -11,8 +11,7 @@ const packageManifest = await readFile("package.json", "utf8");
 const hutchConfig = await readFile("hutch.config.ts", "utf8");
 const electrobunWrapper = await readFile("scripts/electrobun.ts", "utf8");
 const electrobunConfig = await readFile("electrobun.config.ts", "utf8");
-const playwrightChromiumSourceAllowance =
-  String.raw`(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:/?$|/[^/]+\.(?:js|png)$)`;
+const playwrightChromiumSourceAllowance = String.raw`(^|/)app/runner/node_modules/playwright-core/lib/server/chromium(?:/?$|/[^/]+\.(?:js|png)$)`;
 const publishRelease = workflow.slice(
   workflow.indexOf("  publish-release:"),
   workflow.indexOf("  publish-updater:"),
@@ -45,9 +44,15 @@ describe("release asset contract", () => {
   });
 
   test("validates generated macOS and Linux artifacts without stale names", () => {
-    const nativeArtifacts = workflowStep("Validate and stage macOS/Linux artifacts");
-    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin.dmg" -print -quit');
-    expect(nativeArtifacts).toContain('find artifacts -maxdepth 1 -type f -name "*BrowserLogin-Setup.tar.gz" -print -quit');
+    const nativeArtifacts = workflowStep(
+      "Validate and stage macOS/Linux artifacts",
+    );
+    expect(nativeArtifacts).toContain(
+      'find artifacts -maxdepth 1 -type f -name "*BrowserLogin.dmg" -print -quit',
+    );
+    expect(nativeArtifacts).toContain(
+      'find artifacts -maxdepth 1 -type f -name "*BrowserLogin-Setup.tar.gz" -print -quit',
+    );
   });
 
   test("prepares the generated Electrobun devkit before local development", () => {
@@ -59,6 +64,13 @@ describe("release asset contract", () => {
     );
     expect(packageManifest).toContain(
       '"dev": "bun run prepare:dev && bun scripts/electrobun.ts dev"',
+    );
+  });
+
+  test("exposes standalone BrowserLogin command scripts", () => {
+    expect(packageManifest).toContain('"cli": "bun src/cli/index.ts"');
+    expect(packageManifest).toContain(
+      '"build:cli": "bun build --compile src/cli/index.ts --outfile dist/browserlogin"',
     );
   });
 
@@ -95,7 +107,7 @@ describe("release asset contract", () => {
     expect(workflow).toContain("bun run test:integration -- --retry 2");
   });
 
-  test("stages versioned public downloads without updater artifacts", () => {
+  test("stages versioned app, CLI, and helper downloads without updater artifacts", () => {
     expect(publishRelease).toContain('tagged_release="tagged-release"');
     expect(publishRelease).toContain(
       "BrowserLogin-${release_version}-macos-arm64.dmg",
@@ -118,11 +130,25 @@ describe("release asset contract", () => {
     expect(publishRelease).toContain(
       "browserlogin-${release_version}-linux-x64",
     );
+    expect(publishRelease).toContain(
+      "browserlogin-browser-tools-windows-x64.exe",
+    );
     expect(publishRelease).not.toContain(
       "production-macos-arm64-BrowserLogin.app.tar.zst",
     );
     expect(publishRelease).toContain("release_files=(tagged-release/*)");
     expect(publishRelease).toContain("--latest=false");
+  });
+
+  test("bundles and publishes the browser-tools helper beside the CLI", () => {
+    const helperBuild = workflowStep("Build browser-tools helper");
+    expect(helperBuild).toContain("bun run build:browser-tools-helper");
+    expect(workflowStep("Build CLI")).toContain("src/cli/index.ts");
+    expect(workflowStep("Stage standalone browser-tools helper")).toContain(
+      "dist/vendor/${{ matrix.helper_asset }}",
+    );
+    expect(workflow).toContain("cli_asset");
+    expect(workflow).toContain("helper_asset");
   });
 
   test("keeps the rolling stable channel on Electrobun filenames", () => {
@@ -192,7 +218,9 @@ describe("release asset contract", () => {
     const nativeArtifacts = workflowStep(
       "Validate and stage macOS/Linux artifacts",
     );
-    const windowsArtifacts = workflowStep("Validate and stage Windows artifacts");
+    const windowsArtifacts = workflowStep(
+      "Validate and stage Windows artifacts",
+    );
 
     // When: their Playwright exceptions are inspected.
     // Then: both encode the exact immediate JavaScript/resource-file allowance.
@@ -239,15 +267,11 @@ describe("release asset contract", () => {
     expect(workflow).toContain(
       "release_sha: ${{ steps.release.outputs.release_sha }}",
     );
-    expect(workflow).toContain(
-      "ref: ${{ needs.prepare.outputs.release_sha }}",
-    );
+    expect(workflow).toContain("ref: ${{ needs.prepare.outputs.release_sha }}");
     expect(workflow).toContain(
       '[[ "$DISPATCH_REF_NAME" == "$DEFAULT_BRANCH" ]]',
     );
-    expect(workflow).toContain(
-      '[[ "$tag_type" == tag ]]',
-    );
+    expect(workflow).toContain('[[ "$tag_type" == tag ]]');
     expect(publishRelease).toContain(
       "if: needs.prepare.outputs.publish_release == 'true'",
     );
@@ -255,15 +279,19 @@ describe("release asset contract", () => {
     expect(publishUpdater).toContain(
       "needs.prepare.outputs.stable_release == 'true'",
     );
-    expect(publishUpdater).toContain(
-      'test "$latest_tag" = "$RELEASE_TAG"',
-    );
+    expect(publishUpdater).toContain('test "$latest_tag" = "$RELEASE_TAG"');
   });
 
   test("adds a guarded Windows installer entrypoint", () => {
-    const windowsArtifacts = workflowStep("Validate and stage Windows artifacts");
+    const windowsArtifacts = workflowStep(
+      "Validate and stage Windows artifacts",
+    );
     expect(workflow).toContain("Add guarded Windows installer entrypoint");
-    expect(windowsArtifacts).toContain('$entrypoint = Join-Path $installerDir "Install-BrowserLogin.cmd"');
-    expect(windowsArtifacts).toContain('Join-Path $installerDir ".installer\\BrowserLogin-Setup.tar.zst"');
+    expect(windowsArtifacts).toContain(
+      '$entrypoint = Join-Path $installerDir "Install-BrowserLogin.cmd"',
+    );
+    expect(windowsArtifacts).toContain(
+      'Join-Path $installerDir ".installer\\BrowserLogin-Setup.tar.zst"',
+    );
   });
 });

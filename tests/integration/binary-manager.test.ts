@@ -43,8 +43,8 @@ async function serverFor(
     official?: boolean;
   } = {},
 ) {
-  const etag = '"task14-etag"';
-  const changedEtag = '"task14-changed-etag"';
+  const etag = '"archive-etag"';
+  const changedEtag = '"archive-etag-changed"';
   const version = "146.0.7680.177.5";
   const archiveName = "cloakbrowser-windows-x64.zip";
   const servedBytes = options.tamperArchive
@@ -168,10 +168,10 @@ function fixtureArchive(): Uint8Array {
   );
 }
 
-describe("Task 14 binary manager", () => {
+describe("binary manager", () => {
   it("happy: custom source downloads, verifies, installs, and writes current.json", async () => {
     const source = await serverFor(fixtureArchive());
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-manager-"));
     const progress: Array<{ done: boolean }> = [];
     await expect(
       readActiveBinary(root, { platform: "win32", arch: "x64" }),
@@ -208,7 +208,7 @@ describe("Task 14 binary manager", () => {
 
   it("rejects tampered custom checksum before installation", async () => {
     const source = await serverFor(fixtureArchive(), { tamperManifest: true });
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-tamper-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-tamper-"));
     await expect(
       ensureBinary({
         cacheDirectory: root,
@@ -227,7 +227,7 @@ describe("Task 14 binary manager", () => {
   it("resumes with Range and restarts when the server ignores Range", async () => {
     const bytes = fixtureArchive();
     const source = await serverFor(bytes);
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-resume-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-resume-"));
     const archive = join(
       root,
       "downloads",
@@ -236,7 +236,7 @@ describe("Task 14 binary manager", () => {
     await mkdir(join(root, "downloads"), { recursive: true });
     const partial = Math.max(1, Math.floor(bytes.length * 0.4));
     await writeFile(`${archive}.part`, bytes.subarray(0, partial));
-    await writeFile(`${archive}.part.etag`, '"task14-etag"');
+    await writeFile(`${archive}.part.etag`, '"archive-etag"');
     const info = await ensureBinary({
       cacheDirectory: root,
       downloadUrl: source.url,
@@ -247,7 +247,7 @@ describe("Task 14 binary manager", () => {
     expect(info.path).toContain(source.version);
     const range = source.requests.find((request) => request.range);
     expect(range?.range).toBe(`bytes=${partial}-`);
-    expect(range?.ifRange).toBe('"task14-etag"');
+    expect(range?.ifRange).toBe('"archive-etag"');
     expect(await stat(archive)).toMatchObject({ size: bytes.length });
     await rm(root, { recursive: true, force: true });
   });
@@ -260,7 +260,7 @@ describe("Task 14 binary manager", () => {
         changedEtag: mode === "changed",
       });
       const root = await mkdtemp(
-        join(tmpdir(), `browserlogin-task14-${mode}-`),
+        join(tmpdir(), `browserlogin-binary-${mode}-`),
       );
       const archive = join(
         root,
@@ -270,7 +270,7 @@ describe("Task 14 binary manager", () => {
       await mkdir(join(root, "downloads"), { recursive: true });
       const partial = Math.max(1, Math.floor(bytes.length * 0.4));
       await writeFile(`${archive}.part`, bytes.subarray(0, partial));
-      await writeFile(`${archive}.part.etag`, '"task14-etag"');
+      await writeFile(`${archive}.part.etag`, '"archive-etag"');
       await expect(
         ensureBinary({
           cacheDirectory: root,
@@ -284,7 +284,7 @@ describe("Task 14 binary manager", () => {
         (request) => request.path.endsWith(".zip") && request.method === "GET",
       );
       expect(archiveGets[0]?.range).toBe(`bytes=${partial}-`);
-      expect(archiveGets[0]?.ifRange).toBe('"task14-etag"');
+      expect(archiveGets[0]?.ifRange).toBe('"archive-etag"');
       expect(archiveGets.at(-1)?.range).toBeUndefined();
       expect(archiveGets).toHaveLength(2);
       await rm(root, { recursive: true, force: true });
@@ -295,7 +295,7 @@ describe("Task 14 binary manager", () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-official-free-"),
+      join(tmpdir(), "browserlogin-binary-official-free-"),
     );
     const info = await ensureBinary({
       cacheDirectory: root,
@@ -325,7 +325,7 @@ describe("Task 14 binary manager", () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-official-pro-"),
+      join(tmpdir(), "browserlogin-binary-official-pro-"),
     );
     const info = await ensureBinary({
       cacheDirectory: root,
@@ -353,7 +353,7 @@ describe("Task 14 binary manager", () => {
   it("production official verification rejects an alternate signing key", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-pinned-key-"),
+      join(tmpdir(), "browserlogin-binary-pinned-key-"),
     );
     await expect(
       ensureBinary({
@@ -369,7 +369,7 @@ describe("Task 14 binary manager", () => {
   it("keeps official and custom same-version installs in separate cache identities", async () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-source-identity-"),
+      join(tmpdir(), "browserlogin-binary-source-identity-"),
     );
     setTestOfficialSigningPublicKey(source.publicKey);
     const official = await ensureBinary({
@@ -401,7 +401,7 @@ describe("Task 14 binary manager", () => {
     });
     setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-official-failure-"),
+      join(tmpdir(), "browserlogin-binary-official-failure-"),
     );
     await expect(
       ensureBinary({
@@ -421,7 +421,7 @@ describe("Task 14 binary manager", () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-manifest-fallback-"),
+      join(tmpdir(), "browserlogin-binary-manifest-fallback-"),
     );
     const originalFetch = officialFetch(source.url);
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -448,7 +448,7 @@ describe("Task 14 binary manager", () => {
     const source = await serverFor(fixtureArchive(), { official: true });
     setTestOfficialSigningPublicKey(source.publicKey);
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-archive-fallback-"),
+      join(tmpdir(), "browserlogin-binary-archive-fallback-"),
     );
     const originalFetch = officialFetch(source.url);
     const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -477,7 +477,7 @@ describe("Task 14 binary manager", () => {
   });
 
   it("does not retry deterministic HTTP failures", async () => {
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-retry-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-retry-"));
     let calls = 0;
     const fetchImpl = (async () => {
       calls += 1;
@@ -498,7 +498,7 @@ describe("Task 14 binary manager", () => {
 
   it("retries a network failure but stops after the successful transfer", async () => {
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-network-retry-"),
+      join(tmpdir(), "browserlogin-binary-network-retry-"),
     );
     let calls = 0;
     const fetchImpl = (async () => {
@@ -523,7 +523,7 @@ describe("Task 14 binary manager", () => {
   });
 
   it("short-circuits local override, rejects unsupported platforms, and preflights disk", async () => {
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-override-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-override-"));
     const local = join(root, "chrome.exe");
     await writeFile(local, "local");
     await expect(
@@ -546,7 +546,7 @@ describe("Task 14 binary manager", () => {
   });
 
   it("uses the hourly Pro marker and only honors the version pin for a paid key", async () => {
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-version-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-version-"));
     const freeCalls: Array<{ url: string; headers: Headers }> = [];
     const freeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       freeCalls.push({
@@ -680,7 +680,7 @@ describe("Task 14 binary manager", () => {
 
   it("pro: resolves the paid version and installs through the same verified cache", async () => {
     const source = await serverFor(fixtureArchive());
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task14-pro-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-binary-pro-"));
     const info = await ensureBinary({
       cacheDirectory: root,
       downloadUrl: source.url,
@@ -696,10 +696,10 @@ describe("Task 14 binary manager", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("concurrency: same-version callers share the Task 13 lock", async () => {
+  it("concurrency: same-version callers share the process lock", async () => {
     const source = await serverFor(fixtureArchive());
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-concurrent-"),
+      join(tmpdir(), "browserlogin-binary-concurrent-"),
     );
     const options = {
       cacheDirectory: root,
@@ -719,7 +719,7 @@ describe("Task 14 binary manager", () => {
   it("concurrency: separate processes perform one download and publish atomic current.json", async () => {
     const source = await serverFor(fixtureArchive());
     const root = await mkdtemp(
-      join(tmpdir(), "browserlogin-task14-processes-"),
+      join(tmpdir(), "browserlogin-binary-processes-"),
     );
     const fixture = fileURLToPath(
       new URL("../fixtures/binary-concurrency-child.ts", import.meta.url),

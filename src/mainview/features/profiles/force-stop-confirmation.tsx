@@ -1,8 +1,11 @@
+import { ModalDialog } from "../../components/modal-dialog.js";
+
 type ForceStopConfirmationProps = {
   readonly profileId: string;
   readonly confirmation: string;
   readonly pending: boolean;
   readonly onConfirmationChange: (value: string) => void;
+  readonly onClose: () => void;
   readonly onConfirm: () => void;
 };
 
@@ -11,19 +14,25 @@ export function ForceStopConfirmation({
   confirmation,
   pending,
   onConfirmationChange,
+  onClose,
   onConfirm,
 }: ForceStopConfirmationProps) {
   const expected = `FORCE CLOSE ${profileId}`;
   return (
-    <div className="panel mt-4">
-      <h3 className="font-medium">Force stop profile</h3>
-      <p className="mt-1 text-sm text-zinc-500">
-        This discards uncommitted local browser changes and uploads no archive.
-        Type <strong>{expected}</strong> to confirm.
-      </p>
-      <div className="mt-3 flex gap-2">
+    <ModalDialog
+      title="Force stop profile"
+      description={
+        <p>
+          This discards uncommitted local browser changes and uploads no
+          archive. Type <strong>{expected}</strong> to confirm.
+        </p>
+      }
+      onClose={onClose}
+    >
+      <div className="flex flex-col gap-4 sm:flex-row">
         <input
           className="input"
+          data-modal-autofocus
           aria-label={`Force confirmation ${profileId}`}
           value={confirmation}
           onChange={(event) => onConfirmationChange(event.target.value)}
@@ -37,6 +46,6 @@ export function ForceStopConfirmation({
           {pending ? "Force stopping…" : "Force stop"}
         </button>
       </div>
-    </div>
+    </ModalDialog>
   );
 }

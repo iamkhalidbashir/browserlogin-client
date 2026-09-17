@@ -91,7 +91,7 @@ async function main(): Promise<void> {
     async (..._args: Parameters<typeof fetch>): Promise<Response> => {
       void _args;
       fetches += 1;
-      throw new Error("TASK6_NETWORK_FETCH_BLOCKED");
+      throw new Error("ONNX_WASM_NETWORK_FETCH_BLOCKED");
     },
     { preconnect: originalFetch.preconnect },
   );
@@ -144,7 +144,7 @@ async function main(): Promise<void> {
       log_std: finiteFloat32(logStd.data, "log_std", 2),
     };
     if (fetches !== 0) {
-      throw new Error(`TASK6_NETWORK_FETCH_COUNT:${fetches}`);
+      throw new Error(`ONNX_WASM_NETWORK_FETCH_COUNT:${fetches}`);
     }
     console.log(JSON.stringify(output));
   } finally {

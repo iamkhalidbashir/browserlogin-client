@@ -1,124 +1,87 @@
-# BrowserLogin CLI guide
+# BrowserLogin CLI
 
-The compiled `browserlogin` command configures BrowserLogin, manages local browser-session lifecycles, verifies CloakBrowser downloads, reports diagnostics, and starts the unified MCP server.
-
-The CLI, desktop app, and MCP server share one private state root. Configuration made with one surface is available to the others.
+The standalone `browserlogin` executable supports terminal-only BrowserLogin operation. It does not require the desktop app to be installed or running.
 
 ## Install
 
-Download the platform-specific `browserlogin-<version>-<platform>` asset and the matching `browserlogin-browser-tools-<platform>` helper from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases). Keep the helper beside the CLI under its release filename, make the CLI executable where required, and place it on your `PATH` as `browserlogin`.
+Download the CLI and matching browser-tools helper for the same platform from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases):
 
-If the compiled CLI is already running, install it in the user CLI location with:
+| Platform    | CLI                                      | Required helper                              |
+| ----------- | ---------------------------------------- | -------------------------------------------- |
+| macOS ARM64 | `browserlogin-<version>-macos-arm64`     | `browserlogin-browser-tools-macos-arm64`     |
+| Windows x64 | `browserlogin-<version>-windows-x64.exe` | `browserlogin-browser-tools-windows-x64.exe` |
+| Linux x64   | `browserlogin-<version>-linux-x64`       | `browserlogin-browser-tools-linux-x64`       |
 
-```sh
-browserlogin install-cli
-```
-
-On macOS and Linux that location is `~/.local/bin/browserlogin`; on Windows it is `%LOCALAPPDATA%\Programs\browserlogin\browserlogin.exe`.
-
-## Configure a connection
-
-Run the interactive setup once:
+Verify both files against `SHA256SUMS` and keep them in the same directory. On macOS and Linux, mark both files executable:
 
 ```sh
-browserlogin setup
+chmod +x browserlogin-* browserlogin-browser-tools-*
 ```
 
-Provide the HTTPS BrowserLogin application origin and a BrowserLogin API key. Use the application origin, for example `https://app.example.com`, rather than a REST or MCP path. BrowserLogin derives `${origin}/api/v1` for REST and `${origin}/mcp/browserSessionMCP` for remote MCP discovery.
+Rename the versioned executable to `browserlogin`, place its directory on `PATH`, or run `browserlogin install-cli`. Self-install copies both the CLI and matching helper into the user CLI directory.
 
-The app origin is stored in the private state root. The API key is stored in the operating-system keychain instead of the configuration file.
+## Setup
 
-For managed or headless environments, provide credentials to the process environment rather than an interactive prompt:
-
-```sh
-export BROWSERLOGIN_API_KEY='bl_<KEY_ID>_<KEY_SECRET>'
-export BROWSERLOGIN_BASE_URL='https://app.example.com'
-export CLOAKBROWSER_LICENSE_KEY='<OPTIONAL_LICENSE_KEY>'
-browserlogin doctor --json
-```
-
-Only `BROWSERLOGIN_API_KEY` is required. `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY` are optional. `browserlogin setup --api-key-env` prints the same environment-mode reminder without changing local configuration.
-
-Never commit credentials or put them in shell history, repository configuration, or MCP configuration files.
-
-## Quickstart
+Interactive setup stores the API key through the operating-system keychain backend:
 
 ```sh
 browserlogin setup
-browserlogin binary download
-browserlogin profiles --json
-browserlogin start <PROFILE_ID>
-browserlogin status --json
-browserlogin stop <PROFILE_ID>
 ```
 
-`binary download` is explicit. Running `start` does not silently download a CloakBrowser binary, so install a verified browser before the first lifecycle start.
+For managed environments, provide a nonempty `BROWSERLOGIN_API_KEY`. Optional overrides are `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY`:
+
+```sh
+browserlogin setup --api-key-env
+```
+
+Never commit credentials. Desktop and CLI processes using the same state root share persisted connection metadata and keychain entries.
 
 ## Commands
 
-| Command                                          | Behavior                                                                                                                                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `browserlogin profiles [--json]`                 | List accessible profile IDs, names, platforms, archive generations, and coarse remote-session state. The command writes stable JSON rows.                                                  |
-| `browserlogin start <profile_id>`                | Start or recover the profile's BrowserLogin session and local CloakBrowser runner. Use `--json` to print the returned lifecycle state.                                                     |
-| `browserlogin stop <profile_id>`                 | Stop normally: package and verify the local archive, upload it, commit the remote session stop, and release the profile lock. Use `--json` to print the returned lifecycle state.          |
-| `browserlogin stop <profile_id> --force [--yes]` | Force-stop without committing an archive. Interactive use requires typing `FORCE CLOSE <profile_id>` exactly; noninteractive use requires `--yes`. This can discard local browser changes. |
-| `browserlogin setup [--api-key-env]`             | Interactively save the application origin and API key, or show the environment-mode requirement.                                                                                           |
-| `browserlogin status [--json]`                   | Print stable JSON containing live sessions, active binary status, and update status.                                                                                                       |
-| `browserlogin binary download [--pro]`           | Download and verify the configured free CloakBrowser build; use `--pro` when downloading the licensed build.                                                                               |
-| `browserlogin doctor [--json]`                   | Print stable JSON for connection status, state-root path, relay port `4290`, and derived remote MCP configuration. Exit `2` when setup is required.                                        |
-| `browserlogin mcp`                               | Start the unified stdio MCP server. Standard output is reserved for JSON-RPC traffic.                                                                                                      |
-| `browserlogin install-cli`                       | Copy the current executable to the platform user CLI location and print the installed path and an MCP configuration fragment.                                                              |
-| `browserlogin help` or `browserlogin --help`     | Print the supported command syntax.                                                                                                                                                        |
+| Command                                          | Purpose                                                                                  |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `browserlogin profiles [--json]`                 | List accessible profiles with stable JSON fields.                                        |
+| `browserlogin start <profile_id>`                | Start or recover the profile's BrowserLogin session and local browser runtime.           |
+| `browserlogin stop <profile_id>`                 | Stop normally, preserving and uploading the profile archive.                             |
+| `browserlogin stop <profile_id> --force [--yes]` | Force-stop without committing local browser changes.                                     |
+| `browserlogin setup [--api-key-env]`             | Save connection credentials or print environment-mode guidance.                          |
+| `browserlogin status [--json]`                   | Report live sessions, browser binary state, and update state.                            |
+| `browserlogin binary download [--pro]`           | Download and verify the configured CloakBrowser build.                                   |
+| `browserlogin doctor [--json]`                   | Check connection setup, state root, relay port, and remote MCP derivation.               |
+| `browserlogin mcp`                               | Start the standalone stdio MCP server with the merged local and workspace tool registry. |
+| `browserlogin install-cli`                       | Install the current CLI and adjacent helper into the user CLI directory.                 |
 
-## Options and exit codes
+`--state-dir` accepts an absolute state-root override. `--verbose` adds diagnostics for invalid commands without exposing credentials.
 
-| Option                        | Behavior                                                                                                                    |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `--state-dir <absolute-path>` | Override the shared state root for this invocation. The path must be absolute.                                              |
-| `--json`                      | Request structured JSON from commands that support a human-readable form. Read/status commands already produce stable JSON. |
-| `--verbose`                   | Add an unknown-command diagnostic before usage output.                                                                      |
-| `--force`                     | Select the archive-discarding force-stop path. Valid for `stop`.                                                            |
-| `--yes`                       | Skip the exact force-close prompt. It is valid only with `stop --force`.                                                    |
-| `--pro`                       | Select the licensed CloakBrowser download channel. Use with `binary download`.                                              |
-| `--api-key-env`               | Show environment-mode setup instructions. Use with `setup`.                                                                 |
+## Safe Stop
 
-The CLI exits `0` on success, `2` for invalid usage or required setup, and `3` for an operational failure.
-
-## State and environment
-
-Default state roots are:
-
-- macOS: `~/Library/Application Support/BrowserLogin`
-- Windows: `%LOCALAPPDATA%\BrowserLogin`
-- Linux: `$XDG_STATE_HOME/browserlogin`, or `~/.local/state/browserlogin`
-
-`BROWSERLOGIN_STATE_DIR` is an environment-level state-root override and must be absolute. CLI `--state-dir` takes precedence for its invocation.
-
-| Variable                                   | Meaning                                                                             |
-| ------------------------------------------ | ----------------------------------------------------------------------------------- |
-| `BROWSERLOGIN_API_KEY`                     | Nonempty BrowserLogin API key override.                                             |
-| `BROWSERLOGIN_BASE_URL`                    | Canonical HTTPS BrowserLogin application origin.                                    |
-| `BROWSERLOGIN_API_BASE_URL`                | Legacy REST root; BrowserLogin converts it to an application origin.                |
-| `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                                         |
-| `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Advertise the RCE-equivalent `browser_run_code_unsafe` MCP tool.                    |
-| `BROWSERLOGIN_LAUNCH_TIMING=1`             | Emit redacted launch-stage durations to standard error for development diagnostics. |
-
-When resolving a connection, explicit CLI values take precedence over environment variables, followed by the keychain/persisted configuration and then the default application origin. Environment credentials intentionally take precedence over keychain credentials.
-
-## MCP from the CLI
-
-Run the server directly when diagnosing an MCP client:
+Normal stop preserves browser changes:
 
 ```sh
+browserlogin stop PROFILE_ID
+```
+
+Force stop can discard local changes. Interactive use requires the exact confirmation `FORCE CLOSE PROFILE_ID`; noninteractive automation must pass both `--force` and `--yes`.
+
+## Stdio MCP
+
+After setup, configure an MCP client to run:
+
+```text
 browserlogin mcp
 ```
 
-Do not type into or redirect its standard output: MCP uses standard input/output for protocol messages. Configure an AI client to launch the command instead. See the [MCP guide](mcp.md) for ready-to-copy integrations and the complete AI tool catalog.
+The stdio server exposes one 45-tool safe-default registry: 28 local lifecycle/browser tools plus 17 hosted workspace tools. It uses the credentials saved by `browserlogin setup`, so the MCP client needs no second BrowserLogin connection or authorization header. Standard output contains JSON-RPC only. See the [MCP guide](mcp.md) for client configuration and tool boundaries.
 
-## Common problems
+## Exit Codes
 
-- **Setup required:** run `browserlogin setup`, or set `BROWSERLOGIN_API_KEY` for the current process.
-- **No verified browser:** run `browserlogin binary download` before `start`.
-- **Force close rejected:** type the exact required confirmation, or use `--force --yes` only when archive loss is intentional.
-- **Remote MCP tools unavailable:** `browserlogin doctor --json` shows the derived remote MCP configuration. Lifecycle and local browser tools remain available to the unified server if remote discovery fails.
-- **Different terminal/app state:** confirm both processes use the same state root and credential source, or pass the intended `--state-dir` explicitly.
+- `0`: success.
+- `2`: usage error or setup required.
+- `3`: operation or lifecycle failure.
+
+## Troubleshooting
+
+- `BrowserLogin connection setup is required`: run `browserlogin setup` or provide the API key environment variable.
+- `packaged browser tools helper is unavailable`: keep the matching helper executable beside the CLI or rerun self-install from the extracted release pair.
+- `CloakBrowser is not initialized`: run `browserlogin binary download` before starting a profile.
+- AI client cannot find `browserlogin`: add the installed directory to the client process's inherited `PATH`.

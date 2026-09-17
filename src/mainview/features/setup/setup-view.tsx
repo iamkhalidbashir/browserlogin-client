@@ -128,7 +128,7 @@ export default function SetupView(props: SetupViewProps) {
     case "error":
       content = (
         <div className="mt-6">
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+          <p className="text-sm text-red-600" role="alert">
             {props.status.message}
           </p>
           <button
@@ -188,7 +188,7 @@ export default function SetupView(props: SetupViewProps) {
                   />
                 </label>
               ) : (
-                <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">
+                <p className="mt-6 text-sm text-zinc-500">
                   License stored in the native keychain.
                 </p>
               )}
@@ -211,7 +211,12 @@ export default function SetupView(props: SetupViewProps) {
                   }
                 />
               ) : null}
-              <p className={downloadFailed ? "mt-4 text-sm text-red-600 dark:text-red-400" : "mt-4 text-sm"} role={downloadFailed ? "alert" : "status"}>
+              <p
+                className={
+                  downloadFailed ? "mt-4 text-sm text-red-600" : "mt-4 text-sm"
+                }
+                role={downloadFailed ? "alert" : "status"}
+              >
                 {message || "Enter the license used for this desktop runtime."}
               </p>
             </>
@@ -226,7 +231,7 @@ export default function SetupView(props: SetupViewProps) {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-zinc-50 p-6 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
+    <main className="setup-shell grid min-h-screen place-items-center bg-zinc-50 p-6 text-zinc-950">
       <section className="panel w-full max-w-xl">
         <div className="flex items-center gap-3">
           <img
@@ -243,7 +248,7 @@ export default function SetupView(props: SetupViewProps) {
             ? "Connect BrowserLogin"
             : "Install CloakBrowser"}
         </h1>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2 text-sm text-zinc-500">
           {props.step === "connection"
             ? "Navigation remains locked until the client credential is stored in the native keychain."
             : "Navigation remains locked until the licensed browser runtime is installed and verified."}

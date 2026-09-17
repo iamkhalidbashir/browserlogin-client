@@ -289,14 +289,6 @@ export const AppRPCSchemas = {
     params: z.object({ confirmed: z.literal(true) }).strict(),
     result: updateState,
   },
-  cliInstall: {
-    params: empty,
-    result: z.object({
-      installed: z.boolean(),
-      path: z.string().optional(),
-      message: z.string(),
-    }),
-  },
   logsTail: {
     params: z
       .object({ lines: z.number().int().min(1).max(500).default(500) })

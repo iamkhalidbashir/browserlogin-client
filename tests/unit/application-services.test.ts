@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
-  const root = await mkdtemp(join(tmpdir(), "browserlogin-task25-services-"));
+  const root = await mkdtemp(join(tmpdir(), "browserlogin-services-"));
   roots.push(root);
   let license: string | null = null;
   const keychain = {
@@ -90,7 +90,7 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
   };
 }
 
-describe("Task 25 core service composition", () => {
+describe("core application service composition", () => {
   test("reads the startup update preference without keychain access", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-update-setting-"));
     roots.push(root);

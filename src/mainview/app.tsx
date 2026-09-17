@@ -18,7 +18,6 @@ const Proxies = lazy(() => import("./routes/proxies.js"));
 const Users = lazy(() => import("./routes/users.js"));
 const Audit = lazy(() => import("./routes/audit.js"));
 const Settings = lazy(() => import("./routes/settings.js"));
-const CliGuide = lazy(() => import("./routes/guide-cli.js"));
 const McpGuide = lazy(() => import("./routes/guide-mcp.js"));
 
 const routes = [
@@ -121,13 +120,13 @@ export function App() {
       />
     );
   return (
-    <div className="min-h-[100dvh] bg-zinc-50 text-zinc-950 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="app-shell min-h-[100dvh] bg-zinc-50 text-zinc-950">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
       <div className="grid min-h-[100dvh] grid-cols-1 md:grid-cols-[240px_1fr]">
         <aside
-          className="border-b border-zinc-200 bg-white/80 p-4 dark:border-zinc-800 dark:bg-zinc-900/80 md:border-b-0 md:border-r md:p-5"
+          className="app-sidebar border-b border-zinc-200 bg-white/80 p-4 md:border-b-0 md:border-r md:p-5"
           aria-label="Primary navigation"
         >
           <div className="mb-4 flex items-start gap-3 md:mb-8">
@@ -145,7 +144,7 @@ export function App() {
               <h1 className="mt-2 text-xl font-semibold">Control center</h1>
             </div>
           </div>
-          <nav className="flex gap-1 overflow-x-auto md:block md:space-y-1">
+          <nav className="flex flex-wrap gap-1 md:block md:space-y-1">
             {routes.map(([path, label]) => (
               <NavLink
                 key={path}
@@ -160,7 +159,7 @@ export function App() {
           </nav>
         </aside>
         <div className="min-w-0">
-          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4 dark:border-zinc-800 md:px-7">
+          <header className="app-header flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4 md:px-7">
             <div
               className="flex flex-wrap gap-2"
               aria-label="Application status"
@@ -194,7 +193,6 @@ export function App() {
                   path="/guides"
                   element={<Navigate to="/guides/mcp" replace />}
                 />
-                <Route path="/guides/cli" element={<CliGuide />} />
                 <Route path="/guides/mcp" element={<McpGuide />} />
                 <Route
                   path="*"

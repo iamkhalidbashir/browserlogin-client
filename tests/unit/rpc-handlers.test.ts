@@ -71,11 +71,10 @@ const validParams: Record<AppRPCMethod, unknown> = {
   updatesCheck: {},
   updatesDownload: {},
   updatesApply: { confirmed: true },
-  cliInstall: {},
   logsTail: { lines: 500 },
 };
 
-describe("Task 25 RPC contract", () => {
+describe("application RPC contract", () => {
   test("types cached and refreshed update checks", () => {
     expect(AppRPCSchemas.updatesCheck.params.parse({})).toEqual({});
     expect(AppRPCSchemas.updatesCheck.params.parse({ mode: "latest" })).toEqual(

@@ -1,4 +1,4 @@
-# Task 2 Golden Fixtures
+# Golden Fixtures
 
 These JSON files are behavior fixtures, not copied Python implementation. Every
 fixture carries a provenance field with the read-only Python source and line

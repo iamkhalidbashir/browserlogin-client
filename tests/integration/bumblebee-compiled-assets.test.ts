@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 describe("Bumblebee compiled adjacent assets", () => {
   it("loads copied model and WASM without runtime network assets", () => {
     const root = resolve(import.meta.dirname, "../..");
-    const temp = mkdtempSync(resolve(tmpdir(), "task20-bumblebee-"));
+    const temp = mkdtempSync(resolve(tmpdir(), "bumblebee-compiled-assets-"));
     const model = resolve(temp, "sac_mouse_v2.onnx");
     const wasm = resolve(temp, "ort-wasm-simd-threaded.wasm");
     const binary = resolve(temp, "bumblebee-assets");

@@ -38,7 +38,7 @@ import {
 const roots: string[] = [];
 
 async function freshRoot(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "browserlogin-task9-"));
+  const root = await mkdtemp(join(tmpdir(), "browserlogin-config-"));
   roots.push(root);
   return root;
 }
@@ -210,9 +210,7 @@ describe("connection migration and precedence", () => {
 
     // When / Then
     expect(origin).toBe("https://browserlogin.test");
-    expect(deriveRestBaseUrl(origin)).toBe(
-      "https://browserlogin.test/api/v1",
-    );
+    expect(deriveRestBaseUrl(origin)).toBe("https://browserlogin.test/api/v1");
     expect(deriveRemoteMcpUrl(origin)).toBe(
       "https://browserlogin.test/mcp/browserSessionMCP",
     );
@@ -329,7 +327,7 @@ describe("connection migration and precedence", () => {
     expect(keychain.setCalls).toBe(0);
   });
 
-  it("applies CLI, nonempty env, persisted/keychain, then defaults", async () => {
+  it("applies explicit overrides, nonempty env, persisted/keychain, then defaults", async () => {
     const root = await freshRoot();
     const paths = connectionStatePaths({
       env: { BROWSERLOGIN_STATE_DIR: root },
@@ -349,10 +347,13 @@ describe("connection migration and precedence", () => {
       resolveConnection({
         paths,
         keychain,
-        appOrigin: "https://cli.test",
-        apiKey: "bl_cli_secret",
+        appOrigin: "https://override.test",
+        apiKey: "bl_override_secret",
       }),
-    ).resolves.toMatchObject({ source: "cli", apiKey: "bl_cli_secret" });
+    ).resolves.toMatchObject({
+      source: "override",
+      apiKey: "bl_override_secret",
+    });
     await expect(
       resolveConnection({
         paths,
@@ -451,7 +452,7 @@ describe("connection migration and precedence", () => {
     ).rejects.toThrow("application origin");
   });
 
-  it("resolves license keys as CLI, env, keychain, then null without using a license API URL", async () => {
+  it("resolves license keys as explicit override, env, keychain, then null without using a license API URL", async () => {
     const root = await freshRoot();
     const paths = statePaths(join(root, "state-root"));
     await ensureStatePaths(paths);
@@ -464,13 +465,13 @@ describe("connection migration and precedence", () => {
       resolveConnection({
         paths,
         keychain,
-        licenseKey: "license-cli",
+        licenseKey: "license-override",
         env: {
           CLOAKBROWSER_LICENSE_KEY: "license-env",
           CLOAKBROWSER_LICENSE_API: "https://relay.invalid",
         },
       }),
-    ).resolves.toMatchObject({ licenseKey: "license-cli" });
+    ).resolves.toMatchObject({ licenseKey: "license-override" });
     await expect(
       resolveConnection({
         paths,

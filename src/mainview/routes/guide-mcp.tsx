@@ -1,121 +1,246 @@
 import {
-  MCP_CLIENT_CONFIGS,
+  CHATGPT_DESKTOP_CONFIG,
+  MCP_DEVELOPER_CONFIGS,
   MCP_GUIDE_TOOL_GROUPS,
+  MCP_PLATFORM_SETUPS,
 } from "../guides/catalog.js";
+import { LOCAL_MCP_URL, PUBLIC_MCP_URL } from "../../shared/mcp-endpoints.js";
 import {
   GuideDisclosure,
+  GuideCopyField,
   GuidePage,
   GuideSection,
   GuideSnippet,
+  GuideSteps,
   GuideToolTable,
 } from "../guides/guide-page.js";
-
-const CONNECTION_CHECK = `browserlogin setup
-browserlogin doctor --json`;
 
 export default function McpGuide() {
   return (
     <GuidePage
       title="MCP guide"
-      description="Connect AI clients to one local BrowserLogin server for profile lifecycle, browser automation, and remote workspace tools."
+      description="Connect an AI client to one BrowserLogin endpoint for local browser control and hosted workspace tools. Start with the desktop setup below."
     >
-      <div className="grid gap-4 md:grid-cols-3">
-        <article className="metric-card">
-          <span>Local tools</span>
-          <strong>28</strong>
-        </article>
-        <article className="metric-card">
-          <span>With remote discovery</span>
-          <strong>45</strong>
-        </article>
-        <article className="metric-card">
-          <span>Transport</span>
-          <strong className="text-xl">stdio</strong>
-        </article>
-      </div>
-
-      <div className="panel">
-        <h3 className="font-medium">Before connecting an AI client</h3>
-        <p className="mt-2 max-w-3xl text-sm text-zinc-400">
-          Install the compiled browserlogin CLI and its matching browser-tools
-          helper, keep them together, and ensure browserlogin is on the AI
-          client&apos;s inherited PATH. Run setup once so the API key remains in
-          the operating-system keychain rather than a client configuration file.
+      <section
+        aria-labelledby="local-mcp-title"
+        className="panel"
+        data-guide-section="local-endpoint"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="eyebrow">Local and workspace tools</p>
+            <h3 id="local-mcp-title" className="text-xl font-semibold">
+              Connect one endpoint on this computer
+            </h3>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <span className="status-pill">
+              45 safe-default tools after setup
+            </span>
+            <span className="status-pill">Streamable HTTP</span>
+          </div>
+        </div>
+        <p className="guide-muted mt-2 max-w-3xl text-sm">
+          BrowserLogin starts this endpoint automatically with 28 local
+          lifecycle and browser tools before Connection setup. After setup, the
+          same endpoint exposes 45 safe-default tools: 28 local tools plus 17
+          hosted workspace tools.
         </p>
-        <pre className="code-block mt-4">
-          <code>{CONNECTION_CHECK}</code>
-        </pre>
-      </div>
+        <div className="mt-5">
+          <GuideCopyField
+            label="local MCP endpoint"
+            prominent
+            value={LOCAL_MCP_URL}
+          />
+        </div>
+        <p className="guide-muted mt-4 max-w-3xl text-sm">
+          BrowserLogin manages hosted credentials, so clients need no second MCP
+          connection or authorization header. Command-launching clients can use{" "}
+          <code>browserlogin mcp</code>; stdio exposes the same merged registry.
+        </p>
+        <ol className="mt-5 grid gap-3 text-sm md:grid-cols-3">
+          <li>
+            <strong className="guide-step-label block">1. Install</strong>
+            <span className="guide-muted mt-1 block">
+              Get BrowserLogin for your operating system.
+            </span>
+          </li>
+          <li>
+            <strong className="guide-step-label block">2. Connect</strong>
+            <span className="guide-muted mt-1 block">
+              Open the app and complete Connection setup.
+            </span>
+          </li>
+          <li>
+            <strong className="guide-step-label block">3. Keep it open</strong>
+            <span className="guide-muted mt-1 block">
+              The local MCP server stops when BrowserLogin closes.
+            </span>
+          </li>
+        </ol>
+        <div className="guide-divider mt-6 border-t pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h4 className="font-medium">Install BrowserLogin</h4>
+            <a
+              className="table-action"
+              href="https://github.com/iamkhalidbashir/browserlogin-client/releases"
+              rel="noreferrer"
+              target="_blank"
+            >
+              Open GitHub Releases
+            </a>
+          </div>
+          <div className="mt-3 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {MCP_PLATFORM_SETUPS.map((setup) => (
+              <div data-platform-id={setup.id} key={setup.id}>
+                <GuideDisclosure section={setup}>
+                  <GuideSteps steps={setup.steps} />
+                  {setup.snippet ? (
+                    <GuideSnippet snippet={setup.snippet} />
+                  ) : null}
+                </GuideDisclosure>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="chatgpt-setup-title"
+        className="panel"
+        data-client-id={CHATGPT_DESKTOP_CONFIG.id}
+        data-guide-section="client-setup"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="eyebrow">Recommended setup</p>
+            <h3 id="chatgpt-setup-title" className="text-xl font-semibold">
+              {CHATGPT_DESKTOP_CONFIG.name}
+            </h3>
+          </div>
+          <span className="status-pill">macOS · Windows · Linux</span>
+        </div>
+        <p className="guide-muted mt-2 max-w-3xl text-sm">
+          {CHATGPT_DESKTOP_CONFIG.description}
+        </p>
+        <div className="mt-4">
+          <GuideSteps steps={CHATGPT_DESKTOP_CONFIG.steps} />
+        </div>
+        <p className="guide-muted mt-4 border-l-2 border-zinc-500 pl-3 text-sm">
+          <strong className="guide-body">Using ChatGPT in a browser?</strong>{" "}
+          ChatGPT web cannot reach localhost. Use the desktop app for local
+          browser control.
+        </p>
+      </section>
+
+      <section
+        aria-labelledby="developer-clients-title"
+        data-guide-section="developer-clients"
+      >
+        <GuideDisclosure
+          section={{
+            name: "Editor and terminal clients",
+            description:
+              "Cursor, VS Code, Claude Code, Codex CLI, and OpenCode use the same local URL.",
+          }}
+        >
+          <h3 id="developer-clients-title" className="sr-only">
+            Editor and terminal clients
+          </h3>
+          <div className="grid gap-3 xl:grid-cols-2">
+            {MCP_DEVELOPER_CONFIGS.map((client) => (
+              <div data-client-id={client.id} key={client.id}>
+                <GuideDisclosure section={client}>
+                  <GuideSteps steps={client.steps} />
+                  {client.snippets.map((snippet) => (
+                    <GuideSnippet key={snippet.label} snippet={snippet} />
+                  ))}
+                </GuideDisclosure>
+              </div>
+            ))}
+          </div>
+        </GuideDisclosure>
+      </section>
 
       <GuideSection>
-        <GuideDisclosure
-          section={{
-            name: "First AI workflow",
-            description:
-              "Start the browser runtime explicitly, operate a running profile, then stop it normally to preserve archive state.",
-          }}
+        <section
+          data-guide-section="first-workflow"
+          aria-label="First AI workflow"
         >
-          <ol className="grid list-decimal gap-3 pl-5 text-sm text-zinc-300">
-            <li>
-              Call <code>browser_init</code> with <code>source: "free"</code> if
-              no verified CloakBrowser runtime exists. Use
-              <code> browser_init_status</code> to inspect download progress.
-            </li>
-            <li>
-              Call <code>browser_session_start</code> with the BrowserLogin
-              <code> profile_id</code>.
-            </li>
-            <li>
-              Use browser tools with the same <code>profile</code> identifier.
-            </li>
-            <li>
-              Call <code>browser_session_stop</code> to preserve the profile
-              archive. Use <code>force: true</code> only when discarding local
-              changes is acceptable.
-            </li>
-          </ol>
-        </GuideDisclosure>
+          <GuideDisclosure
+            section={{
+              name: "First AI workflow",
+              description:
+                "Install the browser runtime if needed, start a profile, then stop it normally to preserve its archive.",
+            }}
+          >
+            <ol className="guide-body grid list-decimal gap-3 pl-5 text-sm">
+              <li>
+                Call <code>browser_init</code> if no verified CloakBrowser
+                runtime exists. Check progress with{" "}
+                <code>browser_init_status</code>.
+              </li>
+              <li>
+                Call <code>browser_session_start</code>, then use its profile ID
+                with browser tools.
+              </li>
+              <li>
+                Call <code>browser_session_stop</code> normally to preserve the
+                profile archive.
+              </li>
+            </ol>
+          </GuideDisclosure>
+        </section>
 
-        <GuideDisclosure
-          section={{
-            name: "AI client configurations",
-            description:
-              "Expand your client to copy its local stdio configuration. BrowserLogin must be on that client process PATH.",
-          }}
+        <section
+          data-guide-section="tool-catalog"
+          aria-label="Available AI tools"
         >
-          <div className="grid gap-3">
-            {MCP_CLIENT_CONFIGS.map((client) => (
-              <GuideDisclosure key={client.name} section={client}>
-                {client.snippets.length ? (
-                  client.snippets.map((snippet) => (
-                    <GuideSnippet key={snippet.label} snippet={snippet} />
-                  ))
-                ) : (
-                  <p className="text-sm text-zinc-400">
-                    Use the Standard stdio JSON configuration shown above.
-                  </p>
-                )}
-              </GuideDisclosure>
-            ))}
-          </div>
-        </GuideDisclosure>
-
-        <GuideDisclosure
-          section={{
-            name: "Available AI tools",
-            description:
-              "All lifecycle, browser, unsafe opt-in, and remote workspace tools are grouped below. Expand a group to inspect exact arguments.",
-          }}
-        >
-          <div className="grid gap-3">
-            {MCP_GUIDE_TOOL_GROUPS.map((group) => (
-              <GuideDisclosure key={group.name} section={group}>
-                <GuideToolTable tools={group.tools} />
-              </GuideDisclosure>
-            ))}
-          </div>
-        </GuideDisclosure>
+          <GuideDisclosure
+            section={{
+              name: "Available AI tools",
+              description:
+                "Browse local browser tools and hosted workspace tools by capability.",
+            }}
+          >
+            <div className="grid gap-3">
+              {MCP_GUIDE_TOOL_GROUPS.map((group) => (
+                <GuideDisclosure key={group.name} section={group}>
+                  <GuideToolTable tools={group.tools} />
+                </GuideDisclosure>
+              ))}
+            </div>
+          </GuideDisclosure>
+        </section>
       </GuideSection>
+
+      <section
+        aria-labelledby="public-mcp-title"
+        className="panel"
+        data-guide-section="public-endpoint"
+      >
+        <p className="eyebrow">Optional hosted-only fallback</p>
+        <h3 id="public-mcp-title" className="text-xl font-semibold">
+          Public MCP endpoint
+        </h3>
+        <p className="guide-muted mt-2 max-w-3xl text-sm">
+          This optional hosted-only fallback provides 17 workspace tools when
+          your client cannot reach localhost. It is not a required second
+          connection and cannot control local browsers.
+        </p>
+        <div className="mt-4">
+          <GuideCopyField
+            label="public MCP endpoint"
+            value={PUBLIC_MCP_URL}
+            wrap
+          />
+        </div>
+        <p className="guide-muted mt-4 text-sm">
+          Send <code>Authorization: Bearer &lt;BROWSERLOGIN_API_KEY&gt;</code>{" "}
+          with every request. Store the key as a client secret, never in source
+          control.
+        </p>
+      </section>
     </GuidePage>
   );
 }

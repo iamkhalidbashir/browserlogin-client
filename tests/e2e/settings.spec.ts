@@ -62,21 +62,15 @@ test("license is write-only and custom source requires explicit advanced consent
   );
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
-    path: join(evidence, "task-29-settings.png"),
+    path: join(evidence, "settings.png"),
     fullPage: true,
   });
 });
 
-test("CLI, update states, logs, and disconnect use narrow RPC methods", async ({
+test("update states, logs, and disconnect use narrow RPC methods", async ({
   page,
 }) => {
   await page.goto("/settings?update=available");
-  await expect(
-    page.getByText("browserlogin", { exact: false }).first(),
-  ).toBeVisible();
-  await expect(page.getByText('"mcp"', { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "Install browserlogin CLI" }).click();
-  await expect(page.getByRole("status")).toContainText("CLI not installed");
   await page.getByRole("button", { name: "Check now" }).click();
   await expect(
     page.getByText("Version 0.2.0 available", { exact: false }),
@@ -90,12 +84,7 @@ test("CLI, update states, logs, and disconnect use narrow RPC methods", async ({
     window.__browserloginMockCalls?.map((item) => item.method),
   );
   expect(methods).toEqual(
-    expect.arrayContaining([
-      "cliInstall",
-      "updatesCheck",
-      "updatesDownload",
-      "logsTail",
-    ]),
+    expect.arrayContaining(["updatesCheck", "updatesDownload", "logsTail"]),
   );
   await page.getByRole("button", { name: "Disconnect" }).click();
   await expect(

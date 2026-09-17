@@ -30,7 +30,7 @@ async function prepareDev(): Promise<void> {
     const timer = setTimeout(() => {
       reject(
         new Error(
-          `Task 25 dev preparation timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          `Dev preparation timed out\nstdout:\n${stdout}\nstderr:\n${stderr}`,
         ),
       );
     }, 30_000);
@@ -46,7 +46,7 @@ async function prepareDev(): Promise<void> {
       }
       reject(
         new Error(
-          `Task 25 dev preparation failed with code ${String(code)} and signal ${String(signal)}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+          `Dev preparation failed with code ${String(code)} and signal ${String(signal)}\nstdout:\n${stdout}\nstderr:\n${stderr}`,
         ),
       );
     });
@@ -71,7 +71,7 @@ async function waitForExit(
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.off("exit", onExit);
-      reject(new Error("Task 25 dev process did not exit"));
+      reject(new Error("Dev process did not exit"));
     }, timeoutMs);
     const onExit = () => {
       clearTimeout(timer);
@@ -100,7 +100,10 @@ function signalProcess(pid: number, signal: NodeJS.Signals): void {
   }
 }
 
-async function stopTree(child: ChildProcess, descendantPid?: number): Promise<void> {
+async function stopTree(
+  child: ChildProcess,
+  descendantPid?: number,
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (child.pid && process.platform === "win32") {
     await taskkillTree(child.pid);
@@ -138,32 +141,28 @@ async function stopTree(child: ChildProcess, descendantPid?: number): Promise<vo
 afterEach(async () => {
   await Promise.all(children.splice(0).map(stopTree));
   await Promise.all(
-    roots
-      .splice(0)
-      .map((root) =>
-        rm(root, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 200,
-        }),
-      ),
+    roots.splice(0).map((root) =>
+      rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 200,
+      }),
+    ),
   );
   await Promise.all(
-    generated
-      .splice(0)
-      .map((path) =>
-        rm(path, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 200,
-        }),
-      ),
+    generated.splice(0).map((path) =>
+      rm(path, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 200,
+      }),
+    ),
   );
 });
 
-describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
+describe("Electrobun main process", { timeout: 45_000 }, () => {
   test("boots the actual dev app, writes readiness, and tears down its process tree", async () => {
     for (const path of [
       join(process.cwd(), "build"),
@@ -178,7 +177,7 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
       }
     }
     await prepareDev();
-    const root = await mkdtemp(join(tmpdir(), "browserlogin-task25-"));
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-rpc-"));
     roots.push(root);
     const child = spawn(BUN, ["scripts/electrobun.ts", "dev"], {
       cwd: process.cwd(),
@@ -207,12 +206,12 @@ describe("Task 25 Electrobun main process", { timeout: 45_000 }, () => {
         break;
       } catch {
         if (child.exitCode !== null)
-          throw new Error(`Task 25 dev app exited early: ${stderr}`);
+          throw new Error(`Dev app exited early: ${stderr}`);
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
     }
     if (!markerFound)
-      throw new Error(`Task 25 readiness marker was not written: ${stderr}`);
+      throw new Error(`Readiness marker was not written: ${stderr}`);
     const ready = JSON.parse(await readFile(marker, "utf8")) as {
       ready?: boolean;
       pid?: number;

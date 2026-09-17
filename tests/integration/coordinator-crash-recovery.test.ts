@@ -247,7 +247,7 @@ function expectForcedCrash(
   else expect(result.signal, label ?? JSON.stringify(result)).toBe("SIGKILL");
 }
 
-describe("Task 18 fresh-process SIGKILL recovery", () => {
+describe("fresh-process SIGKILL recovery", () => {
   it("recovers every named durable cut point without duplicate session, upload, or commit", async () => {
     for (const point of points) {
       const root = await mkdtemp(join(tmpdir(), "browserlogin-crash-matrix-"));

@@ -3,10 +3,11 @@ BrowserLogin API guide
 Runtime endpoints
 Application origin: <https://example-1.app-csite-env.sapps.co>
 REST base URL: <https://example-1.app-csite-env.sapps.co/api/v1>
-MCP endpoint: <https://example-1.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Public MCP endpoint: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Local MCP endpoint: <http://127.0.0.1:43110/mcp>
 Browser-authenticated archive route: <https://example-1.app-csite-env.sapps.co/browser-archives/:profileId>
 
-Desktop and CLI clients configure only the canonical HTTPS application origin. They derive the REST base URL by appending `/api/v1` and the remote MCP endpoint by appending `/mcp/browserSessionMCP`.
+The desktop and standalone CLI configure the canonical HTTPS application origin and derive the REST base URL by appending `/api/v1`. AI clients connect directly to the app-owned local MCP endpoint, the public MCP endpoint, or the CLI's stdio MCP transport. Only the public HTTP endpoint uses the bearer header below.
 
 Authentication and request rules
 Authorization: Bearer <BROWSERLOGIN_API_KEY>

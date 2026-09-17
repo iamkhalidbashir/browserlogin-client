@@ -287,14 +287,17 @@ jobs:
         shell: bash
         run: |
           bun run build:browser-tools-helper
-          cp "dist/vendor/${{ matrix.helper_asset }}" "release/${{ matrix.helper_asset }}"
 
       - name: Sign macOS command-line tools
         if: matrix.target == 'macos-arm64'
         shell: bash
         run: |
           codesign --force --timestamp --options runtime --sign "$ELECTROBUN_DEVELOPER_ID" "release/${{ matrix.cli_asset }}"
-          codesign --force --timestamp --options runtime --sign "$ELECTROBUN_DEVELOPER_ID" "release/${{ matrix.helper_asset }}"
+          codesign --force --timestamp --options runtime --sign "$ELECTROBUN_DEVELOPER_ID" "dist/vendor/browserlogin-browser-tools-macos-arm64"
+
+      - name: Stage standalone browser-tools helper
+        shell: bash
+        run: cp "dist/vendor/${{ matrix.helper_asset }}" "release/${{ matrix.helper_asset }}"
 
       - name: Build web renderer
         run: bun run build:web
@@ -401,10 +404,13 @@ jobs:
           tar -xf "$update" -C "$smoke_dir"
           scan_tree "$smoke_dir"
           launcher="$(find "$smoke_dir" -type f \( -path '*/bin/launcher' -o -path '*/Contents/MacOS/launcher' \) | head -1)"
+          helper="$(find "$smoke_dir" -type f -name 'browserlogin-browser-tools-*' -print -quit)"
           test -n "$launcher"
+          test -n "$helper"
           case '${{ matrix.target }}' in
             macos-arm64)
               file "$launcher" | grep -q 'Mach-O 64-bit executable arm64'
+              file "$helper" | grep -q 'Mach-O 64-bit executable arm64'
               file "release/${{ matrix.cli_asset }}" | grep -q 'Mach-O 64-bit executable arm64'
               file "release/${{ matrix.helper_asset }}" | grep -q 'Mach-O 64-bit executable arm64'
               dmg_mount="$RUNNER_TEMP/browserlogin-release-dmg"
@@ -417,6 +423,7 @@ jobs:
               ;;
             linux-x64)
               file "$launcher" | grep -Eq 'ELF 64-bit.*x86-64'
+              file "$helper" | grep -Eq 'ELF 64-bit.*x86-64'
               file "release/${{ matrix.cli_asset }}" | grep -Eq 'ELF 64-bit.*x86-64'
               file "release/${{ matrix.helper_asset }}" | grep -Eq 'ELF 64-bit.*x86-64'
               installer_dir="$RUNNER_TEMP/browserlogin-release-installer"
@@ -425,7 +432,7 @@ jobs:
               scan_tree "$installer_dir"
               installer_binary="$installer_dir/installer"
               file "$installer_binary" | grep -Eq 'ELF 64-bit.*x86-64'
-              for elf in "$launcher" "$installer_binary" "release/${{ matrix.cli_asset }}" "release/${{ matrix.helper_asset }}"; do
+              for elf in "$launcher" "$installer_binary" "$helper" "release/${{ matrix.cli_asset }}" "release/${{ matrix.helper_asset }}"; do
                 if readelf --version-info "$elf" | grep -Eq 'Name: GLIBC_([3-9]|2\.(4[0-9]|[5-9][0-9]))'; then
                   echo "Linux artifact requires glibc newer than Ubuntu 24.04: $elf" >&2
                   exit 1
@@ -494,7 +501,10 @@ jobs:
           & tar -xf $update -C $smokeDir
           if ($LASTEXITCODE -ne 0) { throw "Could not extract Windows update archive" }
           $launcher = Join-Path $smokeDir "BrowserLogin/bin/launcher.exe"
+          $helper = (Get-ChildItem $smokeDir -Recurse -File -Filter "browserlogin-browser-tools-windows-x64.exe" | Select-Object -First 1).FullName
+          if ([string]::IsNullOrWhiteSpace($helper)) { throw "Missing bundled browser-tools helper" }
           Assert-PeX64 $launcher
+          Assert-PeX64 $helper
           Assert-PeX64 "release/${{ matrix.cli_asset }}"
           Assert-PeX64 "release/${{ matrix.helper_asset }}"
 

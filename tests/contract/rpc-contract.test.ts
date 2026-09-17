@@ -8,7 +8,7 @@ import { createMockBridge, mockParams } from "../../src/mainview/mockBridge.js";
 
 const methods = Object.keys(AppRPCSchemas) as AppRPCMethod[];
 
-describe("Task 30 complete RPC contract", () => {
+describe("complete RPC contract", () => {
   test("covers every registry method against mock and real Bun handlers", async () => {
     const covered = new Set<AppRPCMethod>();
     const bridge = createMockBridge();

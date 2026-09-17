@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "../../rpc-client.js";
+import { ForceStopConfirmation } from "../profiles/force-stop-confirmation.js";
 
 export default function DashboardView({
   title = "Dashboard",
@@ -9,9 +10,10 @@ export default function DashboardView({
 }) {
   const bridge = useBridge();
   const queryClient = useQueryClient();
-  const [confirmationByProfile, setConfirmationByProfile] = useState<
-    Record<string, string>
-  >({});
+  const [forceStopProfileId, setForceStopProfileId] = useState<string | null>(
+    null,
+  );
+  const [forceStopText, setForceStopText] = useState("");
   const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
   const sessions = useQuery({
     queryKey: ["sessions"],
@@ -22,24 +24,23 @@ export default function DashboardView({
     },
     refetchInterval: 10_000,
   });
-  const stop = async (profileId: string, force: boolean) => {
-    if (!force) {
-      await bridge.request("sessionsStop", { profileId });
-      await queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      return;
-    }
+  const stop = async (profileId: string) => {
+    await bridge.request("sessionsStop", { profileId });
+    await queryClient.invalidateQueries({ queryKey: ["sessions"] });
+  };
+  const forceStop = async () => {
+    if (!forceStopProfileId) return;
+    const profileId = forceStopProfileId;
     setPendingProfileId(profileId);
     try {
       const result = await bridge.request("sessionsForceStop", {
         profileId,
-        confirmation: confirmationByProfile[profileId] ?? "",
+        confirmation: forceStopText,
       });
-      if (result.ok)
-        setConfirmationByProfile((current) => {
-          const remaining = { ...current };
-          delete remaining[profileId];
-          return remaining;
-        });
+      if (result.ok) {
+        setForceStopProfileId(null);
+        setForceStopText("");
+      }
       await queryClient.invalidateQueries({ queryKey: ["sessions"] });
     } finally {
       setPendingProfileId(null);
@@ -58,8 +59,6 @@ export default function DashboardView({
           <div className="mt-4 space-y-4">
             {sessions.data.map((session) => {
               const profileId = String(session.profile_id);
-              const phrase = `FORCE CLOSE ${profileId}`;
-              const confirmation = confirmationByProfile[profileId] ?? "";
               return (
                 <article key={profileId} className="session-row">
                   <div>
@@ -72,29 +71,17 @@ export default function DashboardView({
                   <div className="flex flex-wrap gap-2">
                     <button
                       className="button-secondary"
-                      onClick={() => void stop(profileId, false)}
+                      onClick={() => void stop(profileId)}
                     >
                       Stop and archive
                     </button>
-                    <input
-                      className="input max-w-xs"
-                      aria-label={`Force confirmation ${profileId}`}
-                      placeholder={phrase}
-                      value={confirmation}
-                      onChange={(event) =>
-                        setConfirmationByProfile((current) => ({
-                          ...current,
-                          [profileId]: event.target.value,
-                        }))
-                      }
-                    />
                     <button
                       className="button-danger"
-                      disabled={
-                        confirmation !== phrase ||
-                        pendingProfileId === profileId
-                      }
-                      onClick={() => void stop(profileId, true)}
+                      disabled={pendingProfileId === profileId}
+                      onClick={() => {
+                        setForceStopProfileId(profileId);
+                        setForceStopText("");
+                      }}
                     >
                       Force stop
                     </button>
@@ -109,6 +96,19 @@ export default function DashboardView({
           </p>
         )}
       </div>
+      {forceStopProfileId ? (
+        <ForceStopConfirmation
+          profileId={forceStopProfileId}
+          confirmation={forceStopText}
+          pending={pendingProfileId === forceStopProfileId}
+          onConfirmationChange={setForceStopText}
+          onClose={() => {
+            setForceStopProfileId(null);
+            setForceStopText("");
+          }}
+          onConfirm={() => void forceStop()}
+        />
+      ) : null}
     </section>
   );
 }

@@ -1,5 +1,4 @@
 {
-  "task": 3,
   "check": "source ZIP hash is verified before SB3 deserialization",
   "expected_source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
   "tampered_source_sha256": "c46aab242473882038171661da2a140cbfe19e11fb5c25e36e02fd170a329ffe",

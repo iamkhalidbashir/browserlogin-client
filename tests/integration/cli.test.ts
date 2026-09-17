@@ -12,7 +12,7 @@ let binary = "";
 let fixture = "";
 
 beforeAll(async () => {
-  root = await mkdtemp(join(tmpdir(), "browserlogin-task24-"));
+  root = await mkdtemp(join(tmpdir(), "browserlogin-cli-"));
   binary = join(
     root,
     process.platform === "win32" ? "browserlogin.exe" : "browserlogin",
@@ -85,8 +85,8 @@ async function run(args: string[], extraEnv: NodeJS.ProcessEnv = {}) {
   }
 }
 
-describe("Task 24 compiled browserlogin CLI", () => {
-  test("matches profiles, lifecycle, force, and usage output contracts", async () => {
+describe("compiled BrowserLogin CLI", () => {
+  test("matches profile, lifecycle, force, and usage contracts", async () => {
     await expect(run(["profiles"])).resolves.toEqual({
       code: 0,
       stdout:
@@ -113,7 +113,7 @@ describe("Task 24 compiled browserlogin CLI", () => {
     });
   });
 
-  test("supports JSON read commands, doctor, binary prefetch, and MCP setup exit", async () => {
+  test("supports JSON reads, doctor, browser download, and MCP setup exit", async () => {
     const profiles = await run(["profiles", "--json"]);
     expect(profiles.code).toBe(0);
     expect(() => JSON.parse(profiles.stdout)).not.toThrow();

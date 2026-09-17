@@ -1,10 +1,17 @@
 import { describe, expect, test } from "vitest";
 import { SOURCE_MANIFEST_TOOL_NAMES } from "../../src/core/browser-tools/manifest.js";
 import {
-  CLI_GUIDE_COMMANDS,
+  CHATGPT_DESKTOP_CONFIG,
+  MCP_CLIENT_CONFIGS,
+  MCP_DEVELOPER_CONFIGS,
   MCP_GUIDE_TOOL_GROUPS,
+  MCP_PLATFORM_SETUPS,
 } from "../../src/mainview/guides/catalog.js";
 import { GUIDE_ROUTES } from "../../src/mainview/guides/routes.js";
+import {
+  LOCAL_MCP_URL,
+  PUBLIC_MCP_URL,
+} from "../../src/shared/mcp-endpoints.js";
 
 describe("in-app guide catalog", () => {
   test("documents the complete AI tool catalog without duplicate tool names", () => {
@@ -38,35 +45,59 @@ describe("in-app guide catalog", () => {
     expect(documentedBrowserTools).toEqual(expectedBrowserTools);
   });
 
-  test("documents every supported CLI command", () => {
+  test("exposes MCP as the only in-app guide route", () => {
     // Given
-    const expectedCommands = [
-      "profiles",
-      "start <profile_id>",
-      "stop <profile_id>",
-      "setup",
-      "status",
-      "binary download",
-      "doctor",
-      "mcp",
-      "install-cli",
-    ];
-
-    // When
-    const commands = CLI_GUIDE_COMMANDS.map((command) => command.command);
-
-    // Then
-    expect(commands).toEqual(expectedCommands);
-  });
-
-  test("exposes both in-app guide routes in primary navigation", () => {
-    // Given
-    const expectedPaths = ["/guides/cli", "/guides/mcp"];
+    const expectedPaths = ["/guides/mcp"];
 
     // When
     const paths = GUIDE_ROUTES.map((route) => route.path);
 
     // Then
     expect(paths).toEqual(expectedPaths);
+  });
+
+  test("provides a local-first client matrix with ChatGPT desktop first", () => {
+    // Given
+    const expectedClientIds = [
+      "chatgpt-desktop",
+      "cursor",
+      "vscode",
+      "claude-code",
+      "codex-cli",
+      "opencode",
+    ];
+
+    // When
+    const clientIds = MCP_CLIENT_CONFIGS.map((client) => client.id);
+    const serialized = JSON.stringify(MCP_CLIENT_CONFIGS);
+
+    // Then
+    expect(clientIds).toEqual(expectedClientIds);
+    expect(CHATGPT_DESKTOP_CONFIG.id).toBe("chatgpt-desktop");
+    expect(MCP_DEVELOPER_CONFIGS.map((client) => client.id)).toEqual(
+      expectedClientIds.slice(1),
+    );
+    expect(
+      MCP_CLIENT_CONFIGS.every(
+        (client) => client.transport === "streamable-http",
+      ),
+    ).toBe(true);
+    expect(serialized).toContain(LOCAL_MCP_URL);
+    expect(serialized).not.toContain(PUBLIC_MCP_URL);
+    expect(serialized).not.toContain('"command"');
+  });
+
+  test("covers every supported desktop operating system", () => {
+    // Given
+    const expectedPlatforms = ["macos", "windows", "linux"];
+
+    // When
+    const platforms = MCP_PLATFORM_SETUPS.map((setup) => setup.id);
+
+    // Then
+    expect(platforms).toEqual(expectedPlatforms);
+    expect(MCP_PLATFORM_SETUPS.every((setup) => setup.steps.length > 0)).toBe(
+      true,
+    );
   });
 });

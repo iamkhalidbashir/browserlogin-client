@@ -1,5 +1,10 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test, vi } from "vitest";
 import { runCli, type CliIO } from "../../src/cli/index.js";
+import { installCli } from "../../src/cli/support.js";
+import { vendorHelperName } from "../../src/core/browser-tools/vendor.js";
 import type { AppServices } from "../../src/bun/rpc.js";
 
 function harness(prompt = "") {
@@ -45,7 +50,28 @@ function services(): AppServices {
   };
 }
 
-describe("Task 24 CLI", () => {
+describe("standalone BrowserLogin CLI", () => {
+  test("self-installs the CLI and matching browser-tools helper", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-cli-install-"));
+    try {
+      const release = join(root, "release");
+      const destination = join(root, "bin", "browserlogin");
+      const helperName = vendorHelperName();
+      await mkdir(release);
+      await writeFile(join(release, "browserlogin"), "cli");
+      await writeFile(join(release, helperName), "helper");
+
+      await installCli(join(release, "browserlogin"), destination);
+
+      await expect(readFile(destination, "utf8")).resolves.toBe("cli");
+      await expect(
+        readFile(join(root, "bin", helperName), "utf8"),
+      ).resolves.toBe("helper");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("prints only the five allowed profile fields", async () => {
     const output = harness();
     expect(
@@ -100,7 +126,7 @@ describe("Task 24 CLI", () => {
     expect(forced.stdout()).toBe("Profile force closed: profile-1\n");
   });
 
-  test("rejects --yes without --force as usage and delegates mcp", async () => {
+  test("rejects --yes without --force and delegates stdio MCP", async () => {
     const invalid = harness();
     expect(
       await runCli(["stop", "profile-1", "--yes"], {
@@ -111,8 +137,7 @@ describe("Task 24 CLI", () => {
     expect(invalid.stderr()).toBe("--yes is valid only with --force\n");
 
     const mcp = vi.fn(async () => undefined);
-    const output = harness();
-    expect(await runCli(["mcp"], { io: output.io, runMcp: mcp })).toBe(0);
+    expect(await runCli(["mcp"], { io: harness().io, runMcp: mcp })).toBe(0);
     expect(mcp).toHaveBeenCalledTimes(1);
   });
 
@@ -130,7 +155,7 @@ describe("Task 24 CLI", () => {
       appOrigin: "https://example.test",
       hasApiKey: true as const,
     }));
-    const setup = harness("https://example.test");
+    const setup = harness();
     setup.io.prompt = vi
       .fn()
       .mockResolvedValueOnce("https://example.test")

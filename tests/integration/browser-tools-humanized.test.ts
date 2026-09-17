@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { BumblebeeWorker } from "../../src/core/bumblebee/worker.js";
 import type { OnnxMousePolicy } from "../../src/core/bumblebee/policy.js";
 
-describe("Task 19/20 humanized click seam", () => {
+describe("humanized browser input seam", () => {
   test("dispatches multiple ordered mouse moves before press/release", async () => {
     const events: Array<{ method: string; params: Record<string, unknown> }> =
       [];

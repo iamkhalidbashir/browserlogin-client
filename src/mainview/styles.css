@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family:
     Inter,
     ui-sans-serif,
@@ -16,17 +16,18 @@
 }
 body {
   margin: 0;
-  min-width: 1024px;
   min-height: 700px;
-  background: #09090b;
+  background: #fafafa;
 }
 button,
 a {
   outline: none;
 }
 button:focus-visible,
-a:focus-visible {
+a:focus-visible,
+summary:focus-visible {
   box-shadow: 0 0 0 3px rgb(52 211 153 / 0.45);
+  outline: none;
 }
 .skip-link {
   position: fixed;
@@ -206,20 +207,28 @@ button:disabled {
   border-color: #f87171;
   background: rgb(127 29 29 / 0.24);
 }
-.drawer {
+.modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
-  display: flex;
-  justify-content: flex-end;
-  background: rgb(0 0 0 / 0.55);
-}
-.drawer-card {
-  width: min(680px, 92vw);
+  z-index: 60;
+  display: grid;
+  place-items: center;
   overflow-y: auto;
+  background: rgb(0 0 0 / 0.55);
+  padding: 1rem;
+}
+.modal-card {
+  width: min(32rem, 100%);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  border: 1px solid #3f3f46;
+  border-radius: 0.9rem;
   background: #18181b;
   padding: 1.5rem;
-  box-shadow: -20px 0 60px rgb(0 0 0 / 0.4);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.5);
+}
+.modal-card-wide {
+  width: min(48rem, 100%);
 }
 .conflict-banner {
   margin-top: 1rem;
@@ -264,6 +273,58 @@ button:disabled {
   display: block;
   margin-top: 0.6rem;
   font-size: 1.7rem;
+}
+.guide-copy-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  border: 1px solid #3f3f46;
+  border-radius: 0.65rem;
+  background: rgb(9 9 11 / 0.65);
+  padding: 0.8rem;
+  color: #e4e4e7;
+}
+.guide-copy-field-prominent {
+  border-color: rgb(52 211 153 / 0.65);
+  background: rgb(6 78 59 / 0.22);
+}
+.guide-copy-value-wrap {
+  overflow-wrap: normal;
+  white-space: normal;
+}
+.guide-muted {
+  color: #a1a1aa;
+}
+.guide-body,
+.guide-disclosure-action {
+  color: #d4d4d8;
+}
+.guide-step-label {
+  color: #34d399;
+}
+.guide-divider {
+  border-color: #27272a;
+}
+summary:hover .guide-disclosure-action {
+  color: #34d399;
+}
+@media (min-width: 640px) {
+  .guide-copy-field {
+    flex-direction: row;
+    align-items: center;
+  }
+  .guide-copy-field-wrap {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+@media (min-width: 1024px) {
+  .guide-copy-field-wrap {
+    flex-direction: row;
+    align-items: center;
+  }
 }
 .skeleton {
   border-radius: 0.9rem;
@@ -333,90 +394,128 @@ button:disabled {
   min-height: 7rem;
   max-height: 14rem;
 }
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
+.nav-link {
+  color: #52525b;
+}
+.nav-link:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+.nav-link-active {
+  background: #d1fae5;
+  color: #065f46;
+}
+.status-pill,
+.button-secondary,
+.metric-card,
+.panel,
+.toast {
+  border-color: #e4e4e7;
+  background: #fff;
+  color: #18181b;
+}
+.guide-copy-field {
+  border-color: #d4d4d8;
+  background: #fafafa;
+  color: #18181b;
+}
+.guide-copy-field-prominent {
+  border-color: #34d399;
+  background: #ecfdf5;
+}
+.guide-muted {
+  color: #52525b;
+}
+.guide-body,
+.guide-disclosure-action {
+  color: #3f3f46;
+}
+.guide-step-label,
+summary:hover .guide-disclosure-action,
+.eyebrow,
+.table-action {
+  color: #047857;
+}
+.guide-divider,
+.data-table th,
+.data-table td,
+.session-row {
+  border-color: #e4e4e7;
+}
+.data-table th,
+.metric-card span {
+  color: #71717a;
+}
+.table-action {
+  border-color: #d4d4d8;
+  background: #fff;
+}
+.table-action-danger {
+  color: #b91c1c;
+}
+.field {
+  color: var(--color-zinc-600);
+}
+.input,
+.field input,
+.field select {
+  border-color: var(--color-zinc-500);
+  background: #fff;
+  color: var(--color-zinc-950);
+}
+.modal-card {
+  border-color: #d4d4d8;
+  background: #fff;
+}
+.conflict-banner,
+.runtime-warning {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #78350f;
+}
+.runtime-warning .table-action {
+  color: #b45309;
+}
+.runtime-progress,
+.runtime-progress::-webkit-progress-bar {
+  background: var(--color-zinc-200);
+}
+.runtime-progress::-webkit-progress-value,
+.runtime-progress::-moz-progress-bar {
+  background: var(--color-emerald-800);
+}
+.runtime-progress:indeterminate::-webkit-progress-bar,
+.runtime-progress:indeterminate::-moz-progress-bar {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-zinc-200) 0 0.5rem,
+    var(--color-emerald-800) 0.5rem 1rem
+  );
+}
+.skeleton {
+  background: linear-gradient(90deg, #fafafa, #e4e4e7, #fafafa);
+  background-size: 200% 100%;
+}
+.toast button {
+  border-color: #d4d4d8;
+  color: #52525b;
+}
+
+@media (max-width: 639px) {
+  .modal-overlay {
+    place-items: end center;
+    padding: 0;
   }
-  body {
-    background: #fafafa;
+  .modal-card,
+  .modal-card-wide {
+    width: 100%;
+    max-height: calc(100dvh - 1rem);
+    border-radius: 0.9rem 0.9rem 0 0;
   }
-  .nav-link {
-    color: #52525b;
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
-  .nav-link:hover {
-    background: #f4f4f5;
-    color: #18181b;
-  }
-  .nav-link-active {
-    background: #d1fae5;
-    color: #065f46;
-  }
-  .status-pill,
-  .button-secondary,
-  .metric-card,
-  .panel,
-  .toast {
-    border-color: #e4e4e7;
-    background: #fff;
-    color: #18181b;
-  }
-  .table-action {
-    border-color: #d4d4d8;
-    background: #fff;
-  }
-  .table-action-danger {
-    color: #b91c1c;
-  }
-  .metric-card span {
-    color: #71717a;
-  }
-  .field {
-    color: var(--color-zinc-600);
-  }
-  .input,
-  .field input,
-  .field select {
-    border-color: var(--color-zinc-500);
-    background: #fff;
-    color: var(--color-zinc-950);
-  }
-  .drawer-card {
-    border-color: #d4d4d8;
-    background: #fff;
-  }
-  .conflict-banner {
-    border-color: #f59e0b;
-    background: #fffbeb;
-    color: #78350f;
-  }
-  .runtime-progress {
-    background: var(--color-zinc-200);
-  }
-  .runtime-progress::-webkit-progress-bar {
-    background: var(--color-zinc-200);
-  }
-  .runtime-progress::-webkit-progress-value {
-    background: var(--color-emerald-800);
-  }
-  .runtime-progress::-moz-progress-bar {
-    background: var(--color-emerald-800);
-  }
-  .runtime-progress:indeterminate::-webkit-progress-bar {
-    background: repeating-linear-gradient(
-      135deg,
-      var(--color-zinc-200) 0 0.5rem,
-      var(--color-emerald-800) 0.5rem 1rem
-    );
-  }
-  .runtime-progress:indeterminate::-moz-progress-bar {
-    background: repeating-linear-gradient(
-      135deg,
-      var(--color-zinc-200) 0 0.5rem,
-      var(--color-emerald-800) 0.5rem 1rem
-    );
-  }
-  .data-table th,
-  .data-table td {
-    border-color: #e4e4e7;
+  .form-grid > .col-span-2 {
+    grid-column: auto;
   }
 }

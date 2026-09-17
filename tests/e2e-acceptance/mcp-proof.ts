@@ -3,7 +3,10 @@ import {
   PRODUCT_TOOLS,
   visibleTools,
 } from "../../src/core/browser-tools/manifest.js";
-import type { RemoteTool } from "../../src/core/mcp-proxy/types.js";
+import type {
+  RemoteTool,
+  RemoteToolCallResult,
+} from "../../src/core/mcp-proxy/types.js";
 import { createRegistry } from "../../src/mcp/registry.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { evidenceRoot, ensureEvidenceDirectory, writeJson } from "./support.js";
@@ -13,20 +16,43 @@ await ensureEvidenceDirectory(mcpEvidence);
 const lifecycleCalls: string[] = [];
 const initializationCalls: string[] = [];
 const remoteCalls: string[] = [];
-const remoteTools: RemoteTool[] = REMOTE_TOOL_NAMES.map((name) => ({
-  name,
-  description: `Acceptance remote tool ${name}`,
-  inputSchema: { type: "object", properties: {} },
-}));
 const browserRouter = {
   call: async (name: string) => ({ content: [{ type: "text", text: name }] }),
 };
-const connected = await createRegistry({
-  lifecycle: {
-    start: async (profileId) => lifecycleCalls.push(`start:${profileId}`),
-    stop: async (profileId) => lifecycleCalls.push(`stop:${profileId}`),
-    forceStop: async (profileId) => lifecycleCalls.push(`force:${profileId}`),
+const lifecycle = {
+  start: async (profileId: string) => lifecycleCalls.push(`start:${profileId}`),
+  stop: async (profileId: string) => lifecycleCalls.push(`stop:${profileId}`),
+  forceStop: async (profileId: string) =>
+    lifecycleCalls.push(`force:${profileId}`),
+};
+const remoteTools = REMOTE_TOOL_NAMES.map((name): RemoteTool => ({
+  name,
+  description: `BrowserLogin ${name}`,
+  inputSchema: { type: "object" },
+}));
+const remote = {
+  remoteCache: {
+    status: "READY" as const,
+    discover: async () => remoteTools,
+    shutdown: () => undefined,
   },
+  remoteForwarder: {
+    call: async (name: string): Promise<RemoteToolCallResult> => {
+      remoteCalls.push(name);
+      return {
+        content: [{ type: "text", text: name }],
+        isError: false,
+      };
+    },
+  },
+};
+const localOnly = await createRegistry({
+  lifecycle,
+  browserRouter,
+  browserTools: visibleTools(false),
+});
+const unified = await createRegistry({
+  lifecycle,
   binaryInitialization: {
     initialize: async (source) => {
       initializationCalls.push(source);
@@ -55,103 +81,74 @@ const connected = await createRegistry({
   },
   browserRouter,
   browserTools: visibleTools(false),
-  remoteTools,
-  remoteForwarder: {
-    call: async (name) => {
-      remoteCalls.push(name);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ profiles: [] }) }],
-      };
-    },
-  },
+  ...remote,
 });
-const degraded = await createRegistry({
-  lifecycle: {
-    start: async () => undefined,
-    stop: async () => undefined,
-    forceStop: async () => undefined,
-  },
-  browserRouter,
-  browserTools: visibleTools(false),
-});
-const connectedCatalog = await createRegistry({
-  lifecycle: {
-    start: async () => undefined,
-    stop: async () => undefined,
-    forceStop: async () => undefined,
-  },
+const unifiedCatalog = await createRegistry({
+  lifecycle,
   browserRouter,
   browserTools: PRODUCT_TOOLS,
-  remoteTools,
-  remoteForwarder: { call: async () => ({ content: [] }) },
-});
-const degradedCatalog = await createRegistry({
-  lifecycle: {
-    start: async () => undefined,
-    stop: async () => undefined,
-    forceStop: async () => undefined,
-  },
-  browserRouter,
-  browserTools: PRODUCT_TOOLS,
+  ...remote,
 });
 if (
-  connected.tools.length !== 45 ||
-  degraded.tools.length !== 28 ||
-  connectedCatalog.tools.length !== 46 ||
-  degradedCatalog.tools.length !== 29
+  localOnly.tools.length !== 28 ||
+  unified.tools.length !== 45 ||
+  unifiedCatalog.tools.length !== 46
 )
-  throw new Error("acceptance MCP safe/catalog tool counts are invalid");
-const start = await connected.call("browser_session_start", {
-  profile_id: "profile-1",
-});
-const stop = await connected.call("browser_session_stop", {
-  profile_id: "profile-1",
-});
-const initialize = await connected.call("browser_init", { source: "free" });
-const initializationStatus = await connected.call("browser_init_status", {});
-const compatibilityStart = await connected.call("browserlogin_session_start", {
-  profile_id: "compatibility-profile",
-});
-const compatibilityStop = await connected.call("browserlogin_session_stop", {
-  profile_id: "compatibility-profile",
-});
+  throw new Error("acceptance unified MCP tool counts are invalid");
 if (
-  connected.tools.some((tool) =>
+  !REMOTE_TOOL_NAMES.every((remoteName) =>
+    unified.tools.some((tool) => tool.name === remoteName),
+  )
+)
+  throw new Error("workspace tools must appear in the unified MCP registry");
+const start = await unified.call("browser_session_start", {
+  profile_id: "profile-1",
+});
+const stop = await unified.call("browser_session_stop", {
+  profile_id: "profile-1",
+});
+const initialize = await unified.call("browser_init", { source: "free" });
+const initializationStatus = await unified.call("browser_init_status", {});
+const compatibilityStart = await unified.call("browserlogin_session_start", {
+  profile_id: "compatibility-profile",
+});
+const compatibilityStop = await unified.call("browserlogin_session_stop", {
+  profile_id: "compatibility-profile",
+});
+const workspace = await unified.call("profiles_list", {});
+if (
+  unified.tools.some((tool) =>
     ["browserlogin_session_start", "browserlogin_session_stop"].includes(
       tool.name,
     ),
   )
 )
   throw new Error("local compatibility lifecycle names must not be advertised");
-const profiles = await connected.call("profiles_list", {});
 if (
   lifecycleCalls.join(",") !==
     "start:profile-1,stop:profile-1,start:compatibility-profile,stop:compatibility-profile" ||
   initializationCalls.join(",") !== "free" ||
-  remoteCalls.join(",") !== "profiles_list"
+  remoteCalls.join(",") !== "profiles_list" ||
+  workspace.isError === true
 )
-  throw new Error("acceptance MCP lifecycle/remote calls did not complete");
-await writeJson(join(mcpEvidence, "tools-connected.json"), {
-  tools: connected.tools,
-  count: connected.tools.length,
-  catalogCount: connectedCatalog.tools.length,
-});
-await writeJson(join(mcpEvidence, "tools-degraded.json"), {
-  tools: degraded.tools,
-  count: degraded.tools.length,
-  catalogCount: degradedCatalog.tools.length,
+  throw new Error("acceptance unified MCP dispatch did not complete");
+await writeJson(join(mcpEvidence, "tools-unified.json"), {
+  tools: unified.tools,
+  localOnlyCount: localOnly.tools.length,
+  count: unified.tools.length,
+  catalogCount: unifiedCatalog.tools.length,
 });
 await writeJson(join(mcpEvidence, "lifecycle.json"), {
   calls: lifecycleCalls,
+  remoteCalls,
   start,
   stop,
   initialize,
   initializationStatus,
   compatibilityStart,
   compatibilityStop,
+  workspace,
 });
-await writeJson(join(mcpEvidence, "profiles-list.json"), profiles);
-await connected.shutdown();
-await degraded.shutdown();
-await connectedCatalog.shutdown();
-await degradedCatalog.shutdown();
+await localOnly.shutdown();
+await unified.shutdown();
+await unifiedCatalog.shutdown();

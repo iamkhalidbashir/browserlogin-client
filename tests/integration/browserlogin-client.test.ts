@@ -80,7 +80,7 @@ function client(
 }
 
 describe("BrowserLogin REST client", () => {
-  it("sweeps the Task 2 local REST surface and keeps request parity", async () => {
+  it("sweeps the local REST surface and keeps request parity", async () => {
     const server = await startBrowserLoginMock();
     closers.push(server.close);
     const seen: Array<{

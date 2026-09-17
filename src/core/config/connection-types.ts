@@ -10,5 +10,5 @@ export type ConnectionResolution = {
   readonly remoteMcpUrl: string;
   readonly apiKey: string | null;
   readonly licenseKey: string | null;
-  readonly source: "cli" | "env" | "keychain" | "persisted" | "default";
+  readonly source: "override" | "env" | "keychain" | "persisted" | "default";
 };

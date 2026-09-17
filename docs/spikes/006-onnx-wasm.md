@@ -3,7 +3,7 @@
 ## Decision
 
 Selected `onnxruntime-web@1.27.0` with the WASM execution provider. The
-committed Task 3 model is used directly:
+committed SAC model is used directly:
 
 - Model: `resources/models/sac_mouse_v2.onnx`
 - Input: `observation`, `float32[1,10]`
@@ -33,36 +33,36 @@ bun scripts/spike-onnx-wasm.ts
 Compiled adjacent-file binary:
 
 ```sh
-cp resources/models/sac_mouse_v2.onnx /tmp/task6-model.onnx
-cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm /tmp/task6-wasm.wasm
-bun build --compile scripts/spike-onnx-wasm.ts --outfile /tmp/task6-onnx-wasm
-/tmp/task6-onnx-wasm --model /tmp/task6-model.onnx --wasm /tmp/task6-wasm.wasm
+cp resources/models/sac_mouse_v2.onnx /tmp/onnx-wasm-model.onnx
+cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm /tmp/onnx-wasm-runtime.wasm
+bun build --compile scripts/spike-onnx-wasm.ts --outfile /tmp/onnx-wasm-runner
+/tmp/onnx-wasm-runner --model /tmp/onnx-wasm-model.onnx --wasm /tmp/onnx-wasm-runtime.wasm
 ```
 
 The source and compiled output arrays are recorded byte-for-byte as JSON
-float32 values in `.omo/evidence/task-6-compiled.txt`. Both report
+float32 values in `.omo/evidence/onnx-wasm-compiled.txt`. Both report
 `fetches:0` and the manifest hash.
 
 The compiled run reported:
 
 ```text
-{"loaded":true,"ms":177.165,"source":"onnxruntime-web-wasm","model":"/tmp/task6-model.onnx","wasm":"/tmp/task6-wasm.wasm","fetches":0,"modelSha256":"55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b","mean":[9.837336540222168,24.51468276977539],"log_std":[2,2]}
+{"loaded":true,"ms":177.165,"source":"onnxruntime-web-wasm","model":"/tmp/onnx-wasm-model.onnx","wasm":"/tmp/onnx-wasm-runtime.wasm","fetches":0,"modelSha256":"55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b","mean":[9.837336540222168,24.51468276977539],"log_std":[2,2]}
 ```
 
 Missing and corrupt model checks:
 
 ```sh
-bun scripts/spike-onnx-wasm.ts --model /tmp/task6-does-not-exist.onnx
+bun scripts/spike-onnx-wasm.ts --model /tmp/onnx-wasm-missing-model.onnx
 bun scripts/spike-onnx-wasm.ts --corrupt-model
 ```
 
 Both exit nonzero. The missing run emits `MODEL_ASSET_MISSING` with the
 searched path. The corrupt run emits `MODEL_HASH_MISMATCH` with expected and
-actual hashes. Full outputs are in `.omo/evidence/task-6-model-missing.txt`.
+actual hashes. Full outputs are in `.omo/evidence/onnx-wasm-model-missing.txt`.
 
 ## Electrobun
 
-An isolated project was created under `/tmp/task6-electrobun`, pinned to the
+An isolated project was created under `/tmp/onnx-wasm-electrobun`, pinned to the
 repository's `Electrobun 2.0.1-beta.14` and Hutch offline mechanism. Its Bun
 main entrypoint used the same script, model bytes, WASM bytes, and fetch
 counter. `hutch electrobun config --env=dev` and
@@ -73,8 +73,8 @@ project, package, app bundle, and copied assets were deleted after capture.
 The isolated Bun main-process output was:
 
 ```text
-{"loaded":true,"ms":178.783,"source":"onnxruntime-web-wasm","model":"/tmp/task6-electrobun/resources/models/sac_mouse_v2.onnx","wasm":"/tmp/task6-electrobun/ort-wasm-simd-threaded.wasm","fetches":0,"modelSha256":"55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b","mean":[9.837336540222168,24.51468276977539],"log_std":[2,2]}
-electrobun build complete: /private/tmp/task6-electrobun/build/dev-macos-arm64
+{"loaded":true,"ms":178.783,"source":"onnxruntime-web-wasm","model":"/tmp/onnx-wasm-electrobun/resources/models/sac_mouse_v2.onnx","wasm":"/tmp/onnx-wasm-electrobun/ort-wasm-simd-threaded.wasm","fetches":0,"modelSha256":"55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b","mean":[9.837336540222168,24.51468276977539],"log_std":[2,2]}
+electrobun build complete: /private/tmp/onnx-wasm-electrobun/build/dev-macos-arm64
 ```
 
 ## Latency and constraints
@@ -121,8 +121,8 @@ Compiled adjacent-file output with HTTP/HTTPS proxies pointed at a dead loopback
   "loadMs": 178.193,
   "warmupMs": 6.784,
   "source": "onnxruntime-web-wasm",
-  "model": "/tmp/task6-model.onnx",
-  "wasm": "/tmp/task6-wasm.wasm",
+  "model": "/tmp/onnx-wasm-model.onnx",
+  "wasm": "/tmp/onnx-wasm-runtime.wasm",
   "fetches": 0,
   "modelSha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
   "mean": [9.837336540222168, 24.51468276977539],

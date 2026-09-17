@@ -20,11 +20,6 @@ export type AppServiceContext = {
   readonly keychain: KeychainFacade;
   readonly updateController: UpdateController;
   readonly emitProgress: (progress: BinaryProgress) => void;
-  readonly installCli?: () => Promise<{
-    readonly installed: boolean;
-    readonly path?: string;
-    readonly message: string;
-  }>;
   readonly client?: BrowserLoginClient;
   readonly coordinator?: LifecycleOperations;
   readonly ensureBinary?: typeof ensureBinary;
@@ -59,12 +54,6 @@ function adapterServices(
       const input = AppRPCSchemas.updatesApply.params.parse(raw);
       return context.updateController.applyAfterConfirmation(input.confirmed);
     },
-    cliInstall: async () =>
-      context.installCli?.() ?? {
-        installed: false,
-        message:
-          "CLI installation becomes available with the browserlogin CLI build.",
-      },
     logsTail: async (raw: unknown) => {
       const input = AppRPCSchemas.logsTail.params.parse(raw);
       return { lines: await tailLog(context.root, input.lines) };

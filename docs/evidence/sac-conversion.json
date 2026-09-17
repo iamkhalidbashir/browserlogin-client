@@ -1,5 +1,5 @@
 {
-  "task": 3,
+  "artifact": "sac-model-conversion",
   "source_sha256_verified_before_deserialization": true,
   "source_sha256": "51900ffb4cfd724592235b8e20dfca0858f5b386543ff975650c1cc5d598bd05",
   "model_sha256": "55c7dcccfbf436bf49d2f7f8e1a5b06bdeba5e23d2ec55090a8f0b099fd2930b",
@@ -19,8 +19,8 @@
   "onnxruntime": "1.28.0",
   "onnx": "1.22.0",
   "metrics": {
-    "max_absolute_error": 2.86102294921875e-06,
-    "mean_absolute_error": 1.4770546385989292e-07,
+    "max_absolute_error": 2.86102294921875e-6,
+    "mean_absolute_error": 1.4770546385989292e-7,
     "non_finite_count": 0
   },
   "verify_only": true

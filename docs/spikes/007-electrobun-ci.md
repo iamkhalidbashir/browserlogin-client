@@ -63,11 +63,11 @@ uses `RuntimeInformation.OSArchitecture` and `PROCESSOR_ARCHITECTURE`.
 
 Final proof run: https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450
 
-| Target | Job URL | Architecture evidence | Result |
-| --- | --- | --- | --- |
-| macOS arm64 | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200514 | `macos-14`, `uname=arm64` | build, format validation, extracted launcher smoke PASS |
-| Windows x64 | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200422 | `windows-2025`, `OSArchitecture=X64`, `PROCESSOR_ARCHITECTURE=AMD64` | build, format validation, extracted `launcher.exe` smoke PASS |
-| Linux x64 | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200464 | `ubuntu-24.04`, `uname=x86_64` | build, format validation, extracted launcher under `xvfb` smoke PASS |
+| Target      | Job URL                                                                                         | Architecture evidence                                                | Result                                                               |
+| ----------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| macOS arm64 | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200514 | `macos-14`, `uname=arm64`                                            | build, format validation, extracted launcher smoke PASS              |
+| Windows x64 | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200422 | `windows-2025`, `OSArchitecture=X64`, `PROCESSOR_ARCHITECTURE=AMD64` | build, format validation, extracted `launcher.exe` smoke PASS        |
+| Linux x64   | https://github.com/iamkhalidbashir/browserlogin-client/actions/runs/31918450450/job/95094200464 | `ubuntu-24.04`, `uname=x86_64`                                       | build, format validation, extracted launcher under `xvfb` smoke PASS |
 
 All three jobs and all steps completed successfully. The first run exposed
 that launcher command-line arguments are not forwarded to the Cottontail
@@ -110,7 +110,7 @@ The app-side probe invoked `Updater.checkForUpdate()` and
 `Updater.downloadUpdate()` and emitted:
 
 ```json
-{"updateAvailable":true,"updateReady":true}
+{ "updateAvailable": true, "updateReady": true }
 ```
 
 This proves unsigned check and download on macOS arm64. The apply probe was
@@ -142,5 +142,5 @@ No `stable` release was created or modified.
 - Local macOS arm64 unsigned build: PASS; generated DMG, app archive, and update metadata.
 - Local packaged launcher smoke with `BROWSERLOGIN_SPIKE_SMOKE=1`: PASS.
 - `bun run typecheck`: PASS after Hutch devkit sync and Bun type pin.
-- `bun run lint`: blocked by generated `.hutch` SDK files being included in the scaffold's existing project-aware ESLint configuration; no Task 7 source lint error was observed separately.
-- `bun run test`: unrelated concurrent Task 3 ONNX fixture assertion currently fails on an extra `log_std.max` field; Task 7 tests were not changed.
+- `bun run lint`: blocked by generated `.hutch` SDK files being included in the scaffold's existing project-aware ESLint configuration; no Electrobun CI spike source lint error was observed separately.
+- `bun run test`: unrelated concurrent SAC ONNX fixture assertion currently fails on an extra `log_std.max` field; Electrobun CI spike tests were not changed.

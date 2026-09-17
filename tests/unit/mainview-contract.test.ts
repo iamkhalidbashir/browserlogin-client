@@ -5,8 +5,8 @@ import {
 } from "../../src/shared/rpc-schema.js";
 import { createMockBridge, mockParams } from "../../src/mainview/mockBridge.js";
 
-describe("Task 26 mock and real RPC contract", () => {
-  test("every mock request and response passes the Task 25 zod schemas", async () => {
+describe("mock and real RPC contract", () => {
+  test("every mock request and response passes the application Zod schemas", async () => {
     const bridge = createMockBridge();
     for (const method of Object.keys(AppRPCSchemas) as AppRPCMethod[]) {
       const schema = AppRPCSchemas[method];

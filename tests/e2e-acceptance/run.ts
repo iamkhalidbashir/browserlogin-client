@@ -34,10 +34,15 @@ const env = {
 };
 const legs: Leg[] = [
   {
-    name: "cli-lifecycle",
-    command: "bun",
-    args: ["tests/e2e-acceptance/cli-proof.ts"],
-    timeoutMs: 60_000,
+    name: "standalone-cli",
+    command: "bunx",
+    args: [
+      "vitest",
+      "run",
+      "tests/integration/cli.test.ts",
+      "tests/integration/mcp-stdio-server.test.ts",
+    ],
+    timeoutMs: 120_000,
   },
   {
     name: "verified-binary",
@@ -58,9 +63,9 @@ const legs: Leg[] = [
     timeoutMs: 30_000,
   },
   {
-    name: "mcp-stdio",
+    name: "mcp-http",
     command: "bunx",
-    args: ["vitest", "run", "tests/integration/mcp-server.test.ts"],
+    args: ["vitest", "run", "tests/integration/mcp-http-server.test.ts"],
     timeoutMs: 90_000,
   },
   {
@@ -113,13 +118,27 @@ for (const leg of legs) {
   process.stdout.write(`[acceptance] PASS ${leg.name}\n`);
 }
 
-await writeJson(join(evidenceRoot, "mcp", "stdout-purity.json"), {
-  source: "tests/integration/mcp-server.test.ts",
+await writeJson(join(evidenceRoot, "cli", "compiled.json"), {
+  source: [
+    "tests/integration/cli.test.ts",
+    "tests/integration/mcp-stdio-server.test.ts",
+  ],
   result: "PASS",
   assertions: [
-    "all non-empty stdout lines parse as JSON-RPC 2.0",
-    "no trailing stdout bytes",
-    "no unhandled rejection or listener warning",
+    "the standalone CLI compiles into a native executable",
+    "profile lifecycle and force-stop commands preserve output contracts",
+    "stdio MCP completes initialize and tools/list with protocol-only stdout",
+  ],
+});
+await writeJson(join(evidenceRoot, "mcp", "http-transport.json"), {
+  source: "tests/integration/mcp-http-server.test.ts",
+  result: "PASS",
+  assertions: [
+    "SDK initialize and tools/list succeed over loopback HTTP",
+    "empty-state startup advertises exactly 28 local tools",
+    "connected-state startup advertises 45 local and workspace tools",
+    "profiles_list forwards through the same loopback MCP connection",
+    "forged Host headers are rejected with HTTP 403",
   ],
 });
 await writeJson(join(evidenceRoot, "recovery", "counters.json"), {
@@ -134,10 +153,10 @@ await writeJson(join(evidenceRoot, "recovery", "counters.json"), {
 
 const rows: Row[] = [
   [
-    "CLI setup",
+    "Standalone CLI",
     "CLI",
-    "commands/cli-lifecycle.log",
-    "synthetic key persisted without logging",
+    "cli/compiled.json",
+    "compiled profile, lifecycle, and stdio MCP paths verified",
   ],
   [
     "Verified binary install",
@@ -146,28 +165,10 @@ const rows: Row[] = [
     "signed official-format fixture verified",
   ],
   [
-    "Profiles listing",
-    "CLI",
-    "cli/profiles.json",
-    "real runCli profile transform",
-  ],
-  [
-    "Start/write/stop",
-    "Lifecycle",
-    "cli/lifecycle.json",
-    "one start/upload/commit and work marker archived",
-  ],
-  [
-    "44 safe-default / 45 catalog tools",
+    "45 safe-default / 46 opt-in unified tools",
     "MCP",
-    "mcp/tools-connected.json",
-    "unsafe hidden by default; exact opt-in catalog recorded",
-  ],
-  [
-    "27 safe-default / 28 catalog degraded tools",
-    "MCP",
-    "mcp/tools-degraded.json",
-    "local-only safe/catalog counts recorded",
+    "mcp/tools-unified.json",
+    "28 local and 17 workspace tools share one registry",
   ],
   [
     "MCP lifecycle",
@@ -176,16 +177,10 @@ const rows: Row[] = [
     "successful start and stop calls",
   ],
   [
-    "Remote profiles_list",
+    "Local MCP HTTP transport",
     "MCP",
-    "mcp/profiles-list.json",
-    "remote forwarding seam called",
-  ],
-  [
-    "MCP stdout purity",
-    "MCP",
-    "mcp/stdout-purity.json",
-    "real stdio server frames verified",
+    "mcp/http-transport.json",
+    "loopback SDK round trip and Host protection verified",
   ],
   [
     "SIGKILL recovery",
@@ -232,7 +227,7 @@ const rows: Row[] = [
 }));
 await writeJson(join(evidenceRoot, "matrix.json"), { rows });
 const matrix = [
-  "# Task 34 Acceptance Matrix",
+  "# BrowserLogin Acceptance Matrix",
   "",
   "| Check | Category | Result | Evidence | Notes |",
   "|---|---|---|---|---|",
@@ -264,13 +259,13 @@ await writeFile(
   `${checksumLines.join("\n")}\n`,
 );
 
-const taskEvidenceRoot = dirname(evidenceRoot);
+const reportRoot = dirname(evidenceRoot);
 await writeFile(
-  join(taskEvidenceRoot, "task-34-acceptance.txt"),
-  `${matrix}\nCommand legs: ${legs.length}/8 PASS\nEvidence: ${evidenceRoot}\nRESULT: PASS\n`,
+  join(reportRoot, "acceptance-summary.txt"),
+  `${matrix}\nCommand legs: ${legs.length}/${legs.length} PASS\nEvidence: ${evidenceRoot}\nRESULT: PASS\n`,
 );
 await writeFile(
-  join(taskEvidenceRoot, "task-34-recovery.txt"),
+  join(reportRoot, "recovery-summary.txt"),
   `${results.get("recovery")?.stdout ?? ""}${results.get("recovery")?.stderr ?? ""}\nExactly one upload/commit/generation asserted.\nRESULT: PASS\n`,
 );
 process.stdout.write(matrix);

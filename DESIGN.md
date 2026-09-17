@@ -11,14 +11,15 @@ copy.
 
 - Typography: Inter with the existing sans-serif fallbacks. Use the established
   heading, eyebrow, body, and small-status scales.
-- Color: zinc surfaces and borders, emerald for primary actions and active
-  navigation, red for destructive actions, and amber only for explicit risk.
+- Color: light zinc surfaces are the default, emerald marks primary actions and
+  active navigation, red marks destructive actions, and amber is reserved for
+  explicit risk. The application remains light regardless of the operating
+  system color preference.
 - Surfaces: use `panel`, `metric-card`, `status-pill`, and existing Tailwind
   spacing. Do not introduce new card treatments or gradients.
 - Controls: use `button-primary`, `button-secondary`, `button-danger`, `field`,
   and `check-field`. Preserve the shared disabled and focus-visible behavior.
-- Themes: all changes must remain legible in the existing system light and dark
-  themes.
+- Themes: use the light application palette consistently across every route.
 
 ## Interaction Rules
 
@@ -32,6 +33,10 @@ copy.
   speculative operations.
 - Announce asynchronous status with an accessible live region and preserve
   keyboard focus visibility.
+- Collect contextual input and destructive confirmations in a fixed modal,
+  never by appending controls below the triggering table or panel. Label every
+  dialog, move focus inside it, contain keyboard focus, support Escape, and
+  restore focus to the trigger when it closes.
 
 ## Layout
 

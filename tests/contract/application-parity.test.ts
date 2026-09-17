@@ -2,7 +2,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { runCli, type CliIO } from "../../src/cli/index.js";
 import {
   ApplicationOperationError,
   createApplicationRuntime,
@@ -27,7 +26,7 @@ afterEach(async () => {
 });
 
 describe("application adapter parity", () => {
-  test("routes GUI and CLI authenticated SOCKS starts through the same relay configuration", async () => {
+  test("routes GUI authenticated SOCKS starts through the shared relay configuration", async () => {
     // Given: one shared application service and an authenticated SOCKS profile.
     const calls: Array<{ readonly profileId: string }> = [];
     const services = {
@@ -38,7 +37,6 @@ describe("application adapter parity", () => {
       },
     };
     const rpc = createRPCHandlers({ services });
-    const output: string[] = [];
     const profile = ProfileSchema.parse({
       id: "socks-profile",
       name: "SOCKS profile",
@@ -68,22 +66,11 @@ describe("application adapter parity", () => {
     const launchProxy = profileLaunchSpec(profile).proxy;
     if (!launchProxy) throw new Error("SOCKS launch proxy is required");
 
-    // When: the GUI RPC adapter and CLI adapter start that profile.
+    // When: the GUI RPC adapter starts that profile.
     await rpc.sessionsStart({ profileId: profile.id });
-    await runCli(["start", profile.id], {
-      services,
-      io: {
-        stdout: (value) => output.push(value),
-        stderr: (value) => output.push(value),
-        prompt: async () => "",
-      },
-    });
 
-    // Then: both adapters preserve the same profile ID and shared relay route.
-    expect(calls).toEqual([
-      { profileId: "socks-profile" },
-      { profileId: "socks-profile" },
-    ]);
+    // Then: the adapter preserves the profile ID and shared relay route.
+    expect(calls).toEqual([{ profileId: "socks-profile" }]);
     expect(
       routeProxy({
         ...launchProxy,
@@ -101,7 +88,6 @@ describe("application adapter parity", () => {
         password: "test-password",
       },
     });
-    expect(output).toEqual(["Profile started: socks-profile\n"]);
   });
 
   test("preserves MCP initialization-required presentation after result conversion", async () => {
@@ -134,7 +120,7 @@ describe("application adapter parity", () => {
     });
   });
 
-  test("routes lifecycle starts through the same application coordinator", async () => {
+  test("routes GUI and MCP lifecycle starts through the same application coordinator", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-app-parity-"));
     roots.push(root);
     const keychain = new KeychainFacade({
@@ -188,12 +174,6 @@ describe("application adapter parity", () => {
       },
     });
     const rpc = createRPCHandlers({ services: application.services });
-    const output: string[] = [];
-    const io: CliIO = {
-      stdout: (value) => output.push(value),
-      stderr: (value) => output.push(value),
-      prompt: async () => "",
-    };
     const registry = await createRegistry({
       lifecycle: {
         start: async (profileId) =>
@@ -216,13 +196,9 @@ describe("application adapter parity", () => {
       ok: true,
     });
     await expect(
-      runCli(["start", "profile-1"], { services: application.services, io }),
-    ).resolves.toBe(0);
-    await expect(
       registry.call("browser_session_start", { profile_id: "profile-1" }),
     ).resolves.not.toMatchObject({ isError: true });
 
-    expect(start).toHaveBeenCalledTimes(4);
-    expect(output).toEqual(["Profile started: profile-1\n"]);
+    expect(start).toHaveBeenCalledTimes(3);
   });
 });

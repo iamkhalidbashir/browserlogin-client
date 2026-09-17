@@ -18,9 +18,9 @@ import {
   type LockOwner,
 } from "../../src/core/locks/types.js";
 
-const temp = async () => mkdtemp(join(tmpdir(), "browserlogin-task13-"));
+const temp = async () => mkdtemp(join(tmpdir(), "browserlogin-locks-"));
 
-describe("Task 13 locks", () => {
+describe("cross-process locks", () => {
   it("parses Linux stat field 22 after the executable name", () => {
     const stat = `1 (fixture (safe)) S ${Array.from({ length: 18 }, () => "0").join(" ")} 424242 0`;
     expect(parseLinuxProcessStartTime(stat)).toBe("424242");

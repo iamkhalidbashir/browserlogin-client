@@ -60,7 +60,9 @@ test("renders all five routes with mock data and clean console", async ({
   await page.goto("/profiles?multi=1#sessions");
   await expect(page).toHaveURL(/\/dashboard\?multi=1#sessions$/);
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Live sessions" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Live sessions" }),
+  ).toBeVisible();
   await expect(page.getByRole("link", { name: "Profiles" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Sessions" })).toHaveCount(0);
   expect(errors).toEqual([]);
@@ -69,12 +71,14 @@ test("renders all five routes with mock data and clean console", async ({
     join(process.cwd(), "test-results");
   await mkdir(directory, { recursive: true });
   await page.screenshot({
-    path: join(directory, "task-26-shell.png"),
+    path: join(directory, "app-shell.png"),
     fullPage: true,
   });
 });
 
-test("displays the BrowserLogin logo during first-run setup", async ({ page }) => {
+test("displays the BrowserLogin logo during first-run setup", async ({
+  page,
+}) => {
   // Given
   await page.goto("/dashboard?setup=1");
 
@@ -184,7 +188,7 @@ test("status refresh reports a sanitized active-query failure", async ({
   expect(pageErrors).toEqual([]);
 });
 
-test("system dark mode renders a dark application surface", async ({
+test("system dark mode keeps the light application surface", async ({
   page,
 }) => {
   await page.emulateMedia({ colorScheme: "dark" });
@@ -195,12 +199,12 @@ test("system dark mode renders a dark application surface", async ({
     .first()
     .evaluate((element) => getComputedStyle(element).backgroundColor);
   const oklch = background.match(/oklch\((\d+(?:\.\d+)?)/);
-  if (oklch) expect(Number(oklch[1])).toBeLessThan(0.3);
+  if (oklch) expect(Number(oklch[1])).toBeGreaterThan(0.8);
   else {
     const rgb = background.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     expect(rgb).not.toBeNull();
-    expect(Number(rgb![1]) + Number(rgb![2]) + Number(rgb![3])).toBeLessThan(
-      150,
+    expect(Number(rgb![1]) + Number(rgb![2]) + Number(rgb![3])).toBeGreaterThan(
+      600,
     );
   }
   const directory =
@@ -208,7 +212,7 @@ test("system dark mode renders a dark application surface", async ({
     join(process.cwd(), "test-results");
   await mkdir(directory, { recursive: true });
   await page.screenshot({
-    path: join(directory, "task-30-dark.png"),
+    path: join(directory, "light-theme-dark-system.png"),
     fullPage: true,
   });
 });

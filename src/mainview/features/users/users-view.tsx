@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { ModalDialog } from "../../components/modal-dialog.js";
 import { useBridge } from "../../rpc-client.js";
 
 export default function UsersView() {
@@ -115,22 +116,6 @@ export default function UsersView() {
             ))}
           </tbody>
         </table>
-        {confirmDisableId ? (
-          <div className="conflict-banner" role="alert">
-            <p>
-              Disabling{" "}
-              {users.data?.find((user) => user.id === confirmDisableId)?.name ??
-                "this user"}{" "}
-              force-stops all of their active sessions.
-            </p>
-            <button
-              className="button-danger mt-2"
-              onClick={() => void disable()}
-            >
-              Confirm disable
-            </button>
-          </div>
-        ) : null}
       </div>
       <div className="panel mt-6">
         <div className="flex items-center justify-between">
@@ -216,6 +201,28 @@ export default function UsersView() {
       <p className="mt-3 text-sm" role="status">
         {message}
       </p>
+      {confirmDisableId ? (
+        <ModalDialog
+          title="Disable user"
+          description={
+            <p>
+              Disabling{" "}
+              {users.data?.find((user) => user.id === confirmDisableId)?.name ??
+                "this user"}{" "}
+              force-stops all of their active sessions.
+            </p>
+          }
+          onClose={() => setConfirmDisableId(null)}
+        >
+          <button
+            className="button-danger"
+            data-modal-autofocus
+            onClick={() => void disable()}
+          >
+            Confirm disable
+          </button>
+        </ModalDialog>
+      ) : null}
     </section>
   );
 }

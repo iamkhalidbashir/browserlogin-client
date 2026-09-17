@@ -7,17 +7,22 @@ import { resolveStateRoot, statePaths } from "../core/config/paths.js";
 import { createKeychainBackend } from "../core/keychain/index.js";
 import { withLock } from "../core/locks/locks.js";
 import { lockPath } from "../core/locks/names.js";
+import { startLocalMcpHttpServer } from "../mcp/http-server.js";
 import { defineAppRPC, type AppServices } from "./rpc.js";
 import { UpdateController, installLaunchUpdateCheck } from "./updater.js";
 import { createCoreAppRuntime } from "./services.js";
+import { installMainProcessShutdown } from "./shutdown.js";
 
 export type MainProcessOptions = {
-  root?: string;
-  services?: AppServices;
-  recover?: () => Promise<unknown>;
-  createWindow?: (rpc: Awaited<ReturnType<typeof defineAppRPC>>) => unknown;
-  quit?: () => void | Promise<void>;
-  checkUpdates?: boolean;
+  readonly root?: string;
+  readonly services?: AppServices;
+  readonly recover?: () => Promise<unknown>;
+  readonly createWindow?: (
+    rpc: Awaited<ReturnType<typeof defineAppRPC>>,
+  ) => unknown;
+  readonly quit?: () => void | Promise<void>;
+  readonly checkUpdates?: boolean;
+  readonly startMcp?: typeof startLocalMcpHttpServer;
 };
 
 export type SingleInstance = { release: () => void; acquired: Promise<void> };
@@ -57,7 +62,7 @@ export async function holdSingleInstance(
   return { release: () => release?.(), acquired };
 }
 
-async function writeReadiness(root: string): Promise<void> {
+async function writeReadiness(root: string, mcpUrl: string): Promise<void> {
   const markerDirectory = statePaths(root).ready;
   await mkdir(markerDirectory, { recursive: true, mode: 0o700 });
   await writeFile(
@@ -65,38 +70,18 @@ async function writeReadiness(root: string): Promise<void> {
     JSON.stringify({
       ready: true,
       pid: process.pid,
+      mcp_url: mcpUrl,
       timestamp: new Date().toISOString(),
     }),
     { mode: 0o600 },
   );
 }
 
-export async function dispatchEarlyArgs(
-  argv = process.argv.slice(2),
-): Promise<boolean> {
-  if (
+export function dispatchEarlyArgs(argv = process.argv.slice(2)): boolean {
+  return (
     argv.includes("--browserlogin-smoke") ||
     process.env.BROWSERLOGIN_SPIKE_SMOKE === "1"
-  ) {
-    return true;
-  }
-  if (argv.includes("mcp") || argv.includes("--mcp")) {
-    const { main } = await import("../mcp/server.js");
-    await main();
-    return true;
-  }
-  if (argv.includes("--cli") || argv[0] === "browserlogin") {
-    const cliModule = "../cli/index.js";
-    const cli = await import(cliModule).catch(() => undefined);
-    if (cli && "main" in cli && typeof cli.main === "function") {
-      await cli.main();
-      return true;
-    }
-    process.stderr.write("BrowserLogin CLI is not installed in this build\n");
-    process.exitCode = 2;
-    return true;
-  }
-  return false;
+  );
 }
 
 export async function startMainProcess(
@@ -107,74 +92,163 @@ export async function startMainProcess(
 }> {
   const root = options.root ?? resolveStateRoot();
   const instance = await holdSingleInstance(root);
-  const keychain = createKeychainBackend();
-  const connection = new ConnectionStore(root, keychain);
-  const updateController = new UpdateController();
-  const checkUpdates =
-    options.checkUpdates ?? (await readAutoCheckUpdates(root));
-  const rpcBinding: {
-    current?: Awaited<ReturnType<typeof defineAppRPC>>;
-  } = {};
-  const core = createCoreAppRuntime({
-    root,
-    connection,
-    keychain,
-    updateController,
-    emitProgress: (payload) => rpcBinding.current?.emitBinaryProgress(payload),
-  });
-  const recovery = options.recover ?? core.recover;
-  if (recovery)
-    void Promise.race([
-      recovery(),
-      new Promise((resolve) => setTimeout(resolve, 30_000)),
-    ]).catch(() => undefined);
-  const services = {
-    ...core.services,
-    ...(options.services ?? {}),
-  };
-  const rpc = await defineAppRPC({
-    services,
-  });
-  rpcBinding.current = rpc;
-  const stopUpdates = installLaunchUpdateCheck(
-    (state) =>
-      rpc.emitUpdateStatus({
-        status: "available",
-        message: `BrowserLogin ${state.version ?? "update"} is available`,
-      }),
-    updateController,
-    checkUpdates,
-  );
-  let window: unknown;
-  if (options.createWindow) {
-    window = options.createWindow(rpc);
-  } else {
-    const browserWindow = new BrowserWindow({
-      title: "BrowserLogin",
-      url: "views://mainview/index.html",
-      frame: { width: 1024, height: 700, x: 200, y: 120 },
-      rpc,
-    });
-    enforceMinimumWindowSize(browserWindow, 1024, 700);
-    window = browserWindow;
-  }
-  await writeReadiness(root);
-  return {
-    window,
-    stop: async () => {
-      stopUpdates();
-      await core.application.close();
+  const startMcp = options.startMcp ?? startLocalMcpHttpServer;
+  let localMcp:
+    Awaited<ReturnType<typeof startLocalMcpHttpServer>> | undefined =
+    await startMcp({
+      stateRoot: root,
+    }).catch((error: unknown) => {
       instance.release();
-      await rm(join(statePaths(root).ready, "main-process.json"), {
-        force: true,
-      });
-      await (options.quit ?? (() => Utils.quit()))();
-    },
+      throw error;
+    });
+  let core: ReturnType<typeof createCoreAppRuntime> | undefined;
+  let stopUpdates: (() => void) | undefined;
+  let released = false;
+  let mcpOperation = Promise.resolve();
+  const serializeMcp = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = mcpOperation.then(operation);
+    mcpOperation = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   };
+  const closeLocalMcp = async (): Promise<void> => {
+    const current = localMcp;
+    localMcp = undefined;
+    const results = await Promise.allSettled([
+      ...(current ? [current.close()] : []),
+      rm(join(statePaths(root).ready, "main-process.json"), { force: true }),
+    ]);
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) throw failure.reason;
+  };
+  const releaseOwnedResources = async (): Promise<void> => {
+    if (released) return;
+    released = true;
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => stopUpdates?.()),
+      serializeMcp(closeLocalMcp),
+      Promise.resolve().then(() => core?.application.close()),
+    ]);
+    instance.release();
+    const failure = results.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failure) throw failure.reason;
+  };
+  try {
+    const keychain = createKeychainBackend();
+    const connection = new ConnectionStore(root, keychain);
+    const updateController = new UpdateController();
+    const checkUpdates =
+      options.checkUpdates ?? (await readAutoCheckUpdates(root));
+    const rpcBinding: {
+      current?: Awaited<ReturnType<typeof defineAppRPC>>;
+    } = {};
+    core = createCoreAppRuntime({
+      root,
+      connection,
+      keychain,
+      updateController,
+      emitProgress: (payload) =>
+        rpcBinding.current?.emitBinaryProgress(payload),
+    });
+    const recovery = options.recover ?? core.recover;
+    if (recovery)
+      void Promise.race([
+        recovery(),
+        new Promise((resolve) => setTimeout(resolve, 30_000)),
+      ]).catch(() => undefined);
+    const configuredServices: AppServices = {
+      ...core.services,
+      ...(options.services ?? {}),
+    };
+    const restartLocalMcp = () =>
+      serializeMcp(async () => {
+        if (released) return;
+        await closeLocalMcp();
+        if (released) return;
+        const next = await startMcp({ stateRoot: root });
+        if (released) {
+          await next.close();
+          return;
+        }
+        localMcp = next;
+        try {
+          await writeReadiness(root, next.url);
+        } catch (error) {
+          localMcp = undefined;
+          await next.close();
+          throw error;
+        }
+      });
+    const connectionSet = configuredServices.connectionSet;
+    const connectionClear = configuredServices.connectionClear;
+    const services: AppServices = {
+      ...configuredServices,
+      ...(connectionSet
+        ? {
+            connectionSet: async (params: unknown) => {
+              const result = await connectionSet(params);
+              await restartLocalMcp();
+              return result;
+            },
+          }
+        : {}),
+      ...(connectionClear
+        ? {
+            connectionClear: async (params: unknown) => {
+              const result = await connectionClear(params);
+              await restartLocalMcp();
+              return result;
+            },
+          }
+        : {}),
+    };
+    const rpc = await defineAppRPC({ services });
+    rpcBinding.current = rpc;
+    stopUpdates = installLaunchUpdateCheck(
+      (state) =>
+        rpc.emitUpdateStatus({
+          status: "available",
+          message: `BrowserLogin ${state.version ?? "update"} is available`,
+        }),
+      updateController,
+      checkUpdates,
+    );
+    let window: unknown;
+    if (options.createWindow) {
+      window = options.createWindow(rpc);
+    } else {
+      const browserWindow = new BrowserWindow({
+        title: "BrowserLogin",
+        url: "views://mainview/index.html",
+        frame: { width: 1024, height: 700, x: 200, y: 120 },
+        rpc,
+      });
+      enforceMinimumWindowSize(browserWindow, 1024, 700);
+      window = browserWindow;
+    }
+    if (!localMcp) throw new Error("Local MCP server is unavailable");
+    await writeReadiness(root, localMcp.url);
+    return {
+      window,
+      stop: async () => {
+        await releaseOwnedResources();
+        await (options.quit ?? (() => Utils.quit()))();
+      },
+    };
+  } catch (error) {
+    await releaseOwnedResources().catch(() => undefined);
+    throw error;
+  }
 }
 
 export async function main(): Promise<void> {
-  if (await dispatchEarlyArgs()) return;
+  if (dispatchEarlyArgs()) return;
   if (process.env.BROWSERLOGIN_SPIKE_UPDATER === "1") {
     const state = await new UpdateController().downloadUpdate();
     process.stdout.write(
@@ -196,7 +270,8 @@ export async function main(): Promise<void> {
     await active.stop();
     return;
   }
-  await startMainProcess();
+  const active = await startMainProcess({ quit: () => undefined });
+  installMainProcessShutdown(active);
 }
 
 if (

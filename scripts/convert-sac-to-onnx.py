@@ -359,7 +359,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=Path, default=Path("resources/models/sac_mouse_v2.onnx"))
     parser.add_argument("--manifest", type=Path, default=Path("resources/models/sac_mouse_v2.manifest.json"))
     parser.add_argument("--corpus", type=Path, default=Path("tests/fixtures/onnx-corpus.json"))
-    parser.add_argument("--evidence", type=Path, default=Path("docs/evidence/task-3-conversion.json"))
+    parser.add_argument("--evidence", type=Path, default=Path("docs/evidence/sac-conversion.json"))
     return parser.parse_args()
 
 
@@ -399,7 +399,7 @@ def main() -> int:
         verify_artifact_metadata(args.model, args.corpus, args.manifest)
 
     evidence = {
-        "task": 3,
+        "artifact": "sac-model-conversion",
         "source_sha256_verified_before_deserialization": True,
         "source_sha256": source_sha256,
         "model_sha256": sha256(args.model),

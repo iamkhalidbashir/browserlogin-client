@@ -15,7 +15,7 @@ import {
   killProcessTree,
 } from "../../src/core/processes/tree.js";
 
-describe("Task 13 process identity", () => {
+describe("process identity", () => {
   it(
     "hashes normalized argv and rejects a changed identity",
     async () => {

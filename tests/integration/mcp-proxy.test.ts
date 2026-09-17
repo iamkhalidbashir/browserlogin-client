@@ -17,7 +17,7 @@ afterEach(async () => {
   while (closers.length) await closers.pop()?.();
 });
 
-describe("Task 22 remote MCP proxy", () => {
+describe("remote MCP proxy", () => {
   it("uses the derived endpoint supplied by connection resolution without an environment fallback", () => {
     // Given
     vi.stubEnv(

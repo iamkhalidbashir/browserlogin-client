@@ -4,10 +4,29 @@ export type GuideSnippet = {
   readonly code: string;
 };
 
+export type McpClientId =
+  | "chatgpt-desktop"
+  | "cursor"
+  | "vscode"
+  | "claude-code"
+  | "codex-cli"
+  | "opencode";
+
 export type McpClientConfig = {
+  readonly id: McpClientId;
   readonly name: string;
   readonly description: string;
+  readonly transport: "streamable-http";
+  readonly steps: readonly string[];
   readonly snippets: readonly GuideSnippet[];
+};
+
+export type McpPlatformSetup = {
+  readonly id: "macos" | "windows" | "linux";
+  readonly name: string;
+  readonly description: string;
+  readonly steps: readonly string[];
+  readonly snippet: GuideSnippet | null;
 };
 
 export type GuideTool = {
@@ -20,9 +39,4 @@ export type GuideToolGroup = {
   readonly name: string;
   readonly description: string;
   readonly tools: readonly GuideTool[];
-};
-
-export type CliGuideCommand = {
-  readonly command: string;
-  readonly description: string;
 };

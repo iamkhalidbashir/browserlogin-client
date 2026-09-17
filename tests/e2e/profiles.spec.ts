@@ -27,7 +27,7 @@ test("setup gate blocks navigation until connection and runtime setup succeed", 
   ).toBeVisible();
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
-    path: join(evidence, "task-27-setup.png"),
+    path: join(evidence, "connection-setup.png"),
     fullPage: true,
   });
   await expect(page.getByRole("navigation")).toHaveCount(0);
@@ -173,7 +173,7 @@ test("creates, launches, multi-selects, and protects deletion", async ({
     .fill("Created profile");
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
-    path: join(evidence, "task-27-editor.png"),
+    path: join(evidence, "profile-editor.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "Save profile" }).click();
@@ -207,32 +207,40 @@ test("creates, launches, multi-selects, and protects deletion", async ({
   await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Delete Research profile" }).click();
-  const deleteButton = page.getByRole("button", {
-    name: "Delete",
+  const deleteDialog = page.getByRole("dialog", { name: "Delete profile" });
+  const deleteButton = deleteDialog.getByRole("button", {
+    name: "Delete profile",
     exact: true,
   });
   await expect(deleteButton).toBeDisabled();
-  await page.getByLabel("Delete confirmation").fill("Research profile");
+  await deleteDialog.getByLabel("Delete confirmation").fill("Research profile");
   await expect(deleteButton).toBeEnabled();
   await mkdir(evidence, { recursive: true });
   await page.screenshot({
-    path: join(evidence, "task-27-profiles.png"),
+    path: join(evidence, "profiles-list.png"),
     fullPage: true,
   });
+  await deleteDialog
+    .getByRole("button", { name: "Close Delete profile" })
+    .click();
   await page.getByRole("link", { name: "Dashboard" }).click();
   await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
   await page.screenshot({
-    path: join(evidence, "task-27-launch.png"),
+    path: join(evidence, "profile-launch.png"),
     fullPage: true,
   });
   const liveSession = page
     .locator("article.session-row")
     .filter({ hasText: "profile-1" });
-  const forceButton = liveSession.getByRole("button", { name: "Force stop" });
+  await liveSession.getByRole("button", { name: "Force stop" }).click();
+  const forceDialog = page.getByRole("dialog", {
+    name: "Force stop profile",
+  });
+  const forceButton = forceDialog.getByRole("button", {
+    name: "Force stop profile-1",
+  });
   await expect(forceButton).toBeDisabled();
-  await page
-    .locator("article.session-row")
-    .filter({ hasText: "profile-1" })
+  await forceDialog
     .getByLabel("Force confirmation profile-1")
     .fill("FORCE CLOSE profile-1");
   await expect(forceButton).toBeEnabled();
@@ -297,13 +305,14 @@ test("delete targets the explicitly chosen row and clears after success", async 
 }) => {
   await page.goto("/profiles?multi=1");
   await page.getByRole("button", { name: "Delete Secondary profile" }).click();
-  const confirmInput = page.getByLabel("Delete confirmation");
+  const deleteDialog = page.getByRole("dialog", { name: "Delete profile" });
+  const confirmInput = deleteDialog.getByLabel("Delete confirmation");
   await expect(confirmInput).toBeVisible();
-  await expect(page.locator("p", { hasText: "to confirm" })).toContainText(
-    "Secondary profile",
-  );
-  const deleteButton = page.getByRole("button", {
-    name: "Delete",
+  await expect(
+    deleteDialog.locator("p", { hasText: "to confirm" }),
+  ).toContainText("Secondary profile");
+  const deleteButton = deleteDialog.getByRole("button", {
+    name: "Delete profile",
     exact: true,
   });
   await expect(deleteButton).toBeDisabled();
@@ -350,9 +359,7 @@ test("edit targets the selected profile row and active profiles have no restore 
     expectedConfigVersion: 0,
     name: "Secondary renamed",
   });
-  await expect(
-    page.getByRole("button", { name: "Restore" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Restore" })).toHaveCount(0);
   const restoreCalls = await page.evaluate(() =>
     (window.__browserloginMockCalls ?? []).filter(
       (call) => call.method === "profilesRestore",
@@ -576,13 +583,13 @@ test("profile table Force stop requires the exact confirmation phrase", async ({
   await page.goto("/profiles?profileRunning=1");
   const runningRow = page.getByRole("row", { name: /Research profile/ });
   await runningRow.getByRole("button", { name: "Force stop" }).click();
-  const confirmationPanel = page
-    .getByRole("heading", { name: "Force stop profile" })
-    .locator("..");
-  const confirmation = confirmationPanel.getByLabel(
+  const confirmationDialog = page.getByRole("dialog", {
+    name: "Force stop profile",
+  });
+  const confirmation = confirmationDialog.getByLabel(
     "Force confirmation profile-1",
   );
-  const confirmButton = page.getByRole("button", {
+  const confirmButton = confirmationDialog.getByRole("button", {
     name: "Force stop profile-1",
   });
   await expect(confirmButton).toBeDisabled();
@@ -631,7 +638,7 @@ test("dashboard keeps sessions visible without profile activity", async ({
 test("edit sends optimistic version and surfaces 409 conflict", async ({
   page,
 }) => {
-  await page.goto("/profiles?conflict=1");
+  await page.goto("/profiles?conflict=1&profilesList=changed-after-first");
   await page.getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit profile" });
   await dialog.getByLabel("Name").fill("Concurrent edit");
@@ -651,4 +658,7 @@ test("edit sends optimistic version and surfaces 409 conflict", async ({
   });
   await page.getByRole("button", { name: "Reload latest" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(dialog.getByLabel("Name")).toHaveValue(
+    "Remote refreshed profile",
+  );
 });

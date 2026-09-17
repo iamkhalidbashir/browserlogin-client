@@ -85,7 +85,6 @@ export const mockParams: Record<AppRPCMethod, unknown> = {
   updatesCheck: {},
   updatesDownload: {},
   updatesApply: { confirmed: true },
-  cliInstall: {},
   logsTail: { lines: 500 },
 };
 
@@ -235,7 +234,6 @@ const values: Record<AppRPCMethod, unknown> = {
     updateAvailable: true,
     updateReady: false,
   },
-  cliInstall: { installed: false, message: "CLI not installed" },
   logsTail: { lines: [] },
 };
 

@@ -8,13 +8,12 @@ const fixture = (name: string): Record<string, unknown> =>
     readFileSync(resolve(import.meta.dirname, "../fixtures", name), "utf8"),
   ) as Record<string, unknown>;
 
-describe("Task 2 Python parity fixtures", () => {
+describe("Python parity fixtures", () => {
   it("loads every golden contract with source provenance", () => {
     for (const name of [
       "rest/requests.json",
       "rest/responses.json",
       "rest/errors.json",
-      "cli/output.json",
       "launch-args.json",
       "proxy/matrix.json",
       "archive/limits.json",
@@ -78,19 +77,7 @@ describe("Task 2 Python parity fixtures", () => {
     });
   });
 
-  it("locks CLI table fields, force prompt, and protected launch argv", () => {
-    const cli = fixture("cli/output.json");
-    expect(cli.profilesTableFields).toEqual([
-      "profile_id",
-      "name",
-      "platform",
-      "archive_generation",
-      "cloud_session",
-    ]);
-    expect(cli.forcePrompt).toMatchObject({
-      phrase: "FORCE CLOSE <profile_id>",
-      example: "FORCE CLOSE profile-1",
-    });
+  it("locks protected launch argv", () => {
     const launch = fixture("launch-args.json");
     expect(launch.protectedArgvEntries).toEqual([
       "--fingerprint=",

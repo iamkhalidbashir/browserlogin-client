@@ -18,7 +18,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   ).toBeVisible();
   await expect(page.getByRole("navigation")).toHaveCount(0);
   await page.screenshot({
-    path: join(evidence, "01-setup-gated.png"),
+    path: join(evidence, "connection-setup-gated.png"),
     fullPage: true,
   });
   await page.getByLabel("API key").fill("bl_test_key_value");
@@ -58,7 +58,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
     page.getByRole("button", { name: "Launch", exact: true }),
   ).toBeVisible();
   await page.screenshot({
-    path: join(evidence, "02-profiles.png"),
+    path: join(evidence, "profiles-ready.png"),
     fullPage: true,
   });
 
@@ -81,7 +81,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
     page.getByRole("button", { name: "Stop and archive" }),
   ).toBeVisible();
   await page.screenshot({
-    path: join(evidence, "05-running-session.png"),
+    path: join(evidence, "session-running.png"),
     fullPage: true,
   });
 
@@ -95,7 +95,7 @@ test("renderer GUI acceptance: setup, profiles, launch, stop", async ({
   );
   expect(stopCall?.params).toMatchObject({ profileId: "profile-1" });
   await page.screenshot({
-    path: join(evidence, "06-stopped-session.png"),
+    path: join(evidence, "session-stopped.png"),
     fullPage: true,
   });
 

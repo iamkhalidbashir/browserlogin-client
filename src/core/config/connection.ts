@@ -18,7 +18,10 @@ import {
   parseConnectionState,
   type ConnectionState,
 } from "./connection-state.js";
-import type { ConnectionInput, ConnectionResolution } from "./connection-types.js";
+import type {
+  ConnectionInput,
+  ConnectionResolution,
+} from "./connection-types.js";
 import {
   DEFAULT_APP_ORIGIN,
   deriveRemoteMcpUrl,
@@ -28,7 +31,10 @@ import {
 } from "./origin.js";
 
 export { KEYCHAIN_REF, type ConnectionState } from "./connection-state.js";
-export type { ConnectionInput, ConnectionResolution } from "./connection-types.js";
+export type {
+  ConnectionInput,
+  ConnectionResolution,
+} from "./connection-types.js";
 export {
   DEFAULT_APP_ORIGIN,
   REMOTE_MCP_PATH,
@@ -95,9 +101,9 @@ export async function resolveConnection(
   },
   security: PathSecurity = posixPathSecurity(),
 ): Promise<ConnectionResolution> {
-  const cliOrigin = nonempty(input.appOrigin);
-  const cliKey = nonempty(input.apiKey);
-  const cliLicenseKey = nonempty(input.licenseKey);
+  const explicitOrigin = nonempty(input.appOrigin);
+  const explicitKey = nonempty(input.apiKey);
+  const explicitLicenseKey = nonempty(input.licenseKey);
   const env = input.env ?? process.env;
   const envOrigin = nonempty(env.BROWSERLOGIN_BASE_URL);
   const legacyEnvRestBaseUrl = nonempty(env.BROWSERLOGIN_API_BASE_URL);
@@ -111,7 +117,12 @@ export async function resolveConnection(
     if (saved.migrated)
       await atomicWriteJson(input.paths.connection, saved.state, security);
   }
-  const useKeychain = !(cliKey || envKey || cliLicenseKey || envLicenseKey);
+  const useKeychain = !(
+    explicitKey ||
+    envKey ||
+    explicitLicenseKey ||
+    envLicenseKey
+  );
   const [keychainKey, keychainLicense] = useKeychain
     ? await Promise.all([
         input.keychain.get({
@@ -125,7 +136,7 @@ export async function resolveConnection(
       ])
     : [null, null];
   const appOrigin = validateAppOrigin(
-    cliOrigin ??
+    explicitOrigin ??
       envOrigin ??
       (legacyEnvRestBaseUrl
         ? legacyRestBaseUrlToOrigin(legacyEnvRestBaseUrl)
@@ -133,15 +144,15 @@ export async function resolveConnection(
       persistedOrigin ??
       DEFAULT_APP_ORIGIN,
   );
-  const apiKey = cliKey
-    ? validateApiKey(cliKey)
+  const apiKey = explicitKey
+    ? validateApiKey(explicitKey)
     : envKey
       ? validateApiKey(envKey)
       : keychainKey;
-  const licenseKey = cliLicenseKey ?? envLicenseKey ?? keychainLicense;
+  const licenseKey = explicitLicenseKey ?? envLicenseKey ?? keychainLicense;
   const source =
-    cliOrigin || cliKey || cliLicenseKey
-      ? "cli"
+    explicitOrigin || explicitKey || explicitLicenseKey
+      ? "override"
       : envOrigin || legacyEnvRestBaseUrl || envKey || envLicenseKey
         ? "env"
         : persistedOrigin || keychainKey || keychainLicense

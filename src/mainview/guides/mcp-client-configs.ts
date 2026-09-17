@@ -1,19 +1,38 @@
+import { LOCAL_MCP_URL } from "../../shared/mcp-endpoints.js";
 import type { McpClientConfig } from "./types.js";
 
-export const MCP_CLIENT_CONFIGS: readonly McpClientConfig[] = [
+export const CHATGPT_DESKTOP_CONFIG = {
+  id: "chatgpt-desktop",
+  name: "ChatGPT desktop",
+  description:
+    "Recommended for most people. The desktop app connects from this computer, so it can reach BrowserLogin on localhost.",
+  transport: "streamable-http",
+  steps: [
+    "Install the ChatGPT desktop app on the same computer as BrowserLogin and sign in.",
+    `Open Settings > MCP servers > Add server. Choose Streamable HTTP, name it BrowserLogin, and paste ${LOCAL_MCP_URL}.`,
+    "Save, restart ChatGPT, then type /mcp in a chat to confirm the connection.",
+  ],
+  snippets: [],
+} as const satisfies McpClientConfig;
+
+export const MCP_DEVELOPER_CONFIGS = [
   {
-    name: "Standard stdio JSON",
-    description:
-      "Use this in Claude Desktop, Antigravity, Cursor, Gemini CLI, Junie, Kiro, and LM Studio under their mcpServers configuration.",
+    id: "cursor",
+    name: "Cursor",
+    description: "Add BrowserLogin through a global or project mcp.json file.",
+    transport: "streamable-http",
+    steps: [
+      "Create ~/.cursor/mcp.json for all projects, or .cursor/mcp.json in one project.",
+      "Add the configuration below and open Customize to confirm the server is enabled.",
+    ],
     snippets: [
       {
-        label: "mcpServers",
+        label: "mcp.json",
         language: "json",
         code: `{
   "mcpServers": {
     "browserlogin": {
-      "command": "browserlogin",
-      "args": ["mcp"]
+      "url": "${LOCAL_MCP_URL}"
     }
   }
 }`,
@@ -21,70 +40,76 @@ export const MCP_CLIENT_CONFIGS: readonly McpClientConfig[] = [
     ],
   },
   {
+    id: "vscode",
+    name: "VS Code",
+    description: "Add BrowserLogin to VS Code's MCP user configuration.",
+    transport: "streamable-http",
+    steps: [
+      "Run MCP: Open User Configuration from the Command Palette.",
+      "Add the configuration below, then run MCP: List Servers to confirm it connected.",
+    ],
+    snippets: [
+      {
+        label: "mcp.json",
+        language: "json",
+        code: `{
+  "servers": {
+    "browserlogin": {
+      "type": "http",
+      "url": "${LOCAL_MCP_URL}"
+    }
+  }
+}`,
+      },
+    ],
+  },
+  {
+    id: "claude-code",
     name: "Claude Code",
-    description: "Add BrowserLogin through the Claude Code command line.",
-    snippets: [
-      {
-        label: "Shell",
-        language: "shell",
-        code: "claude mcp add browserlogin browserlogin mcp",
-      },
-    ],
-  },
-  {
-    name: "Codex",
     description:
-      "Add with the Codex CLI or the mcp_servers section in ~/.codex/config.toml.",
+      "Claude Code connects directly. Claude Desktop custom connectors are cloud-hosted and cannot reach this localhost URL.",
+    transport: "streamable-http",
+    steps: [
+      "Run the command below from a terminal while BrowserLogin is open.",
+      "Use /mcp inside Claude Code to inspect the connected tools.",
+    ],
     snippets: [
       {
-        label: "Shell",
+        label: "Terminal",
         language: "shell",
-        code: "codex mcp add browserlogin -- browserlogin mcp",
-      },
-      {
-        label: "~/.codex/config.toml",
-        language: "toml",
-        code: `[mcp_servers.browserlogin]
-command = "browserlogin"
-args = ["mcp"]`,
+        code: `claude mcp add --transport http browserlogin ${LOCAL_MCP_URL}
+claude mcp get browserlogin`,
       },
     ],
   },
   {
-    name: "GitHub Copilot CLI",
-    description: "Add this local server to ~/.copilot/mcp-config.json.",
-    snippets: [
-      {
-        label: "~/.copilot/mcp-config.json",
-        language: "json",
-        code: `{
-  "mcpServers": {
-    "browserlogin": {
-      "type": "local",
-      "command": "browserlogin",
-      "tools": ["*"],
-      "args": ["mcp"]
-    }
-  }
-}`,
-      },
+    id: "codex-cli",
+    name: "Codex CLI",
+    description:
+      "Shares MCP configuration with ChatGPT desktop and the Codex IDE extension.",
+    transport: "streamable-http",
+    steps: [
+      "Run the command below once to add BrowserLogin to your shared Codex configuration.",
+      "Run codex mcp list, or type /mcp in Codex, to confirm it connected.",
     ],
-  },
-  {
-    name: "VS Code with GitHub Copilot",
-    description: "Install the server through the VS Code command line.",
     snippets: [
       {
-        label: "Shell",
+        label: "Terminal",
         language: "shell",
-        code: `code --add-mcp '{"name":"browserlogin","command":"browserlogin","args":["mcp"]}'`,
+        code: `codex mcp add browserlogin --url ${LOCAL_MCP_URL}
+codex mcp list`,
       },
     ],
   },
   {
+    id: "opencode",
     name: "OpenCode",
-    description:
-      "Add this local server to ~/.config/opencode/opencode.json or a project opencode.json.",
+    description: "Add BrowserLogin as a remote MCP entry in opencode.json.",
+    transport: "streamable-http",
+    steps: [
+      "Open your user or project opencode.json file.",
+      "Add the configuration below, then restart OpenCode.",
+    ],
     snippets: [
       {
         label: "opencode.json",
@@ -93,8 +118,8 @@ args = ["mcp"]`,
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "browserlogin": {
-      "type": "local",
-      "command": ["browserlogin", "mcp"],
+      "type": "remote",
+      "url": "${LOCAL_MCP_URL}",
       "enabled": true
     }
   }
@@ -102,71 +127,9 @@ args = ["mcp"]`,
       },
     ],
   },
-  {
-    name: "Cline",
-    description: "Add this stdio server to cline_mcp_settings.json.",
-    snippets: [
-      {
-        label: "cline_mcp_settings.json",
-        language: "json",
-        code: `{
-  "mcpServers": {
-    "browserlogin": {
-      "type": "stdio",
-      "command": "browserlogin",
-      "args": ["mcp"],
-      "disabled": false
-    }
-  }
-}`,
-      },
-    ],
-  },
-  {
-    name: "Amp",
-    description: "Add BrowserLogin through the Amp CLI.",
-    snippets: [
-      {
-        label: "Shell",
-        language: "shell",
-        code: "amp mcp add browserlogin -- browserlogin mcp",
-      },
-    ],
-  },
-  {
-    name: "Factory Droid",
-    description: "Add BrowserLogin through the Droid CLI.",
-    snippets: [
-      {
-        label: "Shell",
-        language: "shell",
-        code: 'droid mcp add browserlogin "browserlogin mcp"',
-      },
-    ],
-  },
-  {
-    name: "Grok",
-    description:
-      "Add with the Grok CLI or a Codex-style mcp_servers TOML entry.",
-    snippets: [
-      {
-        label: "Shell",
-        language: "shell",
-        code: "grok mcp add browserlogin -- browserlogin mcp",
-      },
-      {
-        label: "~/.grok/config.toml",
-        language: "toml",
-        code: `[mcp_servers.browserlogin]
-command = "browserlogin"
-args = ["mcp"]`,
-      },
-    ],
-  },
-  {
-    name: "Goose, Qodo Gen, Warp, and Windsurf",
-    description:
-      "Create a local or stdio MCP server from the client settings and paste the Standard stdio JSON configuration above.",
-    snippets: [],
-  },
-] as const;
+] as const satisfies readonly McpClientConfig[];
+
+export const MCP_CLIENT_CONFIGS = [
+  CHATGPT_DESKTOP_CONFIG,
+  ...MCP_DEVELOPER_CONFIGS,
+] as const satisfies readonly McpClientConfig[];

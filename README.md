@@ -1,19 +1,18 @@
-# BrowserLogin Client
-
 [![CI](https://github.com/iamkhalidbashir/browserlogin-client/actions/workflows/ci.yml/badge.svg)](https://github.com/iamkhalidbashir/browserlogin-client/actions/workflows/ci.yml)
 
-BrowserLogin Client is a source-available desktop, CLI, and unified MCP client for BrowserLogin profiles and CloakBrowser sessions. It shares one private state root across interfaces, stores credentials through the operating-system keychain adapter, and preserves profile data through verified archive workflows.
+BrowserLogin Client is a source-available desktop application and standalone CLI for BrowserLogin profiles and CloakBrowser sessions. Both interfaces share the same private state and operating-system keychain credentials.
 
 ## Features
 
-- Electrobun desktop application for setup, profile launch, session monitoring, administration, notes/audit history, downloads, updates, logs, and settings.
-- Compiled `browserlogin` CLI for setup, profiles, lifecycle operations, diagnostics, binary downloads, and MCP startup.
-- One local MCP server combining BrowserLogin lifecycle tools, profile-scoped browser tools, and 17 remote BrowserSessionMCP tools when available.
+- Electrobun desktop application for connection setup, profile launch, session monitoring, administration, notes, audit history, downloads, updates, logs, and settings.
+- Standalone `browserlogin` terminal executable for setup, profile lifecycle, diagnostics, browser downloads, and stdio MCP.
+- App-owned local MCP endpoint that combines browser control with BrowserLogin workspace tools after Connection setup.
+- Optional public MCP fallback for hosted workspace tools when a client cannot reach localhost.
 - Humanized input using a verified ONNX policy with bounded classical fallback.
 - Verified official CloakBrowser downloads, isolated custom-source installs, and explicit trust labels.
 - Recovery and idempotency guards for interrupted starts, uploads, stops, and force stops.
 
-> BrowserLogin Client does not bundle or publish a CloakBrowser/Chromium binary. It downloads a verified browser at runtime when required.
+> BrowserLogin Client does not publish CloakBrowser or Chromium as a separate release asset. It downloads a verified browser at runtime when required.
 
 ## Screenshots
 
@@ -25,258 +24,99 @@ The screenshots use local mock data and contain no production credentials or ser
 
 ## Install
 
-Download the asset for your platform from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases). Release artifacts are unsigned until a signing/notarization process is introduced.
+Download the BrowserLogin app for your platform from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases). Verify every downloaded file against the release `SHA256SUMS` before running it.
 
-Release filenames use the version without the tag's leading `v`: tag `v0.1.1` produces filenames containing `0.1.1`.
+Release filenames use the version without the tag's leading `v`: tag `v0.1.33` produces filenames containing `0.1.33`.
 
 ### macOS ARM64
 
-1. Download `BrowserLogin-<version>-macos-arm64.dmg`, open it, and move BrowserLogin to Applications.
-2. On first launch, use Finder **right-click → Open** to approve the unsigned application. As an explicit alternative, remove quarantine metadata yourself with `xattr -cr /Applications/BrowserLogin.app` after verifying the checksum.
-3. For terminal/MCP use, download `browserlogin-<version>-macos-arm64` plus `browserlogin-browser-tools-macos-arm64`. Make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
+Download `BrowserLogin-<version>-macos-arm64.dmg`, open it, and move BrowserLogin to Applications.
 
 ### Windows x64
 
-1. Download and extract `BrowserLogin-<version>-windows-x64-Setup.zip`, then run `Install-BrowserLogin.cmd`. Do not run `BrowserLogin-Setup.exe` from inside the ZIP or after moving it: it needs the adjacent `.installer` payload directory.
-2. If SmartScreen appears, select **More info → Run anyway** after verifying the checksum.
-3. Download `browserlogin-<version>-windows-x64.exe` plus `browserlogin-browser-tools-windows-x64.exe`. Place both in the same directory, put that directory on `PATH`, and rename only the CLI to `browserlogin.exe`.
+Download and extract `BrowserLogin-<version>-windows-x64-Setup.zip`, then run `Install-BrowserLogin.cmd`. Keep the adjacent `.installer` directory with the installer files.
 
 ### Linux x64
 
-1. On Ubuntu 24.04 or newer, install the runtime dependencies:
+On Ubuntu 24.04 or newer, install the runtime dependencies:
 
-   ```sh
-   sudo apt-get update
-   sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
-   ```
+```sh
+sudo apt-get update
+sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1
+```
 
-2. Download and extract `BrowserLogin-<version>-linux-x64-Setup.tar.gz`, then run the included installer.
-3. Alternatively, download `BrowserLogin-<version>-linux-x64.AppImage`, make it executable, and run it. AppImage execution may require the distribution's FUSE 2 compatibility package.
-4. Download `browserlogin-<version>-linux-x64` plus `browserlogin-browser-tools-linux-x64`, make both executable, place the CLI on `PATH` as `browserlogin`, and keep the helper beside it under its release filename.
+Then use either `BrowserLogin-<version>-linux-x64-Setup.tar.gz` or `BrowserLogin-<version>-linux-x64.AppImage`. AppImage execution may require the distribution's FUSE 2 compatibility package.
 
-Verify every downloaded file against the release `SHA256SUMS` before running it.
+### Standalone CLI
+
+Download both files for the target platform and keep them in the same directory:
+
+- macOS ARM64: `browserlogin-<version>-macos-arm64` and `browserlogin-browser-tools-macos-arm64`
+- Windows x64: `browserlogin-<version>-windows-x64.exe` and `browserlogin-browser-tools-windows-x64.exe`
+- Linux x64: `browserlogin-<version>-linux-x64` and `browserlogin-browser-tools-linux-x64`
+
+On macOS and Linux, mark both files executable. Run the versioned CLI directly or rename it to `browserlogin`; `browserlogin install-cli` copies the CLI and matching helper into the user CLI directory.
 
 ## Quickstart
 
-Start the desktop application and complete the connection form, or configure the same connection from a terminal:
+1. Open BrowserLogin.
+2. Connect an AI client to the local MCP endpoint. Its 28 local tools are available before Connection setup.
+3. Complete the Connection form to add 17 hosted workspace tools. The API key is stored through the operating-system keychain backend.
+4. Download the verified browser from the app when prompted, then start a profile from the Profiles screen or through MCP.
 
-```sh
-browserlogin setup
-browserlogin profiles --json
-browserlogin start PROFILE_ID
-browserlogin status --json
-browserlogin stop PROFILE_ID
+The local MCP server starts and stops with the desktop app:
+
+```text
+http://127.0.0.1:43110/mcp
 ```
 
-`setup` stores the HTTPS application origin plus a keychain marker in the private state root; the API key goes to the platform keychain backend. REST uses `${origin}/api/v1` and remote MCP uses `${origin}/mcp/browserSessionMCP`. For managed environments, set `BROWSERLOGIN_API_KEY` (optionally `BROWSERLOGIN_BASE_URL` and `CLOAKBROWSER_LICENSE_KEY`) and run:
+Keep BrowserLogin open while using MCP. The endpoint binds only to loopback, does not require an MCP authorization header, and exposes 45 safe-default tools after Connection setup: 28 local tools plus 17 hosted workspace tools.
 
-```sh
-browserlogin setup --api-key-env
-```
+For terminal-only use, run `browserlogin setup`, then use commands such as `browserlogin profiles --json`, `browserlogin start PROFILE_ID`, and `browserlogin stop PROFILE_ID` without opening the desktop app.
 
-Force close discards uncommitted local browser changes and requires explicit confirmation:
+## MCP Connections
 
-```sh
-browserlogin stop PROFILE_ID --force --yes
-```
+Use one BrowserLogin MCP connection. The app-owned HTTP endpoint is the recommended default; the standalone CLI provides the same merged registry over stdio for terminal-only clients.
 
-## CLI and MCP
+| Connection                    | Address or command                                                               | Safe-default tools                                       | Authentication                                 |
+| ----------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| App-owned HTTP                | `http://127.0.0.1:43110/mcp`                                                     | 28 local tools before setup; 45 merged tools after setup | Managed by the app; no MCP header              |
+| Standalone stdio              | `browserlogin mcp`                                                               | 45 merged tools after `browserlogin setup`               | CLI keychain or environment setup              |
+| Optional hosted-only fallback | `https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP` | 17 workspace tools; no local browser control             | `Authorization: Bearer <BROWSERLOGIN_API_KEY>` |
 
-The compiled CLI handles setup, profile lifecycle, diagnostics, verified browser downloads, and the unified MCP server. See the [CLI guide](docs/cli.md) for the full command contract, options, environment precedence, exit codes, and troubleshooting.
+The public URL is only a fallback for clients that cannot reach localhost. It is not a required second connection and cannot launch or control a local browser.
 
-Use one local stdio MCP server for AI clients. It combines BrowserLogin lifecycle tools, profile-scoped browser automation, and remote BrowserLogin workspace tools. Run `browserlogin setup` once before connecting a client so the API key stays in the OS keychain rather than an AI-client configuration file.
+### OpenCode Example
 
-<details>
-<summary>AI client integrations</summary>
-
-<details>
-<summary>Standard stdio JSON: Claude Desktop, Antigravity, Cursor, Gemini CLI, Junie, Kiro, and LM Studio</summary>
-
-Add this server under the client's `mcpServers` object. Cursor supports `~/.cursor/mcp.json`; Gemini CLI uses `~/.gemini/settings.json`; Junie uses `.junie/mcp/mcp.json`; Kiro uses `.kiro/settings/mcp.json`; and LM Studio provides an MCP configuration editor.
-
-```json
-{
-  "mcpServers": {
-    "browserlogin": {
-      "command": "browserlogin",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary>Claude Code</summary>
-
-```sh
-claude mcp add browserlogin browserlogin mcp
-```
-
-</details>
-
-<details>
-<summary>Codex</summary>
-
-```sh
-codex mcp add browserlogin -- browserlogin mcp
-```
-
-```toml
-[mcp_servers.browserlogin]
-command = "browserlogin"
-args = ["mcp"]
-```
-
-</details>
-
-<details>
-<summary>GitHub Copilot CLI</summary>
-
-Add this to `~/.copilot/mcp-config.json`:
-
-```json
-{
-  "mcpServers": {
-    "browserlogin": {
-      "type": "local",
-      "command": "browserlogin",
-      "tools": ["*"],
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary>VS Code with GitHub Copilot</summary>
-
-```sh
-code --add-mcp '{"name":"browserlogin","command":"browserlogin","args":["mcp"]}'
-```
-
-</details>
-
-<details>
-<summary>OpenCode</summary>
-
-Add this to `~/.config/opencode/opencode.json` or the project's `opencode.json`:
+Add the primary local endpoint to `opencode.json`:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "browserlogin": {
-      "type": "local",
-      "command": ["browserlogin", "mcp"],
+    "browserlogin-local": {
+      "type": "remote",
+      "url": "http://127.0.0.1:43110/mcp",
       "enabled": true
     }
   }
 }
 ```
 
-</details>
+Other MCP clients should use their remote or Streamable HTTP transport with the same local URL and no headers. If localhost is unavailable, use the hosted-only fallback URL with `Authorization: Bearer <BROWSERLOGIN_API_KEY>`; store the key through the client's secret or environment mechanism and never commit it.
 
-<details>
-<summary>Cline</summary>
+### Tool Boundaries
 
-Add this to `cline_mcp_settings.json`:
+The local HTTP endpoint starts with 28 safe-default local tools:
 
-```json
-{
-  "mcpServers": {
-    "browserlogin": {
-      "type": "stdio",
-      "command": "browserlogin",
-      "args": ["mcp"],
-      "disabled": false
-    }
-  }
-}
-```
+- Four lifecycle/bootstrap tools: `browser_init`, `browser_init_status`, `browser_session_start`, and `browser_session_stop`.
+- Twenty-four profile-scoped browser automation tools for navigation, snapshots, input, files, tabs, dialogs, network inspection, and screenshots.
 
-</details>
+After Connection setup it adds 17 workspace tools covering profiles, notes, proxies, members, users, and audit events, for 45 tools through the same connection. `browserlogin mcp` exposes the same 45-tool merged registry after CLI setup. Enabling `browser_run_code_unsafe` raises the local and merged totals to 29 and 46 respectively.
 
-<details>
-<summary>Amp, Factory Droid, and Grok</summary>
+The optional public fallback exposes only the 17 workspace tools. See the [MCP guide](docs/mcp.md) for configuration, the complete tool catalog, and troubleshooting.
 
-```sh
-amp mcp add browserlogin -- browserlogin mcp
-droid mcp add browserlogin "browserlogin mcp"
-grok mcp add browserlogin -- browserlogin mcp
-```
-
-Grok also accepts the Codex-style TOML entry in `~/.grok/config.toml`.
-
-</details>
-
-<details>
-<summary>Goose, Qodo Gen, Warp, and Windsurf</summary>
-
-Add a local/stdio MCP server in the client settings and paste the standard stdio JSON above. In Goose, choose **Extensions -> Add custom extension** with type `STDIO`; in Qodo Gen, use **Connect more tools -> Add MCP**; in Warp, use **Settings -> AI -> Manage MCP Servers**; and in Windsurf, use **Cascade MCP settings**.
-
-</details>
-
-`browserlogin` must be on the `PATH` inherited by the AI client. The [MCP guide](docs/mcp.md) contains the same integrations with additional setup, workflow, and troubleshooting detail.
-
-</details>
-
-<details>
-<summary>Available AI tools</summary>
-
-The default local server advertises 28 tools: four lifecycle/bootstrap tools and 24 browser automation tools. Successful remote discovery adds 17 BrowserLogin workspace tools, for 45 total. `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` exposes the disabled-by-default RCE-equivalent `browser_run_code_unsafe` tool, for 29 local or 46 total.
-
-<details>
-<summary>Lifecycle and bootstrap (4)</summary>
-
-- `browser_init`: download, verify, and install CloakBrowser.
-- `browser_init_status`: report browser initialization progress.
-- `browser_session_start`: start a BrowserLogin profile session.
-- `browser_session_stop`: stop normally or force-stop with `force: true`.
-
-</details>
-
-<details>
-<summary>Browser automation (24)</summary>
-
-- `browser_close`, `browser_resize`, `browser_console_messages`, `browser_handle_dialog`
-- `browser_evaluate`, `browser_file_upload`, `browser_drop`, `browser_find`
-- `browser_fill_form`, `browser_press_key`, `browser_type`, `browser_navigate`, `browser_navigate_back`
-- `browser_network_requests`, `browser_network_request`, `browser_take_screenshot`, `browser_snapshot`
-- `browser_click`, `browser_drag`, `browser_hover`, `browser_select_option`, `browser_tabs`, `browser_wait_for`, `browser_modal_watch`
-
-Each browser tool requires a running session and its `profile` ID. `browser_snapshot` supplies current element references before the AI acts.
-
-</details>
-
-<details>
-<summary>Remote BrowserLogin workspace tools (17)</summary>
-
-- Profiles: `profiles_list`, `profile_get`, `profile_create`, `profile_update`, `profile_delete`, `profile_restore`
-- Notes and proxies: `notes_get`, `notes_append`, `notes_update`, `proxies_list`, `proxy_change_ip`
-- Members, users, and audit: `members_list`, `member_share`, `member_remove`, `users_list`, `user_disable`, `audit_list`
-
-Remote tools retain their BrowserLogin schemas and redact proxy credentials. Remote session lifecycle and archive transfer stay local, so the AI uses `browser_session_start` and `browser_session_stop` for those operations.
-
-</details>
-
-<details>
-<summary>Unsafe browser code (1, opt-in)</summary>
-
-- `browser_run_code_unsafe`: run arbitrary Playwright JavaScript. It is RCE-equivalent and appears only when `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` is set for the MCP server process.
-
-</details>
-
-The [MCP guide](docs/mcp.md) contains every tool's purpose and required arguments in collapsible tables, the first-session workflow, and troubleshooting.
-
-</details>
-
-The canonical local lifecycle tools are `browser_session_start` and `browser_session_stop`. OpenCode exposes them under its server namespace, for example `browserlogin_browser_session_start`. The legacy `browserlogin_session_start` and `browserlogin_session_stop` names remain hidden compatibility names; they are handled locally and are never forwarded to the remote MCP service.
-
-## State and environment
+## State And Environment
 
 Default state roots:
 
@@ -286,26 +126,22 @@ Default state roots:
 
 `BROWSERLOGIN_STATE_DIR` must be absolute.
 
-| Variable                                   | Meaning                                                                                      |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
-| `BROWSERLOGIN_API_KEY`                     | Nonempty BrowserLogin key override; never commit it.                                         |
-| `BROWSERLOGIN_BASE_URL`                    | Canonical HTTPS BrowserLogin application origin.                                             |
-| `BROWSERLOGIN_API_BASE_URL`                | Legacy exact REST root (`${origin}/api/v1`) converted to the origin.                         |
-| `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                                                  |
-| `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Expose RCE-equivalent `browser_run_code_unsafe`.                                             |
-| `BROWSERLOGIN_LAUNCH_TIMING=1`             | Emit development launch-stage durations to stderr without identifiers, URLs, or credentials. |
-
-See [the architecture guide](docs/architecture.md) for the complete security and process model.
+| Variable                                   | Meaning                                                         |
+| ------------------------------------------ | --------------------------------------------------------------- |
+| `BROWSERLOGIN_API_KEY`                     | Nonempty BrowserLogin key override; never commit it.            |
+| `BROWSERLOGIN_BASE_URL`                    | Canonical HTTPS BrowserLogin application origin.                |
+| `BROWSERLOGIN_API_BASE_URL`                | Legacy exact REST root converted to the application origin.     |
+| `CLOAKBROWSER_LICENSE_KEY`                 | Optional CloakBrowser license-key override.                     |
+| `BROWSERLOGIN_ALLOW_UNSAFE_BROWSER_CODE=1` | Expose the RCE-equivalent local `browser_run_code_unsafe` tool. |
+| `BROWSERLOGIN_LAUNCH_TIMING=1`             | Emit redacted development launch-stage durations.               |
 
 ## Updating
 
-The app checks the rolling `stable` release metadata. Unsigned automatic apply was not proven reliable on every platform, so the UI provides **Update available – download** and links to the tagged GitHub Release. Prerelease tags publish tagged artifacts but do not mutate `stable`.
+The app checks the rolling `stable` release metadata. The UI links to the tagged GitHub Release when an update is available. Prerelease tags do not mutate `stable`.
 
 ## Development
 
-Requirements: Bun `1.4.0`, Hutch, and the native dependencies shown in CI. The
-development commands resolve Hutch from `HUTCH_BIN`, then
-`~/.hutch/bin/hutch`, then `PATH`.
+Requirements: Bun `1.4.0`, Hutch, and the native dependencies shown in CI.
 
 ```sh
 bun install --frozen-lockfile
@@ -328,18 +164,16 @@ BROWSERLOGIN_DEV_PID=$!
 bun scripts/wait-for-app.ts
 kill "$BROWSERLOGIN_DEV_PID"
 wait "$BROWSERLOGIN_DEV_PID" || true
-python3 -c 'import os, shutil; shutil.rmtree(os.environ["BROWSERLOGIN_STATE_DIR"])'
 ```
 
-The readiness command prints the private `ready/main-process.json` path. Always stop the captured parent process after development.
+The private readiness record includes the app-owned `mcp_url`.
 
 ## Documentation
 
-- [CLI guide](docs/cli.md)
 - [MCP integrations and AI tool catalog](docs/mcp.md)
+- [Standalone CLI guide](docs/cli.md)
 - [API guide](docs/api.md)
 - [Architecture, security, and updates](docs/architecture.md)
-- [OpenCode migration](docs/opencode-migration.md)
 - [Bumblebee model provenance](docs/bumblebee.md)
 - [Third-party notices](NOTICES.md)
 

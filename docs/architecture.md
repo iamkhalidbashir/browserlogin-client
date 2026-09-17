@@ -4,9 +4,15 @@
 
 ```mermaid
 flowchart TD
-  UI[Electrobun desktop] --> RPC[Typed AppRPC]
-  CLI[Compiled CLI] --> Core[Core services]
-  MCP[Unified stdio MCP] --> Core
+  AI[AI client] --> LocalMCP[Loopback Streamable HTTP MCP]
+  AI --> PublicMCP[Public workspace MCP]
+  AI --> StdioMCP[Standalone stdio MCP]
+  Desktop[Electrobun desktop] --> RPC[Typed AppRPC]
+  CLI[Standalone CLI] --> Core[Core services]
+  Desktop --> LocalMCP
+  LocalMCP --> Core[Core services]
+  StdioMCP --> Core
+  StdioMCP --> Workspace[Hosted workspace services]
   RPC --> Core
   Core --> State[Private shared state root]
   Core --> API[BrowserLogin REST]
@@ -14,12 +20,12 @@ flowchart TD
   Core --> Dist[Verified browser distribution]
   Core --> Runner[Per-profile runner]
   Runner --> Browser[CloakBrowser]
-  MCP --> Remote[Remote MCP proxy]
-  MCP --> CDP[Authenticated CDP relay]
+  PublicMCP --> Workspace[Hosted workspace services]
+  LocalMCP --> CDP[Authenticated CDP relay]
   CDP --> Runner
 ```
 
-Desktop, CLI, and MCP share one state root and transition locks. The runner owns browser launch, readiness, automatic normal-stop detection, archive creation, and relay cleanup. The renderer receives narrow typed RPC methods, never generic filesystem/process/keychain access.
+The desktop, standalone CLI, and local MCP runtimes share one private state root and transition locks. The runner owns browser launch, readiness, automatic normal-stop detection, archive creation, and relay cleanup. The renderer receives narrow typed RPC methods, never generic filesystem/process/keychain access. The public MCP is separate and cannot reach the local browser runtime.
 
 ## State and credentials
 
@@ -35,7 +41,9 @@ Start uses stable idempotency keys, verifies/extracts any remote archive with tr
 
 - Credentialed SOCKS5 uses a per-run authenticated upstream relay; Chromium receives only an unauthenticated loopback endpoint.
 - The CDP relay authenticates a one-time loopback URL, caps frames at 16 MiB, serializes input, cancels on navigation/detach, and returns generic errors.
-- Remote MCP uses stateless bounded POSTs, redirect/body limits, private-address rejection, cancellation, and auth-failure throttling.
+- Local MCP uses stateless Streamable HTTP on `127.0.0.1:43110`, validates `Host` headers, and follows the desktop lifecycle.
+- Public MCP uses bearer-authenticated HTTPS and exposes hosted workspace operations only.
+- Standalone stdio MCP reserves stdout for JSON-RPC and runs independently of the desktop process.
 
 ## Binary trust
 
@@ -49,7 +57,7 @@ Unsigned check/download works, but reliable unsigned apply was not proven on eve
 
 ## Diagnostics
 
-Logs are bounded/redacted. MCP stdout remains protocol-only. Renderer schemas strip proxy passwords and expose credential presence rather than values.
+Logs are bounded and redacted. Renderer schemas strip proxy passwords and expose credential presence rather than values.
 
 `BROWSERLOGIN_LAUNCH_TIMING=1` enables monotonic development diagnostics at confirmed backend launch boundaries: `remote-session-start`, optional `archive-download-restore`, `runner-spawn`, optional `socks-relay-ready`, `cloakbrowser-context-launch`, and `cdp-readiness`. The permanent launch UI separately measures `ui-cache-refresh`. Diagnostic records contain only allowlisted stage names and millisecond durations; profile identifiers, proxy credentials, launch-file contents, license data, URLs, and error payloads are excluded.
 
