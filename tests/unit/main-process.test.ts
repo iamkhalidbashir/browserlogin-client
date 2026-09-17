@@ -24,6 +24,7 @@ const electrobun = vi.hoisted(() => {
         };
       },
     ),
+    setApplicationMenu: vi.fn(),
     request: (name: string) => requests[name],
     reset: () => {
       requests = {};
@@ -32,6 +33,7 @@ const electrobun = vi.hoisted(() => {
 });
 
 vi.mock("electrobun/main", () => ({
+  ApplicationMenu: { setApplicationMenu: electrobun.setApplicationMenu },
   BrowserView: { defineRPC: electrobun.defineRPC },
   BrowserWindow: class BrowserWindow {},
   Utils: {
@@ -119,6 +121,45 @@ describe("desktop main-process lifecycle", () => {
     expect(startMcp).toHaveBeenCalledWith({ stateRoot: root });
     expect(closeMcp).toHaveBeenCalledTimes(1);
     expect(events).toEqual(["mcp-closed", "quit"]);
+  });
+
+  test("installs standard desktop editing commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-main-menu-"));
+    roots.push(root);
+    const active = await startMainProcess({
+      root,
+      startMcp: async () => ({
+        url: "http://127.0.0.1:43110/mcp",
+        close: async () => undefined,
+      }),
+      createWindow: () => ({ test: true }),
+      recover: async () => undefined,
+      quit: async () => undefined,
+      checkUpdates: false,
+    });
+
+    try {
+      expect(electrobun.setApplicationMenu).toHaveBeenCalledOnce();
+      const menu = electrobun.setApplicationMenu.mock.calls[0]?.[0] as
+        | Array<{
+            readonly label?: string;
+            readonly submenu?: ReadonlyArray<{ readonly role?: string }>;
+          }>
+        | undefined;
+      const editRoles = menu
+        ?.find((item) => item.label === "Edit")
+        ?.submenu?.flatMap((item) => (item.role ? [item.role] : []));
+      expect(editRoles).toEqual([
+        "undo",
+        "redo",
+        "cut",
+        "copy",
+        "paste",
+        "selectAll",
+      ]);
+    } finally {
+      await active.stop();
+    }
   });
 
   test("restarts the local MCP server after connection setup", async () => {

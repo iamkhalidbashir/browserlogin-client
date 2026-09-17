@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { BrowserWindow, Utils } from "electrobun/main";
+import { ApplicationMenu, BrowserWindow, Utils } from "electrobun/main";
 import { readAutoCheckUpdates } from "../core/app/settings.js";
 import { ConnectionStore } from "../core/config/connection.js";
 import { resolveStateRoot, statePaths } from "../core/config/paths.js";
@@ -26,6 +26,25 @@ export type MainProcessOptions = {
 };
 
 export type SingleInstance = { release: () => void; acquired: Promise<void> };
+
+const APPLICATION_MENU = [
+  {
+    label: "BrowserLogin",
+    submenu: [{ role: "about" }, { type: "separator" }, { role: "quit" }],
+  },
+  {
+    label: "Edit",
+    submenu: [
+      { role: "undo" },
+      { role: "redo" },
+      { type: "separator" },
+      { role: "cut" },
+      { role: "copy" },
+      { role: "paste" },
+      { role: "selectAll" },
+    ],
+  },
+] satisfies Parameters<typeof ApplicationMenu.setApplicationMenu>[0];
 
 function enforceMinimumWindowSize(
   window: BrowserWindow,
@@ -219,6 +238,7 @@ export async function startMainProcess(
       updateController,
       checkUpdates,
     );
+    ApplicationMenu.setApplicationMenu(APPLICATION_MENU);
     let window: unknown;
     if (options.createWindow) {
       window = options.createWindow(rpc);
