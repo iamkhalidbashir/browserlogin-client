@@ -37,6 +37,7 @@ import { DEFAULT_APP_ORIGIN, deriveRestBaseUrl } from "../config/connection.js";
 const JSON_BODY_CAP = 256 * 1024;
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 const DEFAULT_TOTAL_TIMEOUT_MS = 120_000;
+const DEFAULT_ARCHIVE_UPLOAD_TIMEOUT_MS = 600_000;
 const MAX_GET_RETRIES = 2;
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_JSON_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -133,6 +134,7 @@ export interface ClientOptions {
   timeoutMs?: number;
   connectTimeoutMs?: number;
   totalTimeoutMs?: number;
+  archiveUploadTimeoutMs?: number;
   maxArchiveBytes?: number;
   now?: () => number;
   sleep?: Sleep;
@@ -293,6 +295,7 @@ export class BrowserLoginClient {
   private readonly requestFetch: FetchLike;
   private readonly connectTimeoutMs: number;
   private readonly totalTimeoutMs: number;
+  private readonly archiveUploadTimeoutMs: number;
   private readonly maxArchiveBytes: number;
   private readonly now: () => number;
   private readonly sleep: Sleep;
@@ -310,6 +313,11 @@ export class BrowserLoginClient {
       DEFAULT_CONNECT_TIMEOUT_MS;
     this.totalTimeoutMs =
       options.totalTimeoutMs ?? options.timeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS;
+    this.archiveUploadTimeoutMs =
+      options.archiveUploadTimeoutMs ??
+      options.totalTimeoutMs ??
+      options.timeoutMs ??
+      DEFAULT_ARCHIVE_UPLOAD_TIMEOUT_MS;
     this.maxArchiveBytes = options.maxArchiveBytes ?? MAX_ARCHIVE_BYTES;
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
@@ -827,17 +835,12 @@ export class BrowserLoginClient {
     )
       throw new ArchiveError("archive upload URL is invalid or expired");
     const controller = new AbortController();
-    const connectTimeout = setTimeout(
+    const uploadTimeout = setTimeout(
       () =>
         controller.abort(
-          new DOMException("Connection timed out", "TimeoutError"),
+          new DOMException("Archive upload timed out", "TimeoutError"),
         ),
-      this.connectTimeoutMs,
-    );
-    const totalTimeout = setTimeout(
-      () =>
-        controller.abort(new DOMException("Request timed out", "TimeoutError")),
-      this.totalTimeoutMs,
+      this.archiveUploadTimeoutMs,
     );
     const abort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });
@@ -854,7 +857,6 @@ export class BrowserLoginClient {
         onProgress,
       });
       const { response } = transfer;
-      clearTimeout(connectTimeout);
       if (response.status >= 300 && response.status < 400)
         await cancelBody(response);
       if (response.status >= 300 && response.status < 400)
@@ -889,8 +891,7 @@ export class BrowserLoginClient {
       transfer.complete();
       return storageId;
     } finally {
-      clearTimeout(connectTimeout);
-      clearTimeout(totalTimeout);
+      clearTimeout(uploadTimeout);
       signal?.removeEventListener("abort", abort);
     }
   }

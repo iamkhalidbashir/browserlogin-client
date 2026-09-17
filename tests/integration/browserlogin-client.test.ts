@@ -647,6 +647,82 @@ describe("BrowserLogin REST client", () => {
     expect(abortedProgress).toEqual([]);
   });
 
+  it("uses a dedicated 600-second timeout for archive uploads", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "browserlogin-upload-timeout-"),
+    );
+    closers.push(() => rm(directory, { recursive: true, force: true }));
+    const payloadPath = join(directory, "archive.zip");
+    await writeFile(payloadPath, Buffer.from("DATA"));
+    const timeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const api = client("https://browserlogin.test/api/v1", {
+      connectTimeoutMs: 1,
+      fetch: async (_input, init) => {
+        await new Response(init?.body).arrayBuffer();
+        await new Promise((resolvePromise) => setTimeout(resolvePromise, 20));
+        if (init?.signal?.aborted) throw init.signal.reason;
+        return Response.json({ storageId: "storage-1" });
+      },
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+
+    try {
+      await expect(
+        api.directUpload(
+          {
+            upload_url: "https://storage.example.test/upload",
+            expires_at: "2026-08-16T01:00:00.000Z",
+            session_id: "session-1",
+          },
+          payloadPath,
+          { expectedSessionId: "session-1" },
+        ),
+      ).resolves.toBe("storage-1");
+      expect(
+        timeoutSpy.mock.calls.some(([, milliseconds]) =>
+          Object.is(milliseconds, 600_000),
+        ),
+      ).toBe(true);
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
+  it("allows the archive upload timeout to be configured", async () => {
+    const directory = await mkdtemp(
+      join(tmpdir(), "browserlogin-upload-deadline-"),
+    );
+    closers.push(() => rm(directory, { recursive: true, force: true }));
+    const payloadPath = join(directory, "archive.zip");
+    await writeFile(payloadPath, Buffer.from("DATA"));
+    const api = client("https://browserlogin.test/api/v1", {
+      archiveUploadTimeoutMs: 5,
+      connectTimeoutMs: 1_000,
+      totalTimeoutMs: 1_000,
+      fetch: async (_input, init) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+
+    await expect(
+      api.directUpload(
+        {
+          upload_url: "https://storage.example.test/upload",
+          expires_at: "2026-08-16T01:00:00.000Z",
+          session_id: "session-1",
+        },
+        payloadPath,
+        { expectedSessionId: "session-1" },
+      ),
+    ).rejects.toThrow("Archive upload timed out");
+  });
+
   it("streams upload bytes to a loopback receiver and reports verified progress", async () => {
     // Given
     const directory = await mkdtemp(
