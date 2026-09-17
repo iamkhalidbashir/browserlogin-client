@@ -135,8 +135,8 @@ await writeJson(join(evidenceRoot, "mcp", "http-transport.json"), {
   result: "PASS",
   assertions: [
     "SDK initialize and tools/list succeed over loopback HTTP",
-    "empty-state startup advertises exactly 28 local tools",
-    "connected-state startup advertises 45 local and workspace tools",
+    "empty-state startup advertises exactly 29 local tools",
+    "connected-state startup advertises 46 local and workspace tools",
     "profiles_list forwards through the same loopback MCP connection",
     "forged Host headers are rejected with HTTP 403",
   ],
@@ -165,10 +165,10 @@ const rows: Row[] = [
     "signed official-format fixture verified",
   ],
   [
-    "45 safe-default / 46 opt-in unified tools",
+    "46 safe-default / 47 opt-in unified tools",
     "MCP",
     "mcp/tools-unified.json",
-    "28 local and 17 workspace tools share one registry",
+    "29 local and 17 workspace tools share one registry",
   ],
   [
     "MCP lifecycle",

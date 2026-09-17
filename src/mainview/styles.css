@@ -515,6 +515,9 @@ summary:hover .guide-disclosure-action,
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
   .form-grid > .col-span-2 {
     grid-column: auto;
   }

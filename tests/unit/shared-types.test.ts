@@ -363,6 +363,36 @@ describe("shared API contracts", () => {
       LocalSettingsSchema.parse({ update_channel: "beta" }),
     ).toThrow();
   });
+
+  it("applies human-attention defaults when legacy settings omit them", () => {
+    const parsed = LocalSettingsSchema.parse({});
+
+    expect(parsed).toMatchObject({
+      attention_enabled: false,
+      attention_delivery: "both",
+      attention_sound: "default",
+    });
+  });
+
+  it("accepts supported human-attention values and rejects invalid values", () => {
+    expect(
+      LocalSettingsSchema.parse({
+        attention_enabled: true,
+        attention_delivery: "notification",
+        attention_sound: "urgent",
+      }),
+    ).toMatchObject({
+      attention_enabled: true,
+      attention_delivery: "notification",
+      attention_sound: "urgent",
+    });
+    expect(() =>
+      LocalSettingsSchema.parse({ attention_delivery: "desktop" }),
+    ).toThrow();
+    expect(() =>
+      LocalSettingsSchema.parse({ attention_sound: "chime" }),
+    ).toThrow();
+  });
 });
 
 describe("redaction and stable errors", () => {

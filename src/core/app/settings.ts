@@ -20,6 +20,9 @@ function defaultSettings(hasLicense: boolean): LocalSettings {
     browser_cache_max_bytes: DEFAULT_BROWSER_CACHE_BYTES,
     update_channel: "stable",
     auto_check_updates: true,
+    attention_enabled: false,
+    attention_delivery: "both",
+    attention_sound: "default",
   };
 }
 
@@ -53,5 +56,8 @@ export async function writeApplicationSettings(
     browser_cache_max_bytes: settings.browser_cache_max_bytes,
     update_channel: settings.update_channel,
     auto_check_updates: settings.auto_check_updates,
+    attention_enabled: settings.attention_enabled,
+    attention_delivery: settings.attention_delivery,
+    attention_sound: settings.attention_sound,
   });
 }

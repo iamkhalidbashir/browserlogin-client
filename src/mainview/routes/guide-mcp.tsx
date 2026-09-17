@@ -35,16 +35,16 @@ export default function McpGuide() {
           </div>
           <div className="flex flex-wrap gap-2">
             <span className="status-pill">
-              45 safe-default tools after setup
+              46 safe-default tools after setup
             </span>
             <span className="status-pill">Streamable HTTP</span>
           </div>
         </div>
         <p className="guide-muted mt-2 max-w-3xl text-sm">
-          BrowserLogin starts this endpoint automatically with 28 local
-          lifecycle and browser tools before Connection setup. After setup, the
-          same endpoint exposes 45 safe-default tools: 28 local tools plus 17
-          hosted workspace tools.
+          BrowserLogin starts this endpoint automatically with 29 local
+          lifecycle, attention, and browser tools before Connection setup. After
+          setup, the same endpoint exposes 46 safe-default tools: 29 local tools
+          plus 17 hosted workspace tools.
         </p>
         <div className="mt-5">
           <GuideCopyField

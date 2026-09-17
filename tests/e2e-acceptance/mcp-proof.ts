@@ -7,7 +7,7 @@ import type {
   RemoteTool,
   RemoteToolCallResult,
 } from "../../src/core/mcp-proxy/types.js";
-import { createRegistry } from "../../src/mcp/registry.js";
+import { ATTENTION_TOOL, createRegistry } from "../../src/mcp/registry.js";
 import { REMOTE_TOOL_NAMES } from "../mocks/remote-mcp-server.js";
 import { evidenceRoot, ensureEvidenceDirectory, writeJson } from "./support.js";
 
@@ -16,6 +16,7 @@ await ensureEvidenceDirectory(mcpEvidence);
 const lifecycleCalls: string[] = [];
 const initializationCalls: string[] = [];
 const remoteCalls: string[] = [];
+const attentionCalls: unknown[] = [];
 const browserRouter = {
   call: async (name: string) => ({ content: [{ type: "text", text: name }] }),
 };
@@ -25,11 +26,18 @@ const lifecycle = {
   forceStop: async (profileId: string) =>
     lifecycleCalls.push(`force:${profileId}`),
 };
-const remoteTools = REMOTE_TOOL_NAMES.map((name): RemoteTool => ({
-  name,
-  description: `BrowserLogin ${name}`,
-  inputSchema: { type: "object" },
-}));
+const remoteTools: readonly RemoteTool[] = [
+  ...REMOTE_TOOL_NAMES.map((name): RemoteTool => ({
+    name,
+    description: `BrowserLogin ${name}`,
+    inputSchema: { type: "object" },
+  })),
+  {
+    name: ATTENTION_TOOL.name,
+    description: "Remote collision that must be ignored",
+    inputSchema: { type: "object" },
+  },
+];
 const remote = {
   remoteCache: {
     status: "READY" as const,
@@ -53,6 +61,17 @@ const localOnly = await createRegistry({
 });
 const unified = await createRegistry({
   lifecycle,
+  attentionService: {
+    request: async (input) => {
+      attentionCalls.push(input);
+      return {
+        code: "ATTENTION_SUBMITTED",
+        audio: "submitted",
+        notification: "submitted",
+      };
+    },
+    shutdown: async () => undefined,
+  },
   binaryInitialization: {
     initialize: async (source) => {
       initializationCalls.push(source);
@@ -89,10 +108,23 @@ const unifiedCatalog = await createRegistry({
   browserTools: PRODUCT_TOOLS,
   ...remote,
 });
+const disabled = await createRegistry({
+  lifecycle,
+  attentionService: {
+    request: async () => ({
+      code: "ATTENTION_DISABLED",
+      audio: "skipped",
+      notification: "skipped",
+    }),
+    shutdown: async () => undefined,
+  },
+  browserRouter,
+  browserTools: [],
+});
 if (
-  localOnly.tools.length !== 28 ||
-  unified.tools.length !== 45 ||
-  unifiedCatalog.tools.length !== 46
+  localOnly.tools.length !== 29 ||
+  unified.tools.length !== 46 ||
+  unifiedCatalog.tools.length !== 47
 )
   throw new Error("acceptance unified MCP tool counts are invalid");
 if (
@@ -116,6 +148,16 @@ const compatibilityStop = await unified.call("browserlogin_session_stop", {
   profile_id: "compatibility-profile",
 });
 const workspace = await unified.call("profiles_list", {});
+const submittedAttention = await unified.call(ATTENTION_TOOL.name, {
+  title: "Acceptance proof",
+  message: "Use the injected adapter only",
+});
+const unavailableAttention = await localOnly.call(ATTENTION_TOOL.name, {
+  message: "No service is wired",
+});
+const disabledAttention = await disabled.call(ATTENTION_TOOL.name, {
+  message: "User has opted out",
+});
 if (
   unified.tools.some((tool) =>
     ["browserlogin_session_start", "browserlogin_session_stop"].includes(
@@ -125,11 +167,19 @@ if (
 )
   throw new Error("local compatibility lifecycle names must not be advertised");
 if (
+  unified.tools.filter((tool) => tool.name === ATTENTION_TOOL.name).length !== 1
+)
+  throw new Error("remote attention collisions must be excluded");
+if (
   lifecycleCalls.join(",") !==
     "start:profile-1,stop:profile-1,start:compatibility-profile,stop:compatibility-profile" ||
   initializationCalls.join(",") !== "free" ||
   remoteCalls.join(",") !== "profiles_list" ||
-  workspace.isError === true
+  workspace.isError === true ||
+  attentionCalls.length !== 1 ||
+  submittedAttention.structuredContent?.code !== "ATTENTION_SUBMITTED" ||
+  unavailableAttention.structuredContent?.code !== "ATTENTION_UNAVAILABLE" ||
+  disabledAttention.structuredContent?.code !== "ATTENTION_DISABLED"
 )
   throw new Error("acceptance unified MCP dispatch did not complete");
 await writeJson(join(mcpEvidence, "tools-unified.json"), {
@@ -149,6 +199,13 @@ await writeJson(join(mcpEvidence, "lifecycle.json"), {
   compatibilityStop,
   workspace,
 });
+await writeJson(join(mcpEvidence, "attention.json"), {
+  calls: attentionCalls.length,
+  submitted: submittedAttention,
+  unavailable: unavailableAttention,
+  disabled: disabledAttention,
+});
 await localOnly.shutdown();
 await unified.shutdown();
 await unifiedCatalog.shutdown();
+await disabled.shutdown();

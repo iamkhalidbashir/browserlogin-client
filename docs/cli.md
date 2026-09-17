@@ -71,7 +71,7 @@ After setup, configure an MCP client to run:
 browserlogin mcp
 ```
 
-The stdio server exposes one 45-tool safe-default registry: 28 local lifecycle/browser tools plus 17 hosted workspace tools. It uses the credentials saved by `browserlogin setup`, so the MCP client needs no second BrowserLogin connection or authorization header. Standard output contains JSON-RPC only. See the [MCP guide](mcp.md) for client configuration and tool boundaries.
+The stdio server exposes one 46-tool safe-default registry: 29 local lifecycle/attention/browser tools plus 17 hosted workspace tools. It uses the credentials saved by `browserlogin setup`, so the MCP client needs no second BrowserLogin connection or authorization header. Standard output contains JSON-RPC only. See the [MCP guide](mcp.md) for client configuration and tool boundaries.
 
 ## Exit Codes
 

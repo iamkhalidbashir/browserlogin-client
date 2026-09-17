@@ -5,7 +5,11 @@ import {
   NoteVersionSchema,
   UserSchema,
 } from "./api-types.js";
-import { LocalSettingsSchema } from "./config-types.js";
+import {
+  AttentionDeliverySchema,
+  AttentionSoundSchema,
+  LocalSettingsSchema,
+} from "./config-types.js";
 
 const empty = z.object({}).strict();
 const profileId = z.object({ profileId: z.string().min(1).max(256) }).strict();
@@ -274,6 +278,9 @@ export const AppRPCSchemas = {
         browserCacheMaxBytes: z.number().int().nonnegative().optional(),
         advancedEnabled: z.boolean().optional(),
         autoCheckUpdates: z.boolean().optional(),
+        attentionEnabled: z.boolean().optional(),
+        attentionDelivery: AttentionDeliverySchema.optional(),
+        attentionSound: AttentionSoundSchema.optional(),
       })
       .strict(),
     result: LocalSettingsSchema,

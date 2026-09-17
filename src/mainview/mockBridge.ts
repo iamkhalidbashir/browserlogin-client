@@ -210,6 +210,9 @@ const values: Record<AppRPCMethod, unknown> = {
     browser_cache_max_bytes: 536870912,
     update_channel: "stable",
     auto_check_updates: true,
+    attention_enabled: false,
+    attention_delivery: "both",
+    attention_sound: "default",
   },
   settingsSet: {
     has_license: false,
@@ -218,6 +221,9 @@ const values: Record<AppRPCMethod, unknown> = {
     browser_cache_max_bytes: 536870912,
     update_channel: "stable",
     auto_check_updates: true,
+    attention_enabled: false,
+    attention_delivery: "both",
+    attention_sound: "default",
   },
   updatesCheck: {
     channel: "stable",
@@ -250,7 +256,19 @@ export function createMockBridge(
     typeof window === "undefined"
       ? new URLSearchParams()
       : new URLSearchParams(window.location.search);
-  let autoCheckUpdates = initialSearch.get("autoCheck") !== "0";
+  const settingsOverride =
+    typeof overrides.settingsGet === "object" && overrides.settingsGet !== null
+      ? overrides.settingsGet
+      : {};
+  const initialSettings = AppRPCSchemas.settingsGet.result.parse({
+    ...AppRPCSchemas.settingsGet.result.parse(values.settingsGet),
+    auto_check_updates: initialSearch.get("autoCheck") !== "0",
+    ...settingsOverride,
+  });
+  let autoCheckUpdates = initialSettings.auto_check_updates;
+  let attentionEnabled = initialSettings.attention_enabled;
+  let attentionDelivery = initialSettings.attention_delivery;
+  let attentionSound = initialSettings.attention_sound;
   const binaryStatusControl = initialSearch.get("binaryStatus");
   const profilesListControl = initialSearch.get("profilesList");
   const sessionsStartControl = initialSearch.get("sessionsStart");
@@ -484,21 +502,27 @@ export function createMockBridge(
         };
       }
       if (method === "settingsGet") {
-        const override = overrides.settingsGet as
-          Record<string, unknown> | undefined;
         const value = AppRPCSchemas.settingsGet.result.parse({
-          ...(values.settingsGet as Record<string, unknown>),
-          ...override,
-          auto_check_updates: override?.auto_check_updates ?? autoCheckUpdates,
+          ...initialSettings,
+          auto_check_updates: autoCheckUpdates,
+          attention_enabled: attentionEnabled,
+          attention_delivery: attentionDelivery,
+          attention_sound: attentionSound,
         }) as BridgeResult<K>;
         return { ok: true, value };
       }
       if (method === "settingsSet") {
         const input = AppRPCSchemas.settingsSet.params.parse(params);
         autoCheckUpdates = input.autoCheckUpdates ?? autoCheckUpdates;
+        attentionEnabled = input.attentionEnabled ?? attentionEnabled;
+        attentionDelivery = input.attentionDelivery ?? attentionDelivery;
+        attentionSound = input.attentionSound ?? attentionSound;
         const value = AppRPCSchemas.settingsSet.result.parse({
           ...(values.settingsSet as Record<string, unknown>),
           auto_check_updates: autoCheckUpdates,
+          attention_enabled: attentionEnabled,
+          attention_delivery: attentionDelivery,
+          attention_sound: attentionSound,
         }) as BridgeResult<K>;
         return { ok: true, value };
       }

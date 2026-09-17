@@ -4,8 +4,8 @@ BrowserLogin serves one merged MCP registry through either the app-owned HTTP en
 
 | Connection                    | Address or command                                                               | Safe-default tools                                       | Authentication                                 |
 | ----------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| App-owned HTTP                | `http://127.0.0.1:43110/mcp`                                                     | 28 local tools before setup; 45 merged tools after setup | Managed by the app; no MCP header              |
-| Standalone stdio              | `browserlogin mcp`                                                               | 45 merged tools after CLI setup                          | CLI keychain or environment setup              |
+| App-owned HTTP                | `http://127.0.0.1:43110/mcp`                                                     | 29 local tools before setup; 46 merged tools after setup | Managed by the app; no MCP header              |
+| Standalone stdio              | `browserlogin mcp`                                                               | 46 merged tools after CLI setup                          | CLI keychain or environment setup              |
 | Optional hosted-only fallback | `https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP` | 17 workspace tools; no local browser control             | `Authorization: Bearer <BROWSERLOGIN_API_KEY>` |
 
 Use one of the first two connections for the complete BrowserLogin tool set. Use the public URL only when a client cannot reach localhost and needs hosted workspace operations without local browser control.
@@ -13,7 +13,7 @@ Use one of the first two connections for the complete BrowserLogin tool set. Use
 ## Local Setup
 
 1. Install and open the BrowserLogin desktop app.
-2. Configure the AI client to use `http://127.0.0.1:43110/mcp`. The endpoint immediately exposes 28 local lifecycle and browser tools.
+2. Configure the AI client to use `http://127.0.0.1:43110/mcp`. The endpoint immediately exposes 29 local lifecycle, attention, and browser tools.
 3. Complete Connection setup in the app to add 17 hosted workspace tools. BrowserLogin stores the API key through the operating-system keychain backend and refreshes the endpoint automatically.
 4. Keep the app open while the AI client uses the endpoint.
 
@@ -30,7 +30,7 @@ Use this mode when a terminal or AI client must work without the desktop app:
 3. Run `browserlogin setup`, or provide `BROWSERLOGIN_API_KEY` and optional connection overrides to the process.
 4. Configure the AI client to launch `browserlogin mcp` over stdio.
 
-The stdio process owns its local browser runtime and exposes the same 45 safe-default local and workspace tools as the connected app-owned endpoint. Standard output is reserved for JSON-RPC traffic.
+The stdio process owns its local browser runtime and exposes the same 46 safe-default local and workspace tools as the connected app-owned endpoint. Standard output is reserved for JSON-RPC traffic.
 
 ## Optional Hosted-Only Fallback
 
@@ -109,16 +109,19 @@ The app-owned HTTP endpoint exposes the local catalog immediately. After Connect
 
 ### Local Tools
 
-The safe-default local catalog contains four lifecycle/bootstrap tools and 24 browser tools.
+The safe-default local catalog contains four lifecycle/bootstrap tools, one user-controlled attention tool, and 24 browser tools.
 
 #### Lifecycle And Bootstrap
 
-| Tool                    | Purpose                                                | Required arguments                            |
-| ----------------------- | ------------------------------------------------------ | --------------------------------------------- |
-| `browser_init`          | Download, verify, and install CloakBrowser.            | None; optional `source`: `free` or `license`. |
-| `browser_init_status`   | Report browser download/install progress.              | None.                                         |
-| `browser_session_start` | Start the local BrowserLogin lifecycle for a profile.  | `profile_id`                                  |
-| `browser_session_stop`  | Stop and commit an archive, or force-stop without one. | `profile_id`; optional `force`.               |
+| Tool                             | Purpose                                                           | Required arguments                            |
+| -------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| `browser_init`                   | Download, verify, and install CloakBrowser.                       | None; optional `source`: `free` or `license`. |
+| `browser_init_status`            | Report browser download/install progress.                         | None.                                         |
+| `browser_session_start`          | Start the local BrowserLogin lifecycle for a profile.             | `profile_id`                                  |
+| `browser_session_stop`           | Stop and commit an archive, or force-stop without one.            | `profile_id`; optional `force`.               |
+| `browserlogin_request_attention` | Request the user's attention using their enabled Settings policy. | `message`; optional `title`.                  |
+
+`browserlogin_request_attention` is advertised but disabled by default. The user must enable notification, audio, or both in BrowserLogin Settings; agents cannot override that policy or select arbitrary sounds or files.
 
 #### Browser Automation
 

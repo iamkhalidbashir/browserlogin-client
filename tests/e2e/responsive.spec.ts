@@ -12,7 +12,7 @@ test("MCP guide contains mobile navigation and expanded tool tables", async ({
     page.getByRole("heading", { name: "MCP guide", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText("45 safe-default tools after setup", { exact: true }),
+    page.getByText("46 safe-default tools after setup", { exact: true }),
   ).toBeVisible();
   await expect(
     page.locator("p", {

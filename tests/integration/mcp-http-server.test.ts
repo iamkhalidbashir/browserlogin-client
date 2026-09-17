@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import type { AttentionService } from "../../src/core/attention/index.js";
 import type { ServerRuntime } from "../../src/mcp/runtime.js";
 import { startLocalMcpHttpServer } from "../../src/mcp/http-server.js";
 import {
@@ -22,7 +23,7 @@ afterEach(async () => {
   );
 });
 
-function localRuntime(): ServerRuntime {
+function localRuntime(attentionService?: AttentionService): ServerRuntime {
   return {
     lifecycle: {
       start: async () => undefined,
@@ -33,6 +34,7 @@ function localRuntime(): ServerRuntime {
       call: async () => ({ content: [] }),
     },
     browserTools: [],
+    ...(attentionService ? { attentionService } : {}),
   };
 }
 
@@ -106,6 +108,54 @@ describe("local MCP Streamable HTTP server", () => {
     }
   });
 
+  test("calls the injected attention service over loopback HTTP", async () => {
+    // Given
+    const requestAttention = vi.fn(async () => ({
+      code: "ATTENTION_SUBMITTED" as const,
+      audio: "submitted" as const,
+      notification: "submitted" as const,
+    }));
+    const shutdown = vi.fn(async () => undefined);
+    const active = await startLocalMcpHttpServer({
+      port: 0,
+      runtime: localRuntime({ request: requestAttention, shutdown }),
+    });
+    const client = new Client({
+      name: "browserlogin-http-attention",
+      version: "1.0.0",
+    });
+
+    try {
+      // When
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(active.url)),
+      );
+      const result = await client.callTool({
+        name: "browserlogin_request_attention",
+        arguments: { title: "Approval needed", message: "Review the result" },
+      });
+
+      // Then
+      expect(requestAttention).toHaveBeenCalledWith(
+        { title: "Approval needed", message: "Review the result" },
+        expect.any(AbortSignal),
+      );
+      expect(result).toMatchObject({
+        isError: false,
+        structuredContent: {
+          code: "ATTENTION_SUBMITTED",
+          audio: "submitted",
+          notification: "submitted",
+        },
+      });
+    } finally {
+      await client.close();
+      await active.close();
+    }
+
+    expect(shutdown).toHaveBeenCalledTimes(1);
+  });
+
   test("merges local and workspace tools after connection setup", async () => {
     // Given
     const root = await mkdtemp(join(tmpdir(), "browserlogin-http-merged-"));
@@ -148,7 +198,7 @@ describe("local MCP Streamable HTTP server", () => {
         });
 
         // Then
-        expect(result.tools).toHaveLength(45);
+        expect(result.tools).toHaveLength(46);
         expect(result.tools.map((tool) => tool.name)).toEqual(
           expect.arrayContaining([...REMOTE_TOOL_NAMES]),
         );
@@ -181,7 +231,7 @@ describe("local MCP Streamable HTTP server", () => {
       const result = await client.listTools();
 
       // Then
-      expect(result.tools).toHaveLength(28);
+      expect(result.tools).toHaveLength(29);
       expect(result.tools.map((tool) => tool.name)).not.toContain(
         "profiles_list",
       );

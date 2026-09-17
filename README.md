@@ -60,7 +60,7 @@ On macOS and Linux, mark both files executable. Run the versioned CLI directly o
 ## Quickstart
 
 1. Open BrowserLogin.
-2. Connect an AI client to the local MCP endpoint. Its 28 local tools are available before Connection setup.
+2. Connect an AI client to the local MCP endpoint. Its 29 local tools are available before Connection setup.
 3. Complete the Connection form to add 17 hosted workspace tools. The API key is stored through the operating-system keychain backend.
 4. Download the verified browser from the app when prompted, then start a profile from the Profiles screen or through MCP.
 
@@ -70,7 +70,7 @@ The local MCP server starts and stops with the desktop app:
 http://127.0.0.1:43110/mcp
 ```
 
-Keep BrowserLogin open while using MCP. The endpoint binds only to loopback, does not require an MCP authorization header, and exposes 45 safe-default tools after Connection setup: 28 local tools plus 17 hosted workspace tools.
+Keep BrowserLogin open while using MCP. The endpoint binds only to loopback, does not require an MCP authorization header, and exposes 46 safe-default tools after Connection setup: 29 local tools plus 17 hosted workspace tools.
 
 For terminal-only use, run `browserlogin setup`, then use commands such as `browserlogin profiles --json`, `browserlogin start PROFILE_ID`, and `browserlogin stop PROFILE_ID` without opening the desktop app.
 
@@ -80,8 +80,8 @@ Use one BrowserLogin MCP connection. The app-owned HTTP endpoint is the recommen
 
 | Connection                    | Address or command                                                               | Safe-default tools                                       | Authentication                                 |
 | ----------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| App-owned HTTP                | `http://127.0.0.1:43110/mcp`                                                     | 28 local tools before setup; 45 merged tools after setup | Managed by the app; no MCP header              |
-| Standalone stdio              | `browserlogin mcp`                                                               | 45 merged tools after `browserlogin setup`               | CLI keychain or environment setup              |
+| App-owned HTTP                | `http://127.0.0.1:43110/mcp`                                                     | 29 local tools before setup; 46 merged tools after setup | Managed by the app; no MCP header              |
+| Standalone stdio              | `browserlogin mcp`                                                               | 46 merged tools after `browserlogin setup`               | CLI keychain or environment setup              |
 | Optional hosted-only fallback | `https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP` | 17 workspace tools; no local browser control             | `Authorization: Bearer <BROWSERLOGIN_API_KEY>` |
 
 The public URL is only a fallback for clients that cannot reach localhost. It is not a required second connection and cannot launch or control a local browser.
@@ -107,12 +107,13 @@ Other MCP clients should use their remote or Streamable HTTP transport with the 
 
 ### Tool Boundaries
 
-The local HTTP endpoint starts with 28 safe-default local tools:
+The local HTTP endpoint starts with 29 safe-default local tools:
 
 - Four lifecycle/bootstrap tools: `browser_init`, `browser_init_status`, `browser_session_start`, and `browser_session_stop`.
+- One user-controlled attention tool: `browserlogin_request_attention`. It remains disabled until the user enables notification, audio, or both in Settings.
 - Twenty-four profile-scoped browser automation tools for navigation, snapshots, input, files, tabs, dialogs, network inspection, and screenshots.
 
-After Connection setup it adds 17 workspace tools covering profiles, notes, proxies, members, users, and audit events, for 45 tools through the same connection. `browserlogin mcp` exposes the same 45-tool merged registry after CLI setup. Enabling `browser_run_code_unsafe` raises the local and merged totals to 29 and 46 respectively.
+After Connection setup it adds 17 workspace tools covering profiles, notes, proxies, members, users, and audit events, for 46 tools through the same connection. `browserlogin mcp` exposes the same 46-tool merged registry after CLI setup. Enabling `browser_run_code_unsafe` raises the local and merged totals to 30 and 47 respectively.
 
 The optional public fallback exposes only the 17 workspace tools. See the [MCP guide](docs/mcp.md) for configuration, the complete tool catalog, and troubleshooting.
 

@@ -1,5 +1,6 @@
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { PRODUCT_TOOLS } from "../core/browser-tools/manifest.js";
+import type { AttentionService } from "../core/attention/index.js";
 import type { VendorTool } from "../core/browser-tools/types.js";
 import type { BrowserToolsRouter } from "../core/browser-tools/router.js";
 import type { BrowserToolsLifecycle } from "../core/browser-tools/lifecycle.js";
@@ -18,54 +19,34 @@ import {
   type BrowserInitializationOperations,
   type BrowserInitializationSource,
 } from "./binary-initialization.js";
+import { ATTENTION_TOOL, callAttention } from "./attention-tool.js";
+import {
+  LOCAL_COMPAT_START_TOOL_NAME,
+  LOCAL_COMPAT_STOP_TOOL_NAME,
+  START_TOOL,
+  START_TOOL_NAMES,
+  STOP_TOOL,
+  STOP_TOOL_NAMES,
+  type LifecycleOperations,
+} from "./lifecycle-tools.js";
 
 export {
   BROWSER_INIT_STATUS_TOOL,
   BROWSER_INIT_TOOL,
 } from "./binary-initialization.js";
-
-export const START_TOOL: Tool = {
-  name: "browser_session_start",
-  description: "Start the local BrowserLogin lifecycle for a profile.",
-  inputSchema: {
-    type: "object",
-    properties: { profile_id: { type: "string" } },
-    required: ["profile_id"],
-    additionalProperties: false,
-  },
-};
-
-export const STOP_TOOL: Tool = {
-  name: "browser_session_stop",
-  description:
-    "Stop the local BrowserLogin lifecycle for a profile. Set force to true to stop without committing an archive.",
-  inputSchema: {
-    type: "object",
-    properties: {
-      profile_id: { type: "string" },
-      force: { type: "boolean" },
-    },
-    required: ["profile_id"],
-    additionalProperties: false,
-  },
-};
-
-export const LOCAL_COMPAT_START_TOOL_NAME = "browserlogin_session_start";
-export const LOCAL_COMPAT_STOP_TOOL_NAME = "browserlogin_session_stop";
-const START_TOOL_NAMES = new Set([
-  START_TOOL.name,
+export { ATTENTION_TOOL } from "./attention-tool.js";
+export {
   LOCAL_COMPAT_START_TOOL_NAME,
-]);
-const STOP_TOOL_NAMES = new Set([STOP_TOOL.name, LOCAL_COMPAT_STOP_TOOL_NAME]);
-
-export type LifecycleOperations = {
-  start(profileId: string): Promise<unknown>;
-  stop(profileId: string): Promise<unknown>;
-  forceStop(profileId: string): Promise<unknown>;
-};
+  LOCAL_COMPAT_STOP_TOOL_NAME,
+  START_TOOL,
+  STOP_TOOL,
+} from "./lifecycle-tools.js";
+export type { LifecycleOperations } from "./lifecycle-tools.js";
+export { argumentsForCall } from "./request-arguments.js";
 
 export type RegistryDependencies = {
   lifecycle: LifecycleOperations;
+  attentionService?: Pick<AttentionService, "request" | "shutdown">;
   binaryInitialization?: BrowserInitializationOperations;
   browserRouter: Pick<BrowserToolsRouter, "call">;
   browserLifecycle?: Pick<
@@ -97,11 +78,6 @@ const textResult = (text: string, isError = false): CallToolResult => ({
   ...(isError ? { isError: true } : {}),
 });
 
-const objectArguments = (value: unknown): JsonObject =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as JsonObject)
-    : {};
-
 function asMcpTool(tool: VendorTool | RemoteTool): Tool {
   return {
     name: tool.name,
@@ -118,6 +94,7 @@ export function localToolNames(
     STOP_TOOL.name,
     BROWSER_INIT_TOOL.name,
     BROWSER_INIT_STATUS_TOOL.name,
+    ATTENTION_TOOL.name,
     LOCAL_COMPAT_START_TOOL_NAME,
     LOCAL_COMPAT_STOP_TOOL_NAME,
     ...browserTools.map((tool) => tool.name),
@@ -141,6 +118,7 @@ export async function createRegistry(
     STOP_TOOL,
     BROWSER_INIT_TOOL,
     BROWSER_INIT_STATUS_TOOL,
+    ATTENTION_TOOL,
     ...browserTools.map(asMcpTool),
     ...mergedRemote.map(asMcpTool),
   ]);
@@ -148,6 +126,7 @@ export async function createRegistry(
     ...localNames,
     ...mergedRemote.map((tool) => tool.name),
   ]);
+  let shutdownPromise: Promise<void> | undefined;
 
   return {
     tools,
@@ -156,6 +135,13 @@ export async function createRegistry(
       if (!names.has(name))
         return textResult("Tool request could not be completed.", true);
       try {
+        if (name === ATTENTION_TOOL.name) {
+          return callAttention(
+            dependencies.attentionService,
+            arguments_,
+            signal,
+          );
+        }
         if (START_TOOL_NAMES.has(name)) {
           const profileId = arguments_.profile_id;
           if (typeof profileId !== "string" || profileId.length === 0)
@@ -255,13 +241,14 @@ export async function createRegistry(
         );
       }
     },
-    async shutdown() {
-      await dependencies.browserLifecycle?.shutdown();
-      await Promise.resolve(dependencies.remoteCache?.shutdown());
+    shutdown() {
+      if (shutdownPromise) return shutdownPromise;
+      shutdownPromise = Promise.all([
+        dependencies.attentionService?.shutdown(),
+        dependencies.browserLifecycle?.shutdown(),
+        Promise.resolve(dependencies.remoteCache?.shutdown()),
+      ]).then(() => undefined);
+      return shutdownPromise;
     },
   };
-}
-
-export function argumentsForCall(value: unknown): JsonObject {
-  return objectArguments(value);
 }

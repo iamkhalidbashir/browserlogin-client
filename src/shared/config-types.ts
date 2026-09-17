@@ -3,6 +3,12 @@ import { z } from "zod";
 export const CONNECTION_SCHEMA_VERSION = 3 as const;
 export const DEFAULT_BROWSER_CACHE_BYTES = 512 * 1024 * 1024;
 export const MAX_BROWSER_CACHE_BYTES = 8 * 1024 * 1024 * 1024;
+export const AttentionDeliverySchema = z.enum([
+  "audio",
+  "notification",
+  "both",
+]);
+export const AttentionSoundSchema = z.enum(["default", "subtle", "urgent"]);
 
 const httpsUrl = z
   .string()
@@ -41,6 +47,9 @@ export const LocalSettingsSchema = z
       .default(DEFAULT_BROWSER_CACHE_BYTES),
     update_channel: z.literal("stable").default("stable"),
     auto_check_updates: z.boolean().default(true),
+    attention_enabled: z.boolean().default(false),
+    attention_delivery: AttentionDeliverySchema.default("both"),
+    attention_sound: AttentionSoundSchema.default("default"),
   })
   .strict()
   .superRefine((settings, context) => {
@@ -57,4 +66,4 @@ export const LocalSettingsSchema = z
   });
 
 export type ConnectionConfig = z.infer<typeof ConnectionConfigSchema>;
-export type LocalSettings = z.infer<typeof LocalSettingsSchema>;
+export type LocalSettings = Readonly<z.infer<typeof LocalSettingsSchema>>;

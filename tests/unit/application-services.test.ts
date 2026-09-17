@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { z } from "zod";
 import type { BrowserLoginClient } from "../../src/core/api/client.js";
 import type { ensureBinary } from "../../src/core/binary/index.js";
 import type { ConnectionStore } from "../../src/core/config/connection.js";
@@ -156,6 +157,67 @@ describe("core application service composition", () => {
     ).resolves.toMatchObject({ auto_check_updates: false });
     await expect(services.settingsGet?.({})).resolves.toMatchObject({
       auto_check_updates: false,
+    });
+  });
+
+  test("applies attention defaults when reading a legacy settings file", async () => {
+    const { root, services } = await fixture();
+    await writeFile(
+      join(root, "settings.json"),
+      JSON.stringify({ auto_check_updates: false }),
+      { mode: 0o600 },
+    );
+
+    await expect(services.settingsGet?.({})).resolves.toMatchObject({
+      attention_enabled: false,
+      attention_delivery: "both",
+      attention_sound: "default",
+      auto_check_updates: false,
+    });
+  });
+
+  test("persists all attention settings from camel-case updates", async () => {
+    const { root, services } = await fixture();
+
+    await expect(
+      services.settingsSet?.({
+        attentionEnabled: true,
+        attentionDelivery: "notification",
+        attentionSound: "urgent",
+      }),
+    ).resolves.toMatchObject({
+      attention_enabled: true,
+      attention_delivery: "notification",
+      attention_sound: "urgent",
+    });
+    const persisted = z
+      .looseObject({
+        attention_enabled: z.boolean(),
+        attention_delivery: z.enum(["audio", "notification", "both"]),
+        attention_sound: z.enum(["default", "subtle", "urgent"]),
+      })
+      .parse(JSON.parse(await readFile(join(root, "settings.json"), "utf8")));
+    expect(persisted).toMatchObject({
+      attention_enabled: true,
+      attention_delivery: "notification",
+      attention_sound: "urgent",
+    });
+  });
+
+  test("preserves attention settings omitted from a partial update", async () => {
+    const { services } = await fixture();
+    await services.settingsSet?.({
+      attentionEnabled: true,
+      attentionDelivery: "audio",
+      attentionSound: "subtle",
+    });
+
+    await expect(
+      services.settingsSet?.({ attentionSound: "urgent" }),
+    ).resolves.toMatchObject({
+      attention_enabled: true,
+      attention_delivery: "audio",
+      attention_sound: "urgent",
     });
   });
 

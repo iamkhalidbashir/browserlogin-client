@@ -33,10 +33,11 @@ describe("complete RPC contract", () => {
   });
 
   test("intentional request and response drift fail with method context", async () => {
-    const bridge = createMockBridge({
-      settingsGet: { update_channel: "unsupported" },
-    });
-    await expect(bridge.request("settingsGet", {})).rejects.toThrow();
+    expect(() =>
+      createMockBridge({
+        settingsGet: { update_channel: "unsupported" },
+      }),
+    ).toThrow();
     const handlers = createRPCHandlers({
       services: { profilesGet: async () => ({ id: "incomplete" }) },
     });

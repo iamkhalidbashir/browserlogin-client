@@ -3,6 +3,11 @@ import { join } from "node:path";
 import { createApplicationRuntime } from "../core/app/index.js";
 import { unwrapApplicationResult } from "../core/app/index.js";
 import type { ApplicationRuntime } from "../core/app/runtime.js";
+import { readApplicationSettings } from "../core/app/settings.js";
+import {
+  createAttentionService,
+  createPlatformAttentionAdapter,
+} from "../core/attention/index.js";
 import { createBrowserTools } from "../core/browser-tools/factory.js";
 import { visibleTools } from "../core/browser-tools/manifest.js";
 import {
@@ -96,6 +101,10 @@ async function defaultRuntime(
     connection: store,
     keychain,
   });
+  const attentionService = createAttentionService({
+    readSettings: () => readApplicationSettings(root, keychain),
+    adapter: createPlatformAttentionAdapter(),
+  });
   const browser = createBrowserTools({
     lookup: async (profileId) => {
       const state = await application.loadSessionState(profileId);
@@ -129,6 +138,7 @@ async function defaultRuntime(
   };
   return {
     lifecycle,
+    attentionService,
     binaryInitialization: {
       initialize: (source: "free" | "license") =>
         application.binary.initialize(source),

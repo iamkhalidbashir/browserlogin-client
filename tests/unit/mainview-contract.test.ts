@@ -24,4 +24,91 @@ describe("mock and real RPC contract", () => {
     });
     await expect(bridge.request("connectionGet", {})).rejects.toThrow();
   });
+
+  test("provides safe agent attention defaults from mock settings", async () => {
+    // Given
+    const bridge = createMockBridge();
+
+    // When
+    const loaded = await bridge.request("settingsGet", {});
+
+    // Then
+    expect(loaded).toMatchObject({
+      ok: true,
+      value: {
+        attention_enabled: false,
+        attention_delivery: "both",
+        attention_sound: "default",
+      },
+    });
+  });
+
+  test("persists all agent attention preferences in the mock settings contract", async () => {
+    // Given
+    const bridge = createMockBridge();
+
+    // When
+    const saved = await bridge.request("settingsSet", {
+      attentionEnabled: true,
+      attentionDelivery: "audio",
+      attentionSound: "urgent",
+    });
+    const loaded = await bridge.request("settingsGet", {});
+
+    // Then
+    expect(saved).toMatchObject({
+      ok: true,
+      value: {
+        attention_enabled: true,
+        attention_delivery: "audio",
+        attention_sound: "urgent",
+      },
+    });
+    expect(loaded).toMatchObject({
+      ok: true,
+      value: {
+        attention_enabled: true,
+        attention_delivery: "audio",
+        attention_sound: "urgent",
+      },
+    });
+  });
+
+  test("replaces seeded settings overrides with later saved attention preferences", async () => {
+    // Given
+    const bridge = createMockBridge({
+      settingsGet: {
+        attention_enabled: true,
+        attention_delivery: "audio",
+        attention_sound: "urgent",
+      },
+    });
+    const seeded = await bridge.request("settingsGet", {});
+    expect(seeded).toMatchObject({
+      ok: true,
+      value: {
+        attention_enabled: true,
+        attention_delivery: "audio",
+        attention_sound: "urgent",
+      },
+    });
+
+    // When
+    await bridge.request("settingsSet", {
+      attentionEnabled: false,
+      attentionDelivery: "both",
+      attentionSound: "subtle",
+    });
+    const loaded = await bridge.request("settingsGet", {});
+
+    // Then
+    expect(loaded).toMatchObject({
+      ok: true,
+      value: {
+        attention_enabled: false,
+        attention_delivery: "both",
+        attention_sound: "subtle",
+      },
+    });
+  });
 });

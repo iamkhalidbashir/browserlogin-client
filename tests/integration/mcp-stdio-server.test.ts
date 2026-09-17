@@ -97,10 +97,39 @@ describe("standalone stdio MCP server", () => {
     const listed = JSON.parse(String((await responses.next()).value)) as {
       jsonrpc?: string;
       id?: number;
-      result?: { tools?: unknown[] };
+      result?: { tools?: Array<{ name?: string }> };
     };
     expect(listed).toMatchObject({ jsonrpc: "2.0", id: 2 });
-    expect(listed.result?.tools).toHaveLength(28);
+    expect(listed.result?.tools).toHaveLength(29);
+    expect(listed.result?.tools?.map((tool) => tool.name)).toContain(
+      "browserlogin_request_attention",
+    );
+
+    send({
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "browserlogin_request_attention",
+        arguments: { message: "This must not produce a native alert" },
+      },
+    });
+    const attention = JSON.parse(String((await responses.next()).value)) as {
+      readonly jsonrpc?: string;
+      readonly id?: number;
+      readonly result?: {
+        readonly isError?: boolean;
+        readonly structuredContent?: { readonly code?: string };
+      };
+    };
+    expect(attention).toMatchObject({
+      jsonrpc: "2.0",
+      id: 3,
+      result: {
+        isError: true,
+        structuredContent: { code: "ATTENTION_DISABLED" },
+      },
+    });
 
     const exited = once(child, "exit");
     child.stdin.end();

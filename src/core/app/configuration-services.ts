@@ -113,6 +113,10 @@ export function createConfigurationServices(
         update_channel: "stable",
         auto_check_updates:
           input.autoCheckUpdates ?? current.auto_check_updates,
+        attention_enabled: input.attentionEnabled ?? current.attention_enabled,
+        attention_delivery:
+          input.attentionDelivery ?? current.attention_delivery,
+        attention_sound: input.attentionSound ?? current.attention_sound,
       });
       await writeApplicationSettings(options.root, next);
       options.invalidateSessions();

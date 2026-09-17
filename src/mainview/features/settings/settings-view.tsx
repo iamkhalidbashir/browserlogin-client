@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { VERSION } from "../../../shared/version.js";
-import { useBridge } from "../../rpc-client.js";
+import { useBridge, type BridgeResult } from "../../rpc-client.js";
 import { ApplicationUpdates } from "./application-updates.js";
+
+type AttentionDelivery = BridgeResult<"settingsGet">["attention_delivery"];
+type AttentionSound = BridgeResult<"settingsGet">["attention_sound"];
 
 export default function SettingsView() {
   const bridge = useBridge();
@@ -17,6 +20,15 @@ export default function SettingsView() {
   >(null);
   const [message, setMessage] = useState("");
   const [logFilter, setLogFilter] = useState("");
+  const [attentionEnabled, setAttentionEnabled] = useState<boolean | null>(
+    null,
+  );
+  const [attentionDelivery, setAttentionDelivery] =
+    useState<AttentionDelivery>("both");
+  const [attentionSound, setAttentionSound] =
+    useState<AttentionSound>("default");
+  const [attentionSaving, setAttentionSaving] = useState(false);
+  const [attentionMessage, setAttentionMessage] = useState("");
   const connection = useQuery({
     queryKey: ["settings-connection"],
     queryFn: async () => {
@@ -40,6 +52,9 @@ export default function SettingsView() {
       const result = await bridge.request("settingsGet", {});
       if (!result.ok) throw new Error(result.error.message);
       setCustomUrl(result.value.custom_download_url ?? "");
+      setAttentionEnabled(result.value.attention_enabled);
+      setAttentionDelivery(result.value.attention_delivery);
+      setAttentionSound(result.value.attention_sound);
       return result.value;
     },
   });
@@ -128,6 +143,35 @@ export default function SettingsView() {
       advancedEnabled: advanced,
     });
     setMessage(result.ok ? "Download settings saved." : result.error.message);
+  };
+  const saveAttention = async () => {
+    if (attentionEnabled === null) return;
+    setAttentionSaving(true);
+    setAttentionMessage("Saving agent attention preferences…");
+    try {
+      const result = await bridge.request("settingsSet", {
+        attentionEnabled,
+        attentionDelivery,
+        attentionSound,
+      });
+      if (!result.ok) {
+        setAttentionMessage(result.error.message);
+        return;
+      }
+      setAttentionEnabled(result.value.attention_enabled);
+      setAttentionDelivery(result.value.attention_delivery);
+      setAttentionSound(result.value.attention_sound);
+      queryClient.setQueryData(["settings"], result.value);
+      setAttentionMessage("Agent attention preferences saved.");
+    } catch (error) {
+      setAttentionMessage(
+        error instanceof Error
+          ? error.message
+          : "Agent attention preferences could not be saved.",
+      );
+    } finally {
+      setAttentionSaving(false);
+    }
   };
   const installBinary = async (source: "free" | "license" | "custom") => {
     setBinaryAction(source);
@@ -314,6 +358,79 @@ export default function SettingsView() {
         <ApplicationUpdates
           autoCheckUpdates={settings.data?.auto_check_updates ?? null}
         />
+        <article className="panel">
+          <h3 className="font-medium">Agent attention</h3>
+          <p className="mt-1 text-sm text-zinc-500">
+            Choose how BrowserLogin gets your attention when an agent needs you.
+          </p>
+          <label className="check-field mt-3">
+            <input
+              type="checkbox"
+              checked={attentionEnabled ?? false}
+              disabled={attentionEnabled === null || attentionSaving}
+              onChange={(event) => setAttentionEnabled(event.target.checked)}
+            />
+            Enable agent attention
+          </label>
+          <label className="field mt-4">
+            <span>Delivery</span>
+            <select
+              value={attentionDelivery}
+              disabled={!attentionEnabled || attentionSaving}
+              onChange={(event) => {
+                const value = event.target.value;
+                switch (value) {
+                  case "notification":
+                  case "audio":
+                  case "both":
+                    setAttentionDelivery(value);
+                    break;
+                }
+              }}
+            >
+              <option value="notification">Notification</option>
+              <option value="audio">Audio</option>
+              <option value="both">Notification and audio</option>
+            </select>
+          </label>
+          <label className="field mt-3">
+            <span>Sound</span>
+            <select
+              value={attentionSound}
+              disabled={
+                !attentionEnabled ||
+                attentionDelivery === "notification" ||
+                attentionSaving
+              }
+              onChange={(event) => {
+                const value = event.target.value;
+                switch (value) {
+                  case "default":
+                  case "subtle":
+                  case "urgent":
+                    setAttentionSound(value);
+                    break;
+                }
+              }}
+            >
+              <option value="default">Default</option>
+              <option value="subtle">Subtle</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </label>
+          <button
+            className="button-secondary mt-4"
+            disabled={attentionEnabled === null || attentionSaving}
+            onClick={() => void saveAttention()}
+          >
+            {attentionSaving ? "Saving…" : "Save attention preferences"}
+          </button>
+          {attentionMessage ? (
+            <p className="mt-3 text-sm" role="status">
+              {attentionMessage}
+            </p>
+          ) : null}
+        </article>
         <article className="panel">
           <h3 className="font-medium">Logs</h3>
           <input

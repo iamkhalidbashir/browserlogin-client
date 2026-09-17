@@ -75,6 +75,40 @@ const validParams: Record<AppRPCMethod, unknown> = {
 };
 
 describe("application RPC contract", () => {
+  test("accepts optional camel-case human-attention setting updates", () => {
+    expect(
+      AppRPCSchemas.settingsSet.params.parse({
+        attentionEnabled: true,
+        attentionDelivery: "audio",
+        attentionSound: "subtle",
+      }),
+    ).toEqual({
+      attentionEnabled: true,
+      attentionDelivery: "audio",
+      attentionSound: "subtle",
+    });
+    expect(
+      AppRPCSchemas.settingsSet.params.parse({ attentionEnabled: false }),
+    ).toEqual({ attentionEnabled: false });
+  });
+
+  test("rejects invalid or unknown human-attention setting updates", () => {
+    expect(() =>
+      AppRPCSchemas.settingsSet.params.parse({
+        attentionDelivery: "desktop",
+      }),
+    ).toThrow();
+    expect(() =>
+      AppRPCSchemas.settingsSet.params.parse({ attentionSound: "chime" }),
+    ).toThrow();
+    expect(() =>
+      AppRPCSchemas.settingsSet.params.parse({
+        attentionEnabled: true,
+        attentionMode: "both",
+      }),
+    ).toThrow();
+  });
+
   test("types cached and refreshed update checks", () => {
     expect(AppRPCSchemas.updatesCheck.params.parse({})).toEqual({});
     expect(AppRPCSchemas.updatesCheck.params.parse({ mode: "latest" })).toEqual(
