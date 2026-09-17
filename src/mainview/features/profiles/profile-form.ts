@@ -34,6 +34,26 @@ export const DEFAULT_PROFILE_FORM: ProfileForm = {
   args: [],
 };
 
+const PROTECTED_PROFILE_ARGUMENT_NAMES = [
+  "--user-data-dir",
+  "--disk-cache-dir",
+  "--disk-cache-size",
+  "--remote-debugging-port",
+  "--remote-debugging-address",
+  "--remote-debugging-host",
+  "--remote-debugging-pipe",
+  "--fingerprint",
+  "--fingerprint-platform",
+  "--no-sandbox",
+  "--disable-setuid-sandbox",
+] as const;
+
+export function isProtectedProfileArgument(value: string): boolean {
+  return PROTECTED_PROFILE_ARGUMENT_NAMES.some(
+    (name) => value === name || value.startsWith(`${name}=`),
+  );
+}
+
 function parseViewport(value: unknown): ProfileForm["viewport"] | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const width = Reflect.get(value, "width");

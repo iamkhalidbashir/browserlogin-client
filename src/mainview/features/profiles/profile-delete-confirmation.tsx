@@ -3,6 +3,7 @@ import { ModalDialog } from "../../components/modal-dialog.js";
 type ProfileDeleteConfirmationProps = {
   readonly profileName: string;
   readonly confirmation: string;
+  readonly error: string | null;
   readonly pending: boolean;
   readonly onConfirmationChange: (value: string) => void;
   readonly onClose: () => void;
@@ -12,6 +13,7 @@ type ProfileDeleteConfirmationProps = {
 export function ProfileDeleteConfirmation({
   profileName,
   confirmation,
+  error,
   pending,
   onConfirmationChange,
   onClose,
@@ -36,6 +38,11 @@ export function ProfileDeleteConfirmation({
           onChange={(event) => onConfirmationChange(event.target.value)}
         />
       </label>
+      {error ? (
+        <div className="conflict-banner mt-4" role="alert">
+          {error}
+        </div>
+      ) : null}
       <button
         className="button-danger mt-4"
         disabled={confirmation !== profileName || pending}

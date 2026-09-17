@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { safeErrorMessage } from "../../../shared/redaction.js";
 import { useBridge, type BridgeResult } from "../../rpc-client.js";
 import type { ProfileAction } from "./profile-table.js";
 
@@ -13,6 +14,7 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
   >({});
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteText, setDeleteText] = useState("");
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [forceStopTargetId, setForceStopTargetId] = useState<string | null>(
     null,
   );
@@ -37,6 +39,7 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
   const closeDelete = () => {
     setDeleteTargetId(null);
     setDeleteText("");
+    setDeleteError(null);
   };
   const closeForceStop = () => {
     setForceStopTargetId(null);
@@ -79,13 +82,23 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
   const deleteProfile = async () => {
     if (!deleteTarget) return;
     const profileId = deleteTarget.id;
+    setDeleteError(null);
     setPending(profileId, "delete");
     try {
       const result = await bridge.request("profilesDelete", { profileId });
-      if (result.ok) {
-        closeDelete();
-        await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+      if (!result.ok) {
+        const code = safeErrorMessage(result.error.code);
+        const detail = safeErrorMessage(result.error.message);
+        setDeleteError(`Delete failed (${code}): ${detail}`);
+        return;
       }
+      closeDelete();
+      await queryClient.invalidateQueries({ queryKey: ["profiles"] });
+    } catch (error) {
+      const detail = safeErrorMessage(
+        error instanceof Error ? error : "Profile deletion request failed.",
+      );
+      setDeleteError(`Delete failed (TRANSPORT_ERROR): ${detail}`);
     } finally {
       clearPending(profileId);
     }
@@ -107,10 +120,12 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
     pendingActions,
     deleteTarget,
     deleteText,
+    deleteError,
     setDeleteText,
     openDelete: (profileId: string) => {
       setDeleteTargetId(profileId);
       setDeleteText("");
+      setDeleteError(null);
     },
     closeDelete,
     deleteProfile,

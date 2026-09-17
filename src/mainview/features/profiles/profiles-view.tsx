@@ -5,6 +5,7 @@ import { ProfileTable } from "./profile-table.js";
 import { ProfileEditor } from "./profile-editor.js";
 import {
   DEFAULT_PROFILE_FORM,
+  isProtectedProfileArgument,
   profileViewportForUpdate,
   profileToForm,
   type ProfileForm,
@@ -25,9 +26,7 @@ export default function ProfilesView() {
   const [form, setForm] = useState<ProfileForm>(DEFAULT_PROFILE_FORM);
   const [selected, setSelected] = useState<string[]>([]);
   const [conflict, setConflict] = useState(false);
-  const protectedArg = form.args.find((value) =>
-    /^--(?:fingerprint|user-data-dir|remote-debugging)/.test(value),
-  );
+  const protectedArg = form.args.find(isProtectedProfileArgument);
   const profiles = useQuery({
     queryKey: ["profiles"],
     refetchInterval: 2_000,
@@ -191,6 +190,7 @@ export default function ProfilesView() {
         <ProfileDeleteConfirmation
           profileName={actions.deleteTarget.name}
           confirmation={actions.deleteText}
+          error={actions.deleteError}
           pending={actions.pendingActions[actions.deleteTarget.id] === "delete"}
           onConfirmationChange={actions.setDeleteText}
           onClose={actions.closeDelete}

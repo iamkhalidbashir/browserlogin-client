@@ -20,7 +20,7 @@ const profile = {
   locale: "en-US",
   user_agent: null,
   viewport: { width: 1440, height: 900 },
-  args: [],
+  args: ["--fingerprint-noise=false"],
   cloud: { archive_generation: 4, current_session_id: null },
 };
 
@@ -290,6 +290,7 @@ export function createMockBridge(
   let attentionSound = initialSettings.attention_sound;
   const binaryStatusControl = initialSearch.get("binaryStatus");
   const profilesListControl = initialSearch.get("profilesList");
+  const profilesDeleteControl = initialSearch.get("profilesDelete");
   const sessionsStartControl = initialSearch.get("sessionsStart");
   const transferProgressControl = initialSearch.get("transferProgress");
   const multi =
@@ -947,6 +948,15 @@ export function createMockBridge(
         liveSessions = liveSessions.filter(
           (session) => session.profile_id !== profileId,
         );
+      }
+      if (method === "profilesDelete" && profilesDeleteControl === "fail") {
+        return {
+          ok: false,
+          error: {
+            code: "PROFILE_DELETE_FAILED",
+            message: "Mock profile deletion failed.",
+          },
+        };
       }
       if (
         method === "profilesUpdate" &&

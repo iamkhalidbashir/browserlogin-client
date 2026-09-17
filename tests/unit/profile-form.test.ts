@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { ProfileSchema } from "../../src/shared/api-types.js";
 import {
   DEFAULT_PROFILE_FORM,
+  isProtectedProfileArgument,
   profileViewportForUpdate,
   profileToForm,
 } from "../../src/mainview/features/profiles/profile-form.js";
@@ -49,5 +50,29 @@ describe("profileToForm", () => {
     expect(
       profileViewportForUpdate(null, { width: 1280, height: 720 }),
     ).toEqual({ width: 1280, height: 720 });
+  });
+});
+
+describe("isProtectedProfileArgument", () => {
+  test("allows a fingerprint option that is not a managed launch flag", () => {
+    // Given
+    const argument = "--fingerprint-noise=false";
+
+    // When
+    const protectedArgument = isProtectedProfileArgument(argument);
+
+    // Then
+    expect(protectedArgument).toBe(false);
+  });
+
+  test("rejects an exact managed launch flag with a value", () => {
+    // Given
+    const argument = "--remote-debugging-port=9222";
+
+    // When
+    const protectedArgument = isProtectedProfileArgument(argument);
+
+    // Then
+    expect(protectedArgument).toBe(true);
   });
 });

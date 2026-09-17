@@ -346,8 +346,13 @@ test("edit targets the selected profile row and active profiles have no restore 
   await row.getByRole("button", { name: "Edit" }).click();
   const dialog = page.getByRole("dialog", { name: "Edit profile" });
   await expect(dialog.getByLabel("Name")).toHaveValue("Secondary profile");
+  await expect(dialog.getByLabel("Browser arguments")).toHaveValue(
+    "--fingerprint-noise=false",
+  );
   await dialog.getByLabel("Name").fill("Secondary renamed");
-  await dialog.getByRole("button", { name: "Save profile" }).click();
+  const saveButton = dialog.getByRole("button", { name: "Save profile" });
+  await expect(saveButton).toBeEnabled();
+  await saveButton.click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const updateCall = await page.evaluate(() =>
     window.__browserloginMockCalls?.find(
@@ -366,6 +371,40 @@ test("edit targets the selected profile row and active profiles have no restore 
     ),
   );
   expect(restoreCalls).toHaveLength(0);
+});
+
+test("delete failure stays actionable and explains why nothing changed", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?profilesDelete=fail");
+  await page.getByRole("button", { name: "Delete Research profile" }).click();
+  const deleteDialog = page.getByRole("dialog", { name: "Delete profile" });
+  await deleteDialog
+    .getByLabel("Delete confirmation")
+    .fill("Research profile");
+
+  // When
+  await deleteDialog
+    .getByRole("button", { name: "Delete profile", exact: true })
+    .click();
+
+  // Then
+  await expect(deleteDialog.getByRole("alert")).toContainText(
+    "Delete failed (PROFILE_DELETE_FAILED): Mock profile deletion failed.",
+  );
+  await expect(
+    deleteDialog.getByRole("button", {
+      name: "Delete profile",
+      exact: true,
+    }),
+  ).toBeEnabled();
+  const deleteCalls = await page.evaluate(() =>
+    (window.__browserloginMockCalls ?? []).filter(
+      (call) => call.method === "profilesDelete",
+    ),
+  );
+  expect(deleteCalls).toHaveLength(1);
 });
 
 test("profile row rotates its assigned proxy and handles an unverified result", async ({
