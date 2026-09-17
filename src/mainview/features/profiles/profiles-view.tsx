@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useBridge } from "../../rpc-client.js";
+import { ProfileActivityNotifications } from "./profile-activity-notifications.js";
 import { ProfileTable } from "./profile-table.js";
 import { ProfileEditor } from "./profile-editor.js";
 import {
@@ -142,7 +143,6 @@ export default function ProfilesView() {
         profiles={visible}
         selected={selected}
         pendingActions={pendingActions}
-        transferProgress={transferProgress}
         onSelectionChange={(profileId, checked) =>
           setSelected(
             checked
@@ -156,6 +156,12 @@ export default function ProfilesView() {
         onEdit={editProfile}
         onRotate={(profileId) => void actions.rotateProfileProxy(profileId)}
         onDelete={actions.openDelete}
+      />
+      <ProfileActivityNotifications
+        profiles={profiles.data ?? []}
+        pendingActions={pendingActions}
+        transferProgress={transferProgress}
+        failures={actions.lifecycleFailures}
       />
       {feedback ? (
         <div

@@ -22,16 +22,19 @@ test("shows independent download and upload percentages from one polled snapshot
   await stopRow.getByRole("button", { name: "Stop", exact: true }).click();
 
   // Then
+  const activity = page.getByRole("complementary", {
+    name: "Profile activity",
+  });
   await expect(
-    launchRow.getByText("Downloading 40%", { exact: true }),
+    activity.getByText("Downloading 40%", { exact: true }),
   ).toBeVisible();
   await expect(
-    stopRow.getByText("Uploading 65%", { exact: true }),
+    activity.getByText("Uploading 65%", { exact: true }),
   ).toBeVisible();
-  const downloadProgress = launchRow.getByRole("progressbar", {
+  const downloadProgress = activity.getByRole("progressbar", {
     name: "Research profile download progress",
   });
-  const uploadProgress = stopRow.getByRole("progressbar", {
+  const uploadProgress = activity.getByRole("progressbar", {
     name: "Secondary profile upload progress",
   });
   await expect(downloadProgress).toHaveAttribute("value", "40");
@@ -44,6 +47,8 @@ test("shows independent download and upload percentages from one polled snapshot
     "aria-valuetext",
     "65% uploaded",
   );
+  await expect(launchRow.getByRole("progressbar")).toHaveCount(0);
+  await expect(stopRow.getByRole("progressbar")).toHaveCount(0);
   const callsWhilePending = await page.evaluate(
     () =>
       (window.__browserloginMockCalls ?? []).filter(
@@ -77,6 +82,10 @@ test("keeps failed upload percentage distinct and restores profile actions", asy
 }) => {
   // Given
   const pageErrors = observePageErrors(page);
+  const consoleErrors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") consoleErrors.push(message.text());
+  });
   await page.goto(
     "/profiles?multi=1&profile2Running=1&profileActionDelayMs=700&transferProgress=failed-upload",
   );
@@ -86,10 +95,13 @@ test("keeps failed upload percentage distinct and restores profile actions", asy
   await row.getByRole("button", { name: "Stop", exact: true }).click();
 
   // Then
+  const activity = page.getByRole("complementary", {
+    name: "Profile activity",
+  });
   await expect(
-    row.getByText("Upload failed at 65%", { exact: true }),
+    activity.getByText("Upload failed at 65%", { exact: true }),
   ).toBeVisible();
-  const progress = row.getByRole("progressbar", {
+  const progress = activity.getByRole("progressbar", {
     name: "Secondary profile upload progress",
   });
   await expect(progress).toHaveAttribute("value", "65");
@@ -100,7 +112,15 @@ test("keeps failed upload percentage distinct and restores profile actions", asy
   await expect(
     row.getByRole("button", { name: "Stop", exact: true }),
   ).toBeEnabled();
-  await expect(row).not.toContainText("100%");
+  await expect(activity).toContainText(
+    "Stop failed (SESSION_STOP_FAILED): Profile upload failed at the mock transfer boundary.",
+  );
+  await expect(activity).not.toContainText("100%");
+  expect(
+    consoleErrors.some((message) =>
+      message.includes("Profile lifecycle action failed"),
+    ),
+  ).toBe(true);
   expect(pageErrors).toEqual([]);
 });
 
@@ -118,8 +138,10 @@ test("keeps launch fallback for a cache-hit snapshot without inventing zero perc
 
   // Then
   await expect(row.getByRole("button", { name: "Launching…" })).toBeDisabled();
-  await expect(row.getByRole("progressbar")).toHaveCount(0);
-  await expect(row).not.toContainText("0%");
+  await expect(
+    page.getByRole("complementary", { name: "Profile activity" }),
+  ).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("0%");
 });
 
 test("keeps a delivered verified completion visible after launch settles", async ({
@@ -135,14 +157,21 @@ test("keeps a delivered verified completion visible after launch settles", async
   await row.getByRole("button", { name: "Launch" }).click();
 
   // Then
-  await expect(row.getByText("Downloaded 100%", { exact: true })).toBeVisible();
+  const activity = page.getByRole("complementary", {
+    name: "Profile activity",
+  });
   await expect(
-    row.getByRole("progressbar", {
+    activity.getByText("Downloaded 100%", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    activity.getByRole("progressbar", {
       name: "Research profile download progress",
     }),
   ).toHaveAttribute("value", "100");
   await expect(
     row.getByRole("button", { name: "Stop", exact: true }),
   ).toBeEnabled();
-  await expect(row.getByText("Downloaded 100%", { exact: true })).toBeVisible();
+  await expect(
+    activity.getByText("Downloaded 100%", { exact: true }),
+  ).toBeVisible();
 });
