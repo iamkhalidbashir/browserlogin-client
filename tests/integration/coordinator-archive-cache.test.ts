@@ -189,10 +189,14 @@ describe("coordinator archive cache", () => {
     });
     await fixture.coordinator.start(PROFILE_ID);
     await fixture.coordinator.stop(PROFILE_ID);
+    expect(await fixture.coordinator.store.load(PROFILE_ID)).toBeNull();
+    const progressAfterCleanup = fixture.progress.length;
     // When
-    await fixture.coordinator.start(PROFILE_ID);
+    const restarted = await fixture.coordinator.start(PROFILE_ID);
     // Then
+    expect(restarted).toMatchObject({ status: "running" });
     expect(fixture.downloads).toHaveLength(0);
+    expect(fixture.progress.slice(progressAfterCleanup)).toEqual([]);
     expect(fixture.counts()).toMatchObject({ starts: 2, uploads: 1, stops: 1 });
     expect(
       fixture.archive.extracted.some((path) =>
@@ -227,10 +231,30 @@ describe("coordinator archive cache", () => {
     const cached = await fixture.cache.resolve(reference);
     if (cached.kind !== "hit") throw new Error("expected committed cache hit");
     await writeFile(cached.archivePath, "corrupt");
+    const progressBeforeRepair = fixture.progress.length;
+    const publicationsBeforeRepair = fixture.published.length;
     // When
-    await fixture.coordinator.start(PROFILE_ID);
+    const repaired = await fixture.coordinator.start(PROFILE_ID);
     // Then
+    expect(repaired).toMatchObject({ status: "running" });
     expect(fixture.downloads).toHaveLength(1);
+    expect(fixture.published).toHaveLength(publicationsBeforeRepair + 1);
+    expect(
+      fixture.progress.slice(progressBeforeRepair).map(({ value }) => value),
+    ).toEqual([
+      {
+        direction: "download",
+        transferred: 0,
+        total: committedIdentity.size,
+        done: false,
+      },
+      {
+        direction: "download",
+        transferred: committedIdentity.size,
+        total: committedIdentity.size,
+        done: true,
+      },
+    ]);
     await expect(fixture.cache.resolve(reference)).resolves.toMatchObject({
       kind: "hit",
     });
