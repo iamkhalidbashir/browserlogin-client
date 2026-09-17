@@ -1,8 +1,5 @@
-import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { lstat, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import {
   ArchiveIdentitySchema,
@@ -30,6 +27,11 @@ import {
   ConflictError,
   PreconditionError,
 } from "../../shared/errors.js";
+import {
+  streamArchiveDownload,
+  streamArchiveUpload,
+  type TransferProgressCallback,
+} from "./archive-transfer.js";
 import { DEFAULT_APP_ORIGIN, deriveRestBaseUrl } from "../config/connection.js";
 
 const JSON_BODY_CAP = 256 * 1024;
@@ -282,39 +284,6 @@ async function readJsonResponse(
     throw error;
   } finally {
     reader.releaseLock();
-  }
-}
-
-async function readArchiveChunk(
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signal?: AbortSignal,
-): Promise<ReadChunk> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let onAbort: (() => void) | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(new DOMException("Archive stream timed out", "TimeoutError")),
-      ARCHIVE_IDLE_TIMEOUT_MS,
-    );
-  });
-  const aborted = signal
-    ? new Promise<never>((_, reject) => {
-        onAbort = () =>
-          reject(
-            signal.reason ??
-              new DOMException("The operation was aborted", "AbortError"),
-          );
-        signal.addEventListener("abort", onAbort, { once: true });
-      })
-    : undefined;
-  try {
-    return (await Promise.race(
-      aborted ? [reader.read(), timeout, aborted] : [reader.read(), timeout],
-    )) as unknown as ReadChunk;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -823,9 +792,16 @@ export class BrowserLoginClient {
       expectedSha256?: string;
       signal?: AbortSignal;
       expectedSessionId: string;
+      onProgress?: TransferProgressCallback;
     },
   ): Promise<string> {
-    const { expectedSize, expectedSha256, signal, expectedSessionId } = options;
+    const {
+      expectedSize,
+      expectedSha256,
+      signal,
+      expectedSessionId,
+      onProgress,
+    } = options;
     if (signal?.aborted)
       throw (
         signal.reason ??
@@ -850,23 +826,6 @@ export class BrowserLoginClient {
       expiry <= this.now()
     )
       throw new ArchiveError("archive upload URL is invalid or expired");
-    const payloadInfo = await lstat(payload).catch(() => undefined);
-    if (!payloadInfo?.isFile() || payloadInfo.isSymbolicLink())
-      throw new ArchiveError("archive upload payload must be a regular file");
-    if (payloadInfo.size > this.maxArchiveBytes)
-      throw new ArchiveError("archive upload exceeds configured maximum size");
-    const bytes = await readFile(payload);
-    if (bytes.length > this.maxArchiveBytes)
-      throw new ArchiveError("archive upload exceeds configured maximum size");
-    if (expectedSize !== undefined && bytes.length !== expectedSize)
-      throw new ArchiveError(
-        "archive upload bytes changed after metadata was persisted",
-      );
-    const digest = createHash("sha256").update(bytes).digest("hex");
-    if (expectedSha256 !== undefined && digest !== expectedSha256)
-      throw new ArchiveError(
-        "archive upload bytes changed after metadata was persisted",
-      );
     const controller = new AbortController();
     const connectTimeout = setTimeout(
       () =>
@@ -883,17 +842,18 @@ export class BrowserLoginClient {
     const abort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", abort, { once: true });
     try {
-      const response = await this.requestFetch(grant.upload_url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/zip",
-          "Content-Length": String(bytes.length),
-          Accept: "application/json",
-        },
-        body: bytes,
-        redirect: "manual",
+      const transfer = await streamArchiveUpload({
+        url: grant.upload_url,
+        path: payload,
+        expectedSize,
+        expectedSha256,
+        maxBytes: this.maxArchiveBytes,
+        idleTimeoutMs: ARCHIVE_IDLE_TIMEOUT_MS,
         signal: controller.signal,
+        fetch: this.requestFetch,
+        onProgress,
       });
+      const { response } = transfer;
       clearTimeout(connectTimeout);
       if (response.status >= 300 && response.status < 400)
         await cancelBody(response);
@@ -926,6 +886,7 @@ export class BrowserLoginClient {
       const storageId = result.storageId ?? result.storage_id;
       if (!storageId)
         throw new ArchiveError("archive upload response omitted storageId");
+      transfer.complete();
       return storageId;
     } finally {
       clearTimeout(connectTimeout);
@@ -938,6 +899,7 @@ export class BrowserLoginClient {
     identity: ArchiveIdentity,
     destination: string,
     signal?: AbortSignal,
+    onProgress?: TransferProgressCallback,
   ): Promise<string> {
     if (
       !SHA256.test(identity.sha256) ||
@@ -961,77 +923,19 @@ export class BrowserLoginClient {
       await cancelBody(response);
       throw errorForStatus(response.status, "download archive");
     }
-    const etag = response.headers.get("etag");
-    const generation = response.headers.get("x-archive-generation");
-    const digest = response.headers.get("digest");
-    const contentLength = response.headers.get("content-length");
-    const length = contentLength === null ? Number.NaN : Number(contentLength);
-    const expectedDigest = `sha-256=${Buffer.from(identity.sha256, "hex").toString("base64")}`;
-    if (
-      etag !== `"${identity.sha256}"` ||
-      generation !== String(identity.generation) ||
-      digest !== expectedDigest ||
-      !Number.isSafeInteger(length) ||
-      length !== identity.size
-    ) {
-      await cancelBody(response);
-      throw new ArchiveError(
-        "archive identity headers do not match requested archive",
-      );
-    }
-    if (!response.body)
-      throw new ArchiveError("archive response did not contain a body");
-    const target = resolve(destination);
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    let count = 0;
-    const hash = createHash("sha256");
-    const reader = response.body.getReader();
     try {
-      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-      const output = createWriteStream(temporary, { flags: "wx", mode: 0o600 });
-      let outputError: unknown;
-      output.on("error", (error) => {
-        outputError = error;
+      return await streamArchiveDownload({
+        response,
+        identity,
+        destination,
+        maxBytes: this.maxArchiveBytes,
+        idleTimeoutMs: ARCHIVE_IDLE_TIMEOUT_MS,
+        signal,
+        onProgress,
       });
-      try {
-        while (true) {
-          const result = await readArchiveChunk(reader, signal);
-          if (result.done) break;
-          const chunk = result.value;
-          if (outputError) throw outputError;
-          count += chunk.byteLength;
-          if (count > identity.size || count > this.maxArchiveBytes)
-            throw new ArchiveError(
-              "archive exceeded declared or configured size",
-            );
-          hash.update(chunk);
-          if (!output.write(chunk))
-            await new Promise<void>((resolvePromise, reject) => {
-              output.once("drain", resolvePromise);
-              output.once("error", reject);
-            });
-        }
-        await new Promise<void>((resolvePromise, reject) => {
-          output.end(() => resolvePromise());
-          if (outputError) reject(outputError);
-        });
-        if (outputError) throw outputError;
-      } finally {
-        output.destroy();
-      }
-      if (count !== identity.size || hash.digest("hex") !== identity.sha256)
-        throw new PreconditionError(
-          "archive length or SHA-256 verification failed",
-        );
-      await rename(temporary, target);
-      return target;
     } catch (error) {
-      await reader.cancel().catch(() => undefined);
       await cancelBody(response);
-      await rm(temporary, { force: true }).catch(() => undefined);
       throw error;
-    } finally {
-      reader.releaseLock();
     }
   }
 }

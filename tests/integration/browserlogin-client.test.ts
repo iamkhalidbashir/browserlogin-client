@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
+import { promises as fileSystem } from "node:fs";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BrowserLoginClient,
   type FetchLike,
 } from "../../src/core/api/client.js";
+import type { TransferProgress } from "../../src/core/api/archive-transfer.js";
 import {
   ApiError,
   ArchiveError,
@@ -447,31 +450,56 @@ describe("BrowserLogin REST client", () => {
     closers.push(() => rm(directory, { recursive: true, force: true }));
     const destination = join(directory, "profile.zip");
     const archiveHash = createHash("sha256").update("DATA").digest("hex");
+    const progress: TransferProgress[] = [];
     const api = client(`${server.url}/api/v1`, {
       fetch: async (_input, init) => {
         expect(init?.headers).toBeDefined();
-        return new Response("DATA", {
-          status: 200,
-          headers: {
-            "Content-Type": "application/zip",
-            "Content-Length": "4",
-            ETag: `"${archiveHash}"`,
-            "X-Archive-Generation": "4",
-            Digest: `sha-256=${Buffer.from(archiveHash, "hex").toString("base64")}`,
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode("DA"));
+              controller.enqueue(new TextEncoder().encode("TA"));
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/zip",
+              "Content-Length": "4",
+              ETag: `"${archiveHash}"`,
+              "X-Archive-Generation": "4",
+              Digest: `sha-256=${Buffer.from(archiveHash, "hex").toString("base64")}`,
+            },
           },
-        });
+        );
       },
     });
     await api.downloadArchive(
       { ...identity, sha256: archiveHash },
       destination,
+      undefined,
+      (event) => progress.push(event),
     );
     expect(await readFile(destination, "utf8")).toBe("DATA");
+    expect(progress).toEqual([
+      { direction: "download", transferred: 0, total: 4, done: false },
+      { direction: "download", transferred: 2, total: 4, done: false },
+      { direction: "download", transferred: 4, total: 4, done: false },
+      { direction: "download", transferred: 4, total: 4, done: true },
+    ]);
 
     const tampered = join(directory, "tampered.zip");
+    const failedProgress: TransferProgress[] = [];
     await expect(
-      client(`${server.url}/api/v1`).downloadArchive(identity, tampered),
+      client(`${server.url}/api/v1`).downloadArchive(
+        identity,
+        tampered,
+        undefined,
+        (event) => failedProgress.push(event),
+      ),
     ).rejects.toBeInstanceOf(PreconditionError);
+    expect(failedProgress.some((event) => event.done)).toBe(false);
     await expect(readFile(tampered)).rejects.toThrow();
     await expect(
       client(`${server.url}/api/v1`).downloadArchive(
@@ -491,6 +519,7 @@ describe("BrowserLogin REST client", () => {
     let uploadRequest: Request | undefined;
     const fetcher: FetchLike = async (input, init) => {
       uploadRequest = new Request(input, init);
+      await uploadRequest.clone().arrayBuffer();
       return new Response(JSON.stringify({ storageId: "storage-1" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -560,11 +589,212 @@ describe("BrowserLogin REST client", () => {
         }),
       timeoutMs: 1,
     });
+    const timeoutProgress: TransferProgress[] = [];
     await expect(
       stalled.directUpload(grant, payloadPath, {
         expectedSessionId: "session-1",
+        onProgress: (event) => timeoutProgress.push(event),
       }),
     ).rejects.toBeDefined();
+    expect(timeoutProgress.some((event) => event.done)).toBe(false);
+
+    const httpProgress: TransferProgress[] = [];
+    const failed = client("https://browserlogin.test/api/v1", {
+      fetch: async (_input, init) => {
+        await new Response(init?.body).arrayBuffer();
+        return new Response(null, { status: 500 });
+      },
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+    await expect(
+      failed.directUpload(grant, payloadPath, {
+        expectedSessionId: "session-1",
+        onProgress: (event) => httpProgress.push(event),
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(httpProgress.some((event) => event.done)).toBe(false);
+
+    const malformedProgress: TransferProgress[] = [];
+    const malformedResponse = client("https://browserlogin.test/api/v1", {
+      fetch: async (_input, init) => {
+        await new Response(init?.body).arrayBuffer();
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+    await expect(
+      malformedResponse.directUpload(grant, payloadPath, {
+        expectedSessionId: "session-1",
+        onProgress: (event) => malformedProgress.push(event),
+      }),
+    ).rejects.toBeInstanceOf(ArchiveError);
+    expect(malformedProgress.some((event) => event.done)).toBe(false);
+
+    const abortedProgress: TransferProgress[] = [];
+    const controller = new AbortController();
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    await expect(
+      api.directUpload(grant, payloadPath, {
+        expectedSessionId: "session-1",
+        signal: controller.signal,
+        onProgress: (event) => abortedProgress.push(event),
+      }),
+    ).rejects.toBeInstanceOf(DOMException);
+    expect(abortedProgress).toEqual([]);
+  });
+
+  it("streams upload bytes to a loopback receiver and reports verified progress", async () => {
+    // Given
+    const directory = await mkdtemp(
+      join(tmpdir(), "browserlogin-upload-stream-"),
+    );
+    closers.push(() => rm(directory, { recursive: true, force: true }));
+    const payloadPath = join(directory, "archive.zip");
+    const payload = Buffer.alloc(512 * 1024, 0x5a);
+    await writeFile(payloadPath, payload);
+    const progress: TransferProgress[] = [];
+    const receivedChunks: Buffer[] = [];
+    let receivedHeaders: Headers | undefined;
+    const receiver = createServer((request, response) => {
+      receivedHeaders = new Headers();
+      for (const [name, value] of Object.entries(request.headers)) {
+        if (Array.isArray(value)) {
+          for (const item of value) receivedHeaders.append(name, item);
+        } else if (value !== undefined) receivedHeaders.set(name, value);
+      }
+      request.on("data", (chunk: Buffer) => receivedChunks.push(chunk));
+      request.on("end", () => {
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ storageId: "storage-streamed" }));
+      });
+    });
+    await new Promise<void>((resolvePromise) =>
+      receiver.listen(0, "127.0.0.1", resolvePromise),
+    );
+    closers.push(
+      () =>
+        new Promise((resolvePromise, reject) =>
+          receiver.close((error) => (error ? reject(error) : resolvePromise())),
+        ),
+    );
+    const address = receiver.address();
+    if (!address || typeof address === "string")
+      throw new Error("loopback receiver did not bind");
+    const originalReadFile = fileSystem.readFile;
+    const payloadRead = vi
+      .spyOn(fileSystem, "readFile")
+      .mockImplementation(async (path) => {
+        if (path === payloadPath)
+          throw new Error("archive payload must not use readFile");
+        return originalReadFile(path);
+      });
+    const api = client("https://browserlogin.test/api/v1", {
+      fetch: async (_input, init) => {
+        expect(init?.redirect).toBe("manual");
+        return fetch(`http://127.0.0.1:${address.port}/upload`, init);
+      },
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+
+    // When
+    let storageId: string;
+    try {
+      storageId = await api.directUpload(
+        {
+          upload_url: "https://storage.example.test/upload",
+          expires_at: "2026-08-16T01:00:00.000Z",
+          session_id: "session-1",
+        },
+        payloadPath,
+        {
+          expectedSize: payload.byteLength,
+          expectedSha256: createHash("sha256").update(payload).digest("hex"),
+          expectedSessionId: "session-1",
+          onProgress: (event) => progress.push(event),
+        },
+      );
+    } finally {
+      payloadRead.mockRestore();
+    }
+
+    // Then
+    expect(storageId).toBe("storage-streamed");
+    expect(receivedChunks.length).toBeGreaterThan(1);
+    expect(Buffer.concat(receivedChunks)).toEqual(payload);
+    expect(receivedHeaders?.get("content-length")).toBe(
+      String(payload.byteLength),
+    );
+    expect(receivedHeaders?.get("authorization")).toBeNull();
+    expect(progress[0]).toEqual({
+      direction: "upload",
+      transferred: 0,
+      total: payload.byteLength,
+      done: false,
+    });
+    expect(progress.at(-1)).toEqual({
+      direction: "upload",
+      transferred: payload.byteLength,
+      total: payload.byteLength,
+      done: true,
+    });
+    expect(
+      progress
+        .slice(1, -1)
+        .every(
+          (event, index, events) =>
+            event.transferred > (events[index - 1]?.transferred ?? 0) &&
+            !event.done,
+        ),
+    ).toBe(true);
+  });
+
+  it("rejects upload mutation after preflight without terminal progress", async () => {
+    // Given
+    const directory = await mkdtemp(
+      join(tmpdir(), "browserlogin-upload-mutation-"),
+    );
+    closers.push(() => rm(directory, { recursive: true, force: true }));
+    const payloadPath = join(directory, "archive.zip");
+    const original = Buffer.alloc(128 * 1024, 0x41);
+    await writeFile(payloadPath, original);
+    const progress: TransferProgress[] = [];
+    const api = client("https://browserlogin.test/api/v1", {
+      fetch: async (_input, init) => {
+        await writeFile(payloadPath, Buffer.alloc(original.byteLength, 0x42));
+        await new Response(init?.body).arrayBuffer();
+        return new Response(
+          JSON.stringify({ storageId: "must-not-be-accepted" }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      },
+      now: () => Date.parse("2026-08-16T00:00:00.000Z"),
+    });
+
+    // When
+    const result = api.directUpload(
+      {
+        upload_url: "https://storage.example.test/upload",
+        expires_at: "2026-08-16T01:00:00.000Z",
+        session_id: "session-1",
+      },
+      payloadPath,
+      {
+        expectedSize: original.byteLength,
+        expectedSha256: createHash("sha256").update(original).digest("hex"),
+        expectedSessionId: "session-1",
+        onProgress: (event) => progress.push(event),
+      },
+    );
+
+    // Then
+    await expect(result).rejects.toBeInstanceOf(ArchiveError);
+    expect(progress.some((event) => event.done)).toBe(false);
   });
 
   it("enforces base URL, body cap, idempotency, retry, timeout, and status policies", async () => {
