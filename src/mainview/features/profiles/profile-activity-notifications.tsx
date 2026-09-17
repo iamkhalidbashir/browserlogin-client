@@ -12,9 +12,16 @@ import {
 
 type Profile = BridgeResult<"profilesList">[number];
 
+type ProfileActivityPresentation = Omit<
+  TransferPresentation,
+  "percentage"
+> & {
+  readonly percentage?: number;
+};
+
 type ProfileActivity = Readonly<{
   profile: Profile;
-  progress: TransferPresentation | null;
+  progress: ProfileActivityPresentation | null;
   failure: ProfileLifecycleFailure | undefined;
 }>;
 
@@ -30,6 +37,30 @@ function failureLabel(failure: ProfileLifecycleFailure): string {
   return `${action} failed (${failure.code}): ${failure.message}`;
 }
 
+function activityPresentation(
+  profileName: string,
+  pendingAction: ProfileAction | undefined,
+  progress: ProfileTransferProgress[string] | undefined,
+): ProfileActivityPresentation | null {
+  const transfer = transferPresentation(profileName, pendingAction, progress);
+  if (transfer) return transfer;
+  if (pendingAction === "launch")
+    return {
+      label: "Launching…",
+      accessibleName: `${profileName} launch progress`,
+      valueText: "Preparing profile launch",
+      state: "running",
+    };
+  if (pendingAction === "stop")
+    return {
+      label: "Preparing archive…",
+      accessibleName: `${profileName} stop progress`,
+      valueText: "Preparing profile archive for upload",
+      state: "running",
+    };
+  return null;
+}
+
 export function ProfileActivityNotifications({
   profiles,
   pendingActions,
@@ -37,7 +68,7 @@ export function ProfileActivityNotifications({
   failures,
 }: ProfileActivityNotificationsProps) {
   const activities: readonly ProfileActivity[] = profiles.flatMap((profile) => {
-    const progress = transferPresentation(
+    const progress = activityPresentation(
       profile.name,
       pendingActions[profile.id],
       transferProgress[profile.id],

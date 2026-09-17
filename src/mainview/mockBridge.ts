@@ -888,6 +888,17 @@ export function createMockBridge(
                       status: "failed",
                     },
                   ]
+                : transferProgressControl === "upload"
+                  ? [
+                      {
+                        profileId: "profile-1",
+                        direction: "upload",
+                        transferred: 65,
+                        total: 100,
+                        percentage: 65,
+                        status: "running",
+                      },
+                    ]
                 : transferProgressControl === "malformed"
                   ? [
                       {

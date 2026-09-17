@@ -712,6 +712,62 @@ test("dashboard keeps sessions visible without profile activity", async ({
   await expect(page.getByText("profile-1", { exact: true })).toBeVisible();
 });
 
+test("profile activity stays visible throughout launch and stop preparation", async ({
+  page,
+}) => {
+  await page.goto(
+    "/profiles?profileActionDelayMs=900&transferProgress=cache-hit",
+  );
+
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+  const activity = page.getByRole("complementary", {
+    name: "Profile activity",
+  });
+  await expect(activity).toContainText("Launching…");
+  await expect(
+    activity.getByRole("progressbar", {
+      name: "Research profile launch progress",
+    }),
+  ).not.toHaveAttribute("value");
+
+  const stop = page.getByRole("button", { name: "Stop", exact: true });
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(activity).toContainText("Preparing archive…");
+  await expect(
+    activity.getByRole("progressbar", {
+      name: "Research profile stop progress",
+    }),
+  ).not.toHaveAttribute("value");
+});
+
+test("profile activity upgrades to download and upload percentages", async ({
+  page,
+}) => {
+  await page.goto("/profiles?profileActionDelayMs=900&transferProgress=happy");
+  await page.getByRole("button", { name: "Launch", exact: true }).click();
+  const activity = page.getByRole("complementary", {
+    name: "Profile activity",
+  });
+  await expect(activity).toContainText("Downloading 20%");
+  await expect(
+    activity.getByRole("progressbar", {
+      name: "Research profile download progress",
+    }),
+  ).toHaveAttribute("value", "20");
+
+  await page.goto(
+    "/profiles?profileRunning=1&profileActionDelayMs=900&transferProgress=upload",
+  );
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(activity).toContainText("Uploading 65%");
+  await expect(
+    activity.getByRole("progressbar", {
+      name: "Research profile upload progress",
+    }),
+  ).toHaveAttribute("value", "65");
+});
+
 test("edit sends optimistic version and surfaces 409 conflict", async ({
   page,
 }) => {
