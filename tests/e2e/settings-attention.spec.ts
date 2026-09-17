@@ -85,6 +85,49 @@ test("agent attention select value fits at 375px while desktop keeps two columns
   // Then
   expect(selectedValueFits).toBe(true);
 
+  const origin = page.getByLabel("Application origin");
+  const controlStyles = await Promise.all(
+    [delivery, panel.getByLabel("Sound"), origin].map((control) =>
+      control.evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        return {
+          appearance: style.appearance,
+          backgroundColor: style.backgroundColor,
+          borderRadius: style.borderRadius,
+          fontFamily: style.fontFamily,
+          height: style.height,
+        };
+      }),
+    ),
+  );
+  expect(controlStyles[0]).toMatchObject({
+    appearance: "none",
+    borderRadius: controlStyles[2]?.borderRadius,
+    fontFamily: controlStyles[2]?.fontFamily,
+    height: controlStyles[2]?.height,
+  });
+  expect(controlStyles[1]).toMatchObject(controlStyles[0] ?? {});
+  const disabledDecoration = await delivery.evaluate((element) => {
+    const field = element.closest(".select-field");
+    if (!field) return null;
+    const selectStyle = window.getComputedStyle(element);
+    const chevronStyle = window.getComputedStyle(field, "::after");
+    return {
+      backgroundColor: selectStyle.backgroundColor,
+      chevronContent: chevronStyle.content,
+      chevronZIndex: chevronStyle.zIndex,
+      cursor: selectStyle.cursor,
+    };
+  });
+  expect(disabledDecoration).toMatchObject({
+    chevronContent: '""',
+    chevronZIndex: "1",
+    cursor: "not-allowed",
+  });
+  expect(disabledDecoration?.backgroundColor).not.toBe(
+    controlStyles[2]?.backgroundColor,
+  );
+
   // When
   await page.setViewportSize({ width: 1280, height: 800 });
   const desktopColumns = await page

@@ -372,7 +372,7 @@ export default function SettingsView() {
             />
             Enable agent attention
           </label>
-          <label className="field mt-4">
+          <label className="field select-field mt-4">
             <span>Delivery</span>
             <select
               value={attentionDelivery}
@@ -393,7 +393,7 @@ export default function SettingsView() {
               <option value="both">Notification and audio</option>
             </select>
           </label>
-          <label className="field mt-3">
+          <label className="field select-field mt-3">
             <span>Sound</span>
             <select
               value={attentionSound}
