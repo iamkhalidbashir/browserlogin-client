@@ -120,13 +120,13 @@ export function App() {
       />
     );
   return (
-    <div className="app-shell min-h-[100dvh] bg-zinc-50 text-zinc-950">
+    <div className="app-shell min-h-[100dvh] bg-zinc-50 text-zinc-950 md:h-[100dvh] md:overflow-hidden">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
-      <div className="grid min-h-[100dvh] grid-cols-1 md:grid-cols-[240px_1fr]">
+      <div className="grid min-h-[100dvh] grid-cols-1 md:h-full md:min-h-0 md:grid-cols-[240px_1fr]">
         <aside
-          className="app-sidebar border-b border-zinc-200 bg-white/80 p-4 md:border-b-0 md:border-r md:p-5"
+          className="app-sidebar border-b border-zinc-200 bg-white/80 p-4 md:h-full md:overflow-y-auto md:border-b-0 md:border-r md:p-5"
           aria-label="Primary navigation"
         >
           <div className="mb-4 flex items-start gap-3 md:mb-8">
@@ -158,7 +158,7 @@ export function App() {
             ))}
           </nav>
         </aside>
-        <div className="min-w-0">
+        <div className="min-w-0 md:h-full md:min-h-0 md:overflow-y-auto">
           <header className="app-header flex min-h-16 flex-wrap items-center justify-between gap-3 border-b border-zinc-200 p-4 md:px-7">
             <div
               className="flex flex-wrap gap-2"
