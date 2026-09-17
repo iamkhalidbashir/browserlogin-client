@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BrowserLoginClient,
@@ -795,6 +796,37 @@ describe("BrowserLogin REST client", () => {
     // Then
     await expect(result).rejects.toBeInstanceOf(ArchiveError);
     expect(progress.some((event) => event.done)).toBe(false);
+  });
+
+  it("reports no unhandled rejection for upload mutation", async () => {
+    // Given
+    const child = spawn(
+      "bunx",
+      [
+        "vitest",
+        "run",
+        "tests/integration/browserlogin-client.test.ts",
+        "-t",
+        "rejects upload mutation after preflight without terminal progress",
+      ],
+      { cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+
+    // When
+    const exitCode = await new Promise<number>((resolvePromise) => {
+      child.on("close", (code) => resolvePromise(code ?? 1));
+    });
+
+    // Then
+    expect(output).not.toContain("Unhandled Errors");
+    expect(exitCode, output).toBe(0);
   });
 
   it("enforces base URL, body cap, idempotency, retry, timeout, and status policies", async () => {

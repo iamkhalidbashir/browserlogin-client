@@ -25,6 +25,10 @@ type UploadTransfer = {
   readonly complete: () => void;
 };
 
+type StreamOutcome =
+  | { readonly kind: "complete" }
+  | { readonly kind: "failed"; readonly error: unknown };
+
 function abortReason(signal: AbortSignal): unknown {
   return (
     signal.reason ?? new DOMException("The operation was aborted", "AbortError")
@@ -104,11 +108,9 @@ export async function streamArchiveUpload(
     });
     const streamedHash = createHash("sha256");
     let transferred = 0;
-    let resolveStream: () => void = () => undefined;
-    let rejectStream: (error: unknown) => void = () => undefined;
-    const streamed = new Promise<void>((resolvePromise, reject) => {
-      resolveStream = resolvePromise;
-      rejectStream = reject;
+    let settleStream: (outcome: StreamOutcome) => void = () => undefined;
+    const streamed = new Promise<StreamOutcome>((resolvePromise) => {
+      settleStream = resolvePromise;
     });
     const body = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -116,7 +118,7 @@ export async function streamArchiveUpload(
           if (input.signal.aborted) throw abortReason(input.signal);
           if (transferred === snapshot.size) {
             controller.close();
-            resolveStream();
+            settleStream({ kind: "complete" });
             return;
           }
           const buffer = new Uint8Array(
@@ -155,15 +157,16 @@ export async function streamArchiveUpload(
           });
         } catch (error) {
           controller.error(error);
-          rejectStream(error);
+          settleStream({ kind: "failed", error });
         }
       },
       cancel(reason) {
-        rejectStream(
-          new ArchiveError("archive upload stream was cancelled", {
+        settleStream({
+          kind: "failed",
+          error: new ArchiveError("archive upload stream was cancelled", {
             cause: reason,
           }),
-        );
+        });
       },
     });
     const request: RequestInit & { readonly duplex: "half" } = {
@@ -179,7 +182,13 @@ export async function streamArchiveUpload(
       signal: input.signal,
     };
     const response = await input.fetch(input.url, request);
-    await streamed;
+    const outcome = await streamed;
+    switch (outcome.kind) {
+      case "complete":
+        break;
+      case "failed":
+        throw outcome.error;
+    }
     const finalState = await handle.stat();
     if (
       transferred !== snapshot.size ||
