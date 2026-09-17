@@ -6,6 +6,17 @@ import type { ProfileAction } from "./profile-table.js";
 
 type Profile = BridgeResult<"profilesList">[number];
 
+export type ProfileLifecycleFailure = Readonly<{
+  profileId: string;
+  action: "stop" | "force-stop";
+  code: string;
+  message: string;
+}>;
+
+export type ProfileLifecycleFailures = Readonly<
+  Record<string, ProfileLifecycleFailure>
+>;
+
 export function useProfileActions(profiles: readonly Profile[] | undefined) {
   const bridge = useBridge();
   const queryClient = useQueryClient();
@@ -19,6 +30,8 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
     null,
   );
   const [forceStopText, setForceStopText] = useState("");
+  const [lifecycleFailures, setLifecycleFailures] =
+    useState<ProfileLifecycleFailures>({});
   const deleteTarget = profiles?.find(
     (profile) => profile.id === deleteTargetId,
   );
@@ -45,16 +58,57 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
     setForceStopTargetId(null);
     setForceStopText("");
   };
+  const clearLifecycleFailure = (profileId: string) => {
+    setLifecycleFailures((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([id]) => id !== profileId),
+      ),
+    );
+  };
+  const reportLifecycleFailure = (
+    profileId: string,
+    action: ProfileLifecycleFailure["action"],
+    code: string,
+    value: string | Error,
+  ) => {
+    const failure = {
+      profileId,
+      action,
+      code: safeErrorMessage(code),
+      message: safeErrorMessage(value),
+    } satisfies ProfileLifecycleFailure;
+    setLifecycleFailures((current) => ({
+      ...current,
+      [profileId]: failure,
+    }));
+    console.error("Profile lifecycle action failed", failure);
+  };
 
   const stopProfile = async (profileId: string) => {
     setPending(profileId, "stop");
+    clearLifecycleFailure(profileId);
     try {
       const result = await bridge.request("sessionsStop", { profileId });
-      if (result.ok)
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["profiles"] }),
-          queryClient.invalidateQueries({ queryKey: ["sessions"] }),
-        ]);
+      if (!result.ok) {
+        reportLifecycleFailure(
+          profileId,
+          "stop",
+          result.error.code,
+          result.error.message,
+        );
+        return;
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ]);
+    } catch (error) {
+      reportLifecycleFailure(
+        profileId,
+        "stop",
+        "TRANSPORT_ERROR",
+        error instanceof Error ? error : "Profile stop request failed.",
+      );
     } finally {
       clearPending(profileId);
     }
@@ -63,18 +117,33 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
     if (!forceStopTarget) return;
     const profileId = forceStopTarget.id;
     setPending(profileId, "force-stop");
+    clearLifecycleFailure(profileId);
     try {
       const result = await bridge.request("sessionsForceStop", {
         profileId,
         confirmation: forceStopText,
       });
-      if (result.ok) {
-        closeForceStop();
-        await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["profiles"] }),
-          queryClient.invalidateQueries({ queryKey: ["sessions"] }),
-        ]);
+      if (!result.ok) {
+        reportLifecycleFailure(
+          profileId,
+          "force-stop",
+          result.error.code,
+          result.error.message,
+        );
+        return;
       }
+      closeForceStop();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["profiles"] }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ]);
+    } catch (error) {
+      reportLifecycleFailure(
+        profileId,
+        "force-stop",
+        "TRANSPORT_ERROR",
+        error instanceof Error ? error : "Profile force close request failed.",
+      );
     } finally {
       clearPending(profileId);
     }
@@ -118,6 +187,7 @@ export function useProfileActions(profiles: readonly Profile[] | undefined) {
 
   return {
     pendingActions,
+    lifecycleFailures,
     deleteTarget,
     deleteText,
     deleteError,
