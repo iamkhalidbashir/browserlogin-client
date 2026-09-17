@@ -1,4 +1,4 @@
-import { copyFile, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import {
   LifecycleCoordinator,
@@ -10,6 +10,7 @@ import {
   type ProcessIdentity,
 } from "../../src/core/processes/index.js";
 import type { CoordinatorProfile } from "../../src/core/coordinator/coordinator.js";
+import { ProfileArchiveCache } from "../../src/core/archive/index.js";
 
 const root = process.env.COORDINATOR_ROOT!;
 const port = process.env.COORDINATOR_PORT!;
@@ -18,6 +19,7 @@ const recovering = process.env.COORDINATOR_RECOVER === "1";
 const stopping = process.env.COORDINATOR_STOP === "1";
 const forcing = process.env.COORDINATOR_FORCE === "1";
 const profileId = "profile-1";
+const appOrigin = "https://crash.test";
 
 const profile = {
   id: profileId,
@@ -121,6 +123,7 @@ const api: CoordinatorApi = {
 };
 
 async function main(): Promise<void> {
+  const storedCache = new ProfileArchiveCache(root);
   const coordinator = new LifecycleCoordinator({
     root,
     api,
@@ -162,8 +165,17 @@ async function main(): Promise<void> {
         },
       };
     },
-    adoptArchive: async (_profileId, artifact, generation) => {
-      await copyFile(artifact, `${root}/adopt-${generation}`);
+    appOrigin,
+    archiveCache: {
+      resolve: (reference) => storedCache.resolve(reference),
+      publish: async (reference, artifact) => {
+        await storedCache.publish(reference, artifact);
+        await Bun.write(
+          `${root}/cache-generation`,
+          `${reference.generation}\n`,
+        );
+      },
+      remove: (subject) => storedCache.remove(subject),
     },
   });
 

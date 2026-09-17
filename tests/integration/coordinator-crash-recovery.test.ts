@@ -25,6 +25,7 @@ const points = [
   "after-runner-stopped-before-identity-save",
   "after-license-released-before-state-save",
   "after-stop-response-before-adopt",
+  "after-cache-publication-before-done-save",
 ] as const;
 const profile = {
   id: "profile-1",
@@ -211,7 +212,8 @@ async function runChild(
             point === "after-upload-pending-save-before-stop" ||
             point === "after-runner-stopped-before-identity-save" ||
             point === "after-license-released-before-state-save" ||
-            point === "after-stop-response-before-adopt")
+            point === "after-stop-response-before-adopt" ||
+            point === "after-cache-publication-before-done-save")
             ? "1"
             : "0",
         COORDINATOR_FORCE:
@@ -293,7 +295,17 @@ describe("fresh-process SIGKILL recovery", () => {
         expect(mock.counters.uploadBytes, point).toBeGreaterThan(0);
         expect(mock.counters.stopArchives, point).toHaveLength(1);
         expect(
-          (await readdir(root)).filter((name) => name.startsWith("adopt-")),
+          await readFile(join(root, "cache-generation"), "utf8"),
+          point,
+        ).toBe("1\n");
+        const cacheFiles = await readdir(
+          join(root, "cache", "profile-archives"),
+          {
+            recursive: true,
+          },
+        );
+        expect(
+          cacheFiles.filter((name) => name.endsWith(".zip")),
           point,
         ).toHaveLength(1);
       }

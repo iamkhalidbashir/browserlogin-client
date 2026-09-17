@@ -229,9 +229,14 @@ async function setup(
       };
     },
     ...(options.archiveOnStart ? { archive: new RestoreArchive() } : {}),
-    adoptArchive: async (_profileId, artifact, generation) => {
-      adoptedArchive = join(root, `adopted-${generation}.zip`);
-      await copyFile(artifact, adoptedArchive);
+    appOrigin: "https://coordinator.test",
+    archiveCache: {
+      resolve: async () => ({ kind: "miss", reason: "absent" }),
+      publish: async (reference, artifact) => {
+        adoptedArchive = join(root, `adopted-${reference.generation}.zip`);
+        await copyFile(artifact, adoptedArchive);
+      },
+      remove: async () => undefined,
     },
     runtimeStop: async (profileId) => {
       expect(profileId).toBe("profile-1");

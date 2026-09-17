@@ -14,6 +14,10 @@ import { ensureBinary, type BinaryInfo } from "../binary/index.js";
 import { launchRunner } from "../runner/supervisor.js";
 import type { LaunchSpec, RunnerPaths } from "../runner/types.js";
 import type { LaunchTiming } from "../launch-timing.js";
+import type {
+  TransferProgress,
+  TransferProgressCallback,
+} from "../api/archive-transfer.js";
 import {
   assertIdentity,
   killProcessTree,
@@ -27,6 +31,12 @@ import {
   type RecoveryState,
   type RecoveryStatus,
 } from "./state.js";
+import {
+  profileArchiveReference,
+  restoreProfileArchive,
+  type CoordinatorArchiveCache,
+  type CoordinatorArchiveCacheContext,
+} from "./archive-cache.js";
 
 const CACHE_LIMIT = 512 * 1024 * 1024;
 const RECOVERY_LIMIT_MS = 30_000;
@@ -37,6 +47,8 @@ export type CoordinatorApi = {
   downloadArchive(
     identity: ArchiveIdentity,
     destination: string,
+    signal?: AbortSignal,
+    onProgress?: TransferProgressCallback,
   ): Promise<string>;
   requestUploadUrl(profileId: string, sessionId: string): Promise<unknown>;
   directUpload(
@@ -46,6 +58,7 @@ export type CoordinatorApi = {
       expectedSize: number;
       expectedSha256: string;
       expectedSessionId: string;
+      onProgress?: TransferProgressCallback;
     },
   ): Promise<string>;
   stopSession(
@@ -92,7 +105,8 @@ export type CrashPoint =
   | "after-force-stop-intent-save"
   | "after-runner-stopped-before-identity-save"
   | "after-license-released-before-state-save"
-  | "after-stop-response-before-adopt";
+  | "after-stop-response-before-adopt"
+  | "after-cache-publication-before-done-save";
 export type CrashInjector = (
   point: CrashPoint,
   state: RecoveryState,
@@ -115,11 +129,9 @@ export type CoordinatorOptions = {
   now?: () => Date;
   health?: () => Promise<boolean>;
   stopRunner?: (state: RecoveryState) => Promise<void>;
-  adoptArchive?: (
-    profileId: string,
-    artifact: string,
-    generation: number,
-  ) => Promise<void>;
+  archiveCache?: CoordinatorArchiveCache;
+  appOrigin?: string;
+  transferProgress?: (profileId: string, progress: TransferProgress) => void;
   runtimeStop?: (profileId: string) => Promise<void>;
   crashInjector?: CrashInjector;
 };
@@ -156,11 +168,18 @@ export class LifecycleCoordinator {
   private readonly naturallyClosed = new Set<string>();
   private readonly licenseUrls = new Map<string, string>();
   private readonly crashInjector?: CrashInjector;
+  private readonly archiveCache?: CoordinatorArchiveCacheContext;
   constructor(private readonly options: CoordinatorOptions) {
+    if (options.archiveCache && !options.appOrigin)
+      throw new TypeError("archive cache requires an application origin");
     this.store = createRecoveryStore(options.root);
     this.archive = options.archive ?? new SafeZipArchive();
     this.now = options.now ?? (() => new Date());
     this.crashInjector = options.crashInjector;
+    this.archiveCache =
+      options.archiveCache && options.appOrigin
+        ? { cache: options.archiveCache, appOrigin: options.appOrigin }
+        : undefined;
     this.runner =
       options.runner ??
       (async (input) =>
@@ -509,26 +528,36 @@ export class LifecycleCoordinator {
         await this.crashInjector?.("after-remote-active-save", state);
       }
       await mkdir(state.work_dir, { recursive: true, mode: 0o700 });
+      if (!state.archive && this.archiveCache)
+        await this.archiveCache.cache.remove({
+          appOrigin: this.archiveCache.appOrigin,
+          profileId: state.profile_id,
+        });
       if (state.archive && !state.archive_materialized) {
         const download = join(
           this.options.root,
           "artifacts",
           `${state.run_id}.zip`,
         );
-        await this.options.api.downloadArchive(
-          {
+        await restoreProfileArchive({
+          ...(this.archiveCache ? { cache: this.archiveCache } : {}),
+          api: this.options.api,
+          archive: this.archive,
+          identity: {
             profile_id: state.profile_id,
             generation: state.archive.generation,
             size: state.archive.size,
             sha256: state.archive.sha256,
             format: "zip",
           },
-          download,
-        );
-        await this.archive.extractAtomic(download, state.work_dir, {
-          size: state.archive.size,
-          sha256: state.archive.sha256,
-          format: "zip",
+          downloadPath: download,
+          workDir: state.work_dir,
+          ...(this.options.transferProgress
+            ? {
+                onProgress: (progress) =>
+                  this.options.transferProgress?.(state.profile_id, progress),
+              }
+            : {}),
         });
         timing?.mark("archive-download-restore");
       }
@@ -782,6 +811,12 @@ export class LifecycleCoordinator {
         expectedSize: digest.size,
         expectedSha256: digest.sha256,
         expectedSessionId: sessionId,
+        ...(this.options.transferProgress
+          ? {
+              onProgress: (progress) =>
+                this.options.transferProgress?.(state.profile_id, progress),
+            }
+          : {}),
       });
       if (
         typeof storageId !== "string" ||
@@ -1023,10 +1058,19 @@ export class LifecycleCoordinator {
       throw new BrowserLoginError(
         "committed upload artifact no longer matches its archive identity",
       );
-    await this.options.adoptArchive?.(
-      state.profile_id,
-      state.archive_artifact,
-      remote.archive_generation,
+    if (this.archiveCache)
+      await this.archiveCache.cache.publish(
+        profileArchiveReference(this.archiveCache, {
+          profile_id: state.profile_id,
+          generation: remote.archive_generation,
+          size: digest.size,
+          sha256: digest.sha256,
+        }),
+        state.archive_artifact,
+      );
+    await this.crashInjector?.(
+      "after-cache-publication-before-done-save",
+      state,
     );
     await this.store.save(transition(state, "done", this.now));
     await this.cleanupLocked({ ...state, status: "done" });
