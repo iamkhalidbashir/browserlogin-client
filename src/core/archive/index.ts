@@ -12,3 +12,16 @@ export type {
   ArchiveLimits,
   ArchiveMetadata,
 } from "./archive.js";
+export {
+  ProfileArchiveCache,
+  ProfileArchiveCorruptionError,
+  ProfileArchiveStorageError,
+} from "./profile-cache.js";
+export type {
+  ProfileArchiveCacheOptions,
+  ProfileArchiveFaultPoint,
+  ProfileArchiveMetadata,
+  ProfileArchiveReference,
+  ProfileArchiveResolveResult,
+  ProfileArchiveSubject,
+} from "./profile-cache.js";
