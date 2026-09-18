@@ -16,7 +16,7 @@ test("uses cached launch state and explicit update actions", async ({
   });
 
   await expect(
-    page.getByRole("heading", { name: "About BrowserLogin 0.1.35" }),
+    page.getByRole("heading", { name: "About BrowserLogin 0.1.36" }),
   ).toBeVisible();
   await expect(panel).toContainText("Version 0.2.0 available");
   await page.getByRole("button", { name: "Check now" }).click();
