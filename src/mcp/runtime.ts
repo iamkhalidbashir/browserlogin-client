@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { createApplicationRuntime } from "../core/app/index.js";
 import { unwrapApplicationResult } from "../core/app/index.js";
 import type { ApplicationRuntime } from "../core/app/runtime.js";
-import { readApplicationSettings } from "../core/app/settings.js";
+import { readAttentionSettings } from "../core/app/settings.js";
 import {
   createAttentionService,
   createPlatformAttentionAdapter,
@@ -102,7 +102,7 @@ async function defaultRuntime(
     keychain,
   });
   const attentionService = createAttentionService({
-    readSettings: () => readApplicationSettings(root, keychain),
+    readSettings: () => readAttentionSettings(root),
     adapter: createPlatformAttentionAdapter(),
   });
   const browser = createBrowserTools({

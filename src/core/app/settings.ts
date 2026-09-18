@@ -12,6 +12,13 @@ const AutoCheckUpdatesSchema = z.looseObject({
   auto_check_updates: z.boolean().default(true),
 });
 
+type AttentionSettings = Readonly<
+  Pick<
+    LocalSettings,
+    "attention_enabled" | "attention_delivery" | "attention_sound"
+  >
+>;
+
 function defaultSettings(hasLicense: boolean): LocalSettings {
   return {
     has_license: hasLicense,
@@ -26,6 +33,19 @@ function defaultSettings(hasLicense: boolean): LocalSettings {
   };
 }
 
+async function readStoredSettings(
+  root: string,
+  hasLicense: boolean,
+): Promise<LocalSettings> {
+  const stored = await readJson<unknown>(join(root, "settings.json"));
+  if (stored === null) return defaultSettings(hasLicense);
+  return LocalSettingsSchema.parse({
+    ...stored,
+    has_license: hasLicense,
+    update_channel: "stable",
+  });
+}
+
 export async function readAutoCheckUpdates(root: string): Promise<boolean> {
   const stored = await readJson<unknown>(join(root, "settings.json"));
   if (stored === null) return true;
@@ -37,13 +57,18 @@ export async function readApplicationSettings(
   keychain: Pick<KeychainFacade, "getLicenseKey">,
 ): Promise<LocalSettings> {
   const license = await keychain.getLicenseKey();
-  const stored = await readJson<unknown>(join(root, "settings.json"));
-  if (stored === null) return defaultSettings(Boolean(license));
-  return LocalSettingsSchema.parse({
-    ...stored,
-    has_license: Boolean(license),
-    update_channel: "stable",
-  });
+  return readStoredSettings(root, Boolean(license));
+}
+
+export async function readAttentionSettings(
+  root: string,
+): Promise<AttentionSettings> {
+  const settings = await readStoredSettings(root, false);
+  return {
+    attention_enabled: settings.attention_enabled,
+    attention_delivery: settings.attention_delivery,
+    attention_sound: settings.attention_sound,
+  };
 }
 
 export async function writeApplicationSettings(

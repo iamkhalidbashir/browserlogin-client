@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createApplicationRuntime } from "../../src/core/app/index.js";
-import { readApplicationSettings } from "../../src/core/app/settings.js";
+import { readAttentionSettings } from "../../src/core/app/settings.js";
 import { createAttentionService } from "../../src/core/attention/index.js";
 import { ConnectionStore } from "../../src/core/config/connection.js";
 import { KeychainFacade } from "../../src/core/keychain/index.js";
@@ -39,7 +39,7 @@ describe("attention settings parity", () => {
     const notify = vi.fn(async () => ({ status: "submitted" as const }));
     const playSound = vi.fn(async () => ({ status: "submitted" as const }));
     const attentionService = createAttentionService({
-      readSettings: () => readApplicationSettings(root, keychain),
+      readSettings: () => readAttentionSettings(root),
       adapter: { notify, playSound },
     });
     const registry = await createRegistry({
