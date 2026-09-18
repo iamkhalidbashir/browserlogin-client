@@ -217,28 +217,30 @@ describe("ProfileArchiveCache", () => {
     expect(result).toMatchObject({ kind: "corrupt" });
   });
 
-  it.each(["pointer", "archive"])(
-    "rejects unsafe %s path permissions",
-    async (target) => {
-      // Given
-      const input = await fixture();
-      const cache = new ProfileArchiveCache(input.root);
-      await cache.publish(input.reference, input.sourcePath);
-      const pointerPath = await metadataPath(input.root);
-      const metadata = JSON.parse(await readFile(pointerPath, "utf8"));
-      const path =
-        target === "pointer"
-          ? pointerPath
-          : join(dirname(pointerPath), metadata.archive_file);
-      await chmod(path, 0o644);
+  describe.runIf(process.platform !== "win32")("POSIX cache permissions", () => {
+    it.each(["pointer", "archive"])(
+      "rejects unsafe %s path permissions",
+      async (target) => {
+        // Given
+        const input = await fixture();
+        const cache = new ProfileArchiveCache(input.root);
+        await cache.publish(input.reference, input.sourcePath);
+        const pointerPath = await metadataPath(input.root);
+        const metadata = JSON.parse(await readFile(pointerPath, "utf8"));
+        const path =
+          target === "pointer"
+            ? pointerPath
+            : join(dirname(pointerPath), metadata.archive_file);
+        await chmod(path, 0o644);
 
-      // When
-      const result = await cache.resolve(input.reference);
+        // When
+        const result = await cache.resolve(input.reference);
 
-      // Then
-      expect(result).toMatchObject({ kind: "corrupt" });
-    },
-  );
+        // Then
+        expect(result).toMatchObject({ kind: "corrupt" });
+      },
+    );
+  });
 
   it("rejects archive directories and symlink pointers without following them", async () => {
     // Given
