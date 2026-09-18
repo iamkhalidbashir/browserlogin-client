@@ -1,13 +1,9 @@
 BrowserLogin API guide
 
 Runtime endpoints
-Application origin: <https://example-1.app-csite-env.sapps.co>
-REST base URL: <https://example-1.app-csite-env.sapps.co/api/v1>
-Public MCP endpoint: <https://noble-spark-8295-06576bc2.app-csite-env.sapps.co/mcp/browserSessionMCP>
-Local MCP endpoint: <http://127.0.0.1:43110/mcp>
-Browser-authenticated archive route: <https://example-1.app-csite-env.sapps.co/browser-archives/:profileId>
-
-The desktop and standalone CLI configure the canonical HTTPS application origin and derive the REST base URL by appending `/api/v1`. AI clients connect directly to the app-owned local MCP endpoint, the public MCP endpoint, or the CLI's stdio MCP transport. Only the public HTTP endpoint uses the bearer header below.
+REST base URL: <https://exapmle-id.app-csite-env.sapps.co/api/v1>
+MCP endpoint: <https://exapmle-id.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Browser-authenticated archive route: <https://exapmle-id.app-csite-env.sapps.co/browser-archives/:profileId>
 
 Authentication and request rules
 Authorization: Bearer <BROWSERLOGIN_API_KEY>
@@ -121,7 +117,7 @@ Response:
 }]
 
 POST /profiles
-Summary: Create a profile; optional proxy_id attaches a workspace proxy from GET /proxies.
+Summary: Create a profile; optional proxy_id attaches a workspace proxy the caller owns or has been granted from GET /proxies.
 Access: authenticated API key
 Required headers: Idempotency-Key
 Request:
@@ -385,7 +381,7 @@ Response:
 ]
 
 POST /profiles/:profileId/sessions
-Summary: Start a session and atomically acquire the profile lock; a second live session receives 409. The response carries the session, the complete profile configuration, the bound proxy's raw credentials, and the profile's current archive metadata (archive is null when none exists) so a desktop client can launch the cloak browser in one call and skip a separate archive lookup.
+Summary: Start a session and atomically acquire the profile lock; a second live session receives 409. The response carries the session, the complete profile configuration, the bound proxy's raw credentials for workspace-owner principals, and the profile's current archive metadata (archive is null when none exists) so a desktop client can launch the cloak browser in one call and skip a separate archive lookup.
 Access: profile editor
 Required headers: Idempotency-Key
 Request:
@@ -489,7 +485,7 @@ Binary archive bytes with Content-Type, Content-Length, Content-Disposition, Cac
 
 POST /profiles/:profileId/archive-upload-url
 Summary: Get a short-lived Convex storage upload URL for the next profile archive, bound to the profile's active session; the caller must be the session holder or the workspace owner.
-Access: profile editor
+Access: profile editor; session holder (matching API key) or workspace owner
 Request:
 {}
 Response:
@@ -566,8 +562,8 @@ Response:
 
 Workspace administration
 GET /proxies
-Summary: List workspace HTTP/SOCKS5 proxies including credentials; ids feed proxy_id in profile create/update.
-Access: workspace owner
+Summary: List workspace HTTP/SOCKS5 proxies visible to the API key. Owner API keys receive every workspace proxy with raw credentials; a granted member receives only the proxies the owner shared with them, with username, password, and change_ip_url redacted. ids feed proxy_id in profile create/update.
+Access: authenticated API key; owner sees all proxies with credentials, granted members see granted proxies without credentials
 Request:
 {}
 Response:
@@ -714,7 +710,7 @@ Response:
 ]
 
 MCP contract
-Endpoint: <https://example-1.app-csite-env.sapps.co/mcp/browserSessionMCP>
+Endpoint: <https://exapmle-id.app-csite-env.sapps.co/mcp/browserSessionMCP>
 Server: browserSessionMCP 2.1.0
 Transport: MCP Streamable HTTP, stateless JSON responses
 Protocol versions: 2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05
@@ -738,10 +734,10 @@ Arguments: No tool-specific arguments.
 profile_get: Get one profile.
 Access: profile reader
 Arguments: profile_id
-profile_create: Create a profile; optional proxy_id attaches a workspace proxy.
+profile_create: Create a profile; optional proxy_id attaches a workspace proxy — the proxy must be owner-owned or granted.
 Access: authenticated API key
 Arguments: idempotency_key; name; optional seed, proxy_id, platform, geoip, humanize, human_preset, bumblebee_profile, headless, timezone, locale, user_agent, viewport, args
-profile_update: Update profile configuration.
+profile_update: Update profile configuration; an optional proxy must be owner-owned or granted.
 Access: profile editor
 Arguments: profile_id; expected_config_version; name; optional seed, proxy_id, platform, geoip, humanize, human_preset, bumblebee_profile, headless, timezone, locale, user_agent, viewport, args
 profile_delete: Delete a profile.
@@ -761,8 +757,8 @@ Arguments: profile_id; notes; expected_version
 notes_update: Replace the current notes entirely with optimistic concurrency.
 Access: profile editor
 Arguments: profile_id; notes; expected_version
-proxies_list: List workspace HTTP/SOCKS5 proxies with credentials redacted (passwords are never exposed to tools); ids feed proxy_id in profile create/update.
-Access: workspace owner
+proxies_list: List workspace HTTP/SOCKS5 proxies visible to the API key: owner API keys see every workspace proxy, while a granted member sees only the proxies the owner shared with them. Credentials are always redacted (passwords are never exposed to tools); ids feed proxy_id in profile create/update.
+Access: authenticated API key; owner sees all proxies, granted members see granted proxies (credentials always redacted)
 Arguments: No tool-specific arguments.
 proxy_change_ip: Calls the proxy's change-IP URL server-side, detects the new exit IP through the proxy when the provider response has none, stores it as last_ip, and returns it. The returned ip is optional: an acknowledged rotation whose IP cannot be verified succeeds with ip null and ip_verified false.
 Access: workspace owner
@@ -790,7 +786,7 @@ Arguments: optional profile_id
 
 Session and archive workflow
 
-1. Start the session: Starting atomically acquires the profile lock and marks the session active. A second start while any live session holds the profile fails with 409; there is no activation call and no heartbeat to maintain. The response includes the complete profile configuration, the bound proxy's raw credentials, and the current archive metadata so the desktop client can hand everything to the cloak browser and decide on a fresh download without a second request.
+1. Start the session: Starting atomically acquires the profile lock and marks the session active. A second start while any live session holds the profile fails with 409; there is no activation call and no heartbeat to maintain. For workspace-owner principals, the response includes the complete profile configuration, the bound proxy's raw credentials, and the current archive metadata so the desktop client can hand everything to the cloak browser and decide on a fresh download without a second request.
    REST: POST /profiles/:profileId/sessions
    Required headers: Idempotency-Key
 2. Request an upload URL: Ask for a short-lived Convex storage upload URL bound to the profile's active session. The caller must be the session holder or the workspace owner, and the response echoes the bound session_id.
@@ -814,7 +810,8 @@ Security and lifecycle caveats
 - Session stop is idempotent by Idempotency-Key: a retry with the same key and payload returns the original response with the original archive_generation; failed stops are never cached, so a corrected retry with the same key executes fresh.
 - Download automation bytes with GET /profiles/:profileId/archive/download. Responses carry ETag, X-Archive-Generation, and Digest identity headers and honor the generation query parameter (409) and If-Match (412) for generation-specific downloads. The signed-in workspace UI uses /browser-archives/:profileId.
 - Sessions have no heartbeat or expiry sweep. A session stays active until it is stopped or force-stopped.
-- HTTP/SOCKS5 proxies are workspace-owned. REST responses for owner API keys include raw proxy credentials so desktop clients can launch browsers; MCP tool outputs always redact proxy usernames and passwords because they are consumed by LLMs.
+- HTTP/SOCKS5 proxies are workspace-owned. REST responses for owner API keys include raw proxy credentials so desktop clients can launch browsers; a granted member's REST API key lists only the proxies shared with them, with username, password, and change_ip_url redacted. MCP tool outputs always redact proxy usernames and passwords because they are consumed by LLMs.
+- Proxy access is granted per workspace member by the owner. A granted member can list a shared proxy through GET /proxies or proxies_list and attach it to a profile they can edit; proxy creation, update, deletion, grant administration, and POST /proxies/:proxyId/change-ip remain workspace-owner only.
 - change_ip_url is optional. Change IP rotates server-side (never client-side): it performs the upstream GET, then detects the new exit IP through the proxy via public IP echo services when the provider response carries no IP, stores last_ip and last_ip_changed_at, and returns the change result. The returned ip is optional — when the provider acknowledges the rotation but the new IP can be neither parsed from the response nor detected through the proxy, the call still succeeds with ip null and ip_verified false (last_ip is cleared as stale). It fails only when the proxy has no change_ip_url or the provider endpoint rejects the request.
 - GeoIP alignment defaults on. Locale and timezone are optional and auto-set from the exit IP when GeoIP alignment is enabled.
 - When omitted, human_preset defaults to careful and bumblebee_profile defaults to natural. Omitted viewport uses the desktop resolution.
