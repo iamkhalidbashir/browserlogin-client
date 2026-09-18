@@ -26,7 +26,7 @@ The screenshots use local mock data and contain no production credentials or ser
 
 Download the BrowserLogin app for your platform from [GitHub Releases](https://github.com/iamkhalidbashir/browserlogin-client/releases). Verify every downloaded file against the release `SHA256SUMS` before running it.
 
-Release filenames use the version without the tag's leading `v`: tag `v0.1.34` produces filenames containing `0.1.34`.
+Release filenames use the version without the tag's leading `v`: tag `v0.1.35` produces filenames containing `0.1.35`.
 
 ### macOS ARM64
 
