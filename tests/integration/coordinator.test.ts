@@ -10,8 +10,9 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ConflictError } from "../../src/shared/errors.js";
+import { BrowserLoginError, ConflictError } from "../../src/shared/errors.js";
 import { SafeZipArchive } from "../../src/core/archive/index.js";
+import { profileLaunchSpec } from "../../src/core/app/profile-launch.js";
 import type { LaunchTiming } from "../../src/core/launch-timing.js";
 import {
   LifecycleCoordinator,
@@ -88,17 +89,22 @@ async function setup(
     mutateAfterUploadPending?: boolean;
     stopGeneration?: number;
     archiveOnStart?: boolean;
+    sessionProxyCredentials?: boolean;
+    remoteActiveAfterCrash?: boolean;
+    replaySessionId?: string;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "browserlogin-coordinator-"));
   roots.push(root);
   let starts = 0;
+  const startKeys: string[] = [];
   let uploads = 0;
   let stops = 0;
   let releases = 0;
   let runtimeStops = 0;
   let conflictAttempts = 0;
   let runnerStops = 0;
+  let injectedCrash = false;
   let normalClose: (() => Promise<void>) | undefined;
   let resolveRunnerClosed: (() => void) | undefined;
   let runnerInput: unknown;
@@ -109,16 +115,33 @@ async function setup(
   const api: CoordinatorApi = {
     async startSession(profileId, key) {
       starts += 1;
+      startKeys.push(key);
       expect(profileId).toBe("profile-1");
       expect(key).toMatch(/^start-/);
       return {
         session: {
-          id: "session-1",
+          id:
+            starts > 1 && options.replaySessionId
+              ? options.replaySessionId
+              : "session-1",
           profile_id: profileId,
           generation: 1,
           state: "active",
         },
-        profile,
+        profile: options.sessionProxyCredentials
+          ? {
+              ...profile,
+              proxy: {
+                id: "proxy-grant",
+                name: "Granted proxy",
+                protocol: "http",
+                host: "proxy.example.test",
+                port: 8443,
+                username: "session-user",
+                password: "session-password",
+              },
+            }
+          : profile,
         archive: options.archiveOnStart
           ? {
               profile_id: profileId,
@@ -202,6 +225,7 @@ async function setup(
     profile: async () => ({
       profile,
       launchSpec,
+      sessionLaunchSpec: profileLaunchSpec,
       binary: { path: "/fake/cloakbrowser", source: "custom" } as never,
     }),
     license: options.paid
@@ -243,8 +267,9 @@ async function setup(
       runtimeStops += 1;
     },
     crashInjector: async (point, state) => {
-      if (point !== options.crashPoint) return;
-      remoteStopped = true;
+      if (point !== options.crashPoint || injectedCrash) return;
+      injectedCrash = true;
+      remoteStopped = !options.remoteActiveAfterCrash;
       if (options.mutateAfterUploadPending && state.archive_artifact)
         await writeFile(state.archive_artifact, "tampered");
       throw new Error(`test crash at ${point}`);
@@ -254,6 +279,7 @@ async function setup(
     root,
     coordinator,
     runnerInput: () => runnerInput,
+    startKeys: () => [...startKeys],
     counts: () => ({
       starts,
       uploads,
@@ -276,6 +302,91 @@ async function setup(
 }
 
 describe("recovery state", () => {
+  it("replays the persisted start key to recover session proxy credentials after a remote-active crash", async () => {
+    // Given
+    const fixture = await setup({
+      crashPoint: "after-remote-active-save",
+      sessionProxyCredentials: true,
+      remoteActiveAfterCrash: true,
+    });
+    await expect(fixture.coordinator.start("profile-1")).rejects.toThrow(
+      "test crash",
+    );
+    const crashedState = await fixture.coordinator.store.load("profile-1");
+    if (!crashedState) throw new Error("crashed recovery state is required");
+    expect(crashedState).toMatchObject({
+      status: "remote-active",
+      remote_session_id: "session-1",
+    });
+    expect(JSON.stringify(crashedState)).not.toContain("session-password");
+
+    // When
+    await fixture.coordinator.start("profile-1");
+
+    // Then
+    expect(fixture.startKeys()).toEqual([
+      crashedState.start_key,
+      crashedState.start_key,
+    ]);
+    expect(fixture.runnerInput()).toMatchObject({
+      spec: {
+        proxy: {
+          username: "session-user",
+          password: "session-password",
+        },
+      },
+    });
+    expect(
+      JSON.stringify(await fixture.coordinator.store.load("profile-1")),
+    ).not.toContain("session-password");
+  });
+
+  it("rejects a credential replay for a different remote session", async () => {
+    // Given
+    const fixture = await setup({
+      crashPoint: "after-remote-active-save",
+      sessionProxyCredentials: true,
+      remoteActiveAfterCrash: true,
+      replaySessionId: "session-mismatch",
+    });
+    await expect(fixture.coordinator.start("profile-1")).rejects.toThrow(
+      "test crash",
+    );
+
+    // When
+    const resumed = fixture.coordinator.start("profile-1");
+
+    // Then
+    await expect(resumed).rejects.toBeInstanceOf(BrowserLoginError);
+    await expect(resumed).rejects.toThrow(
+      "replayed session identity does not match recovery state",
+    );
+    expect(fixture.runnerInput()).toBeUndefined();
+  });
+
+  it("maps proxy credentials from the session-start profile into the runner spec", async () => {
+    // Given
+    const { coordinator, runnerInput } = await setup({
+      sessionProxyCredentials: true,
+    });
+
+    // When
+    await coordinator.start("profile-1");
+
+    // Then
+    expect(runnerInput()).toMatchObject({
+      spec: {
+        proxy: {
+          protocol: "http",
+          host: "proxy.example.test",
+          port: 8443,
+          username: "session-user",
+          password: "session-password",
+        },
+      },
+    });
+  });
+
   it("allows enough time for cold runner initialization", async () => {
     // Given
     const { coordinator, runnerInput } = await setup();

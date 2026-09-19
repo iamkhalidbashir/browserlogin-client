@@ -118,6 +118,12 @@ export type CoordinatorProfile = {
     LaunchSpec,
     "user_data_dir" | "browser_cache_dir" | "browser_cache_max_bytes"
   >;
+  sessionLaunchSpec?: (
+    profile: Profile,
+  ) => Omit<
+    LaunchSpec,
+    "user_data_dir" | "browser_cache_dir" | "browser_cache_max_bytes"
+  >;
 };
 export type CoordinatorOptions = {
   root: string;
@@ -484,6 +490,7 @@ export class LifecycleCoordinator {
   ): Promise<RecoveryState> {
     let state = initial;
     const context = await this.options.profile(state.profile_id);
+    let launchSpec = context.launchSpec;
     timing?.mark("profile-binary-preparation");
     const licenseApiUrl = this.options.license?.key
       ? (this.licenseUrls.get(state.profile_id) ??
@@ -507,6 +514,7 @@ export class LifecycleCoordinator {
           state.profile_id,
           state.start_key,
         );
+        launchSpec = context.sessionLaunchSpec?.(started.profile) ?? launchSpec;
         state = transition(
           {
             ...state,
@@ -526,6 +534,16 @@ export class LifecycleCoordinator {
         await this.store.save(state);
         timing?.mark("remote-session-start");
         await this.crashInjector?.("after-remote-active-save", state);
+      } else if (context.sessionLaunchSpec) {
+        const replayed = await this.options.api.startSession(
+          state.profile_id,
+          state.start_key,
+        );
+        if (replayed.session.id !== state.remote_session_id)
+          throw new BrowserLoginError(
+            "replayed session identity does not match recovery state",
+          );
+        launchSpec = context.sessionLaunchSpec(replayed.profile);
       }
       await mkdir(state.work_dir, { recursive: true, mode: 0o700 });
       if (!state.archive && this.archiveCache)
@@ -573,7 +591,7 @@ export class LifecycleCoordinator {
         context.binary ??
         (await ensureBinary({ licenseKey: this.options.license?.key }));
       const spec = {
-        ...context.launchSpec,
+        ...launchSpec,
         user_data_dir: state.work_dir,
         browser_cache_dir: state.cache_dir,
         browser_cache_max_bytes: CACHE_LIMIT,

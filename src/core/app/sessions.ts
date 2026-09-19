@@ -187,7 +187,12 @@ export class ApplicationSessions {
         });
         if (!binary) throw new BrowserInitializationRequiredError();
         const profile = await client.getProfile(profileId);
-        return { profile, binary, launchSpec: profileLaunchSpec(profile) };
+        return {
+          profile,
+          binary,
+          launchSpec: profileLaunchSpec(profile),
+          sessionLaunchSpec: profileLaunchSpec,
+        };
       },
       runtimeStop: async (profileId) => this.runtimeStop?.(profileId),
     });
