@@ -41,11 +41,12 @@ async function serverFor(
     ignoreRange?: boolean;
     changedEtag?: boolean;
     official?: boolean;
+    version?: string;
   } = {},
 ) {
   const etag = '"archive-etag"';
   const changedEtag = '"archive-etag-changed"';
-  const version = "146.0.7680.177.5";
+  const version = options.version ?? "146.0.7680.177.5";
   const archiveName = "cloakbrowser-windows-x64.zip";
   const servedBytes = options.tamperArchive
     ? Buffer.concat([Buffer.from(bytes), Buffer.from("tamper")])
@@ -203,6 +204,32 @@ describe("binary manager", () => {
         await readFile(join(root, "browser-runtime", "current.json"), "utf8"),
       ),
     ).toMatchObject({ version: source.version, pro: false, path: info.path });
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("infers a versioned static archive's version before custom installation", async () => {
+    // Given
+    const source = await serverFor(fixtureArchive(), {
+      version: "151.0.7922.108.3",
+    });
+    const root = await mkdtemp(
+      join(tmpdir(), "browserlogin-binary-static-source-"),
+    );
+
+    // When
+    const info = await ensureBinary({
+      cacheDirectory: root,
+      downloadUrl: `${source.url}/chromium-v${source.version}/cloakbrowser-windows-x64.zip`,
+      platform: "win32",
+      arch: "x64",
+      fetchImpl: officialFetch(source.url),
+    });
+
+    // Then
+    expect(info.version).toBe(source.version);
+    expect(info.path.replaceAll("\\", "/")).toContain(
+      `browser-runtime/browsers/windows-x64-${source.version}`,
+    );
     await rm(root, { recursive: true, force: true });
   });
 

@@ -12,6 +12,7 @@ import {
   githubManifestBase,
   resolveVersion,
   sourceArchiveUrl,
+  versionFromSourceUrl,
   officialArchiveUrl,
   officialManifestBase,
 } from "./versions.js";
@@ -66,7 +67,9 @@ export async function ensureBinary(
   const resolved = await resolveVersion({
     ...options,
     pro: options.pro ?? Boolean(options.licenseKey),
-    requestedVersion: options.requestedVersion,
+    requestedVersion:
+      options.requestedVersion ??
+      (customSource ? versionFromSourceUrl(customSource) : undefined),
     env,
     proVersionUrl: customSource
       ? `${customSource.replace(/\/$/, "")}/api/download/version`

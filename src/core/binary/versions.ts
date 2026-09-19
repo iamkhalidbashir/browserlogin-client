@@ -91,6 +91,13 @@ function versionFromTag(tag: string): string | undefined {
   return match?.[1];
 }
 
+export function versionFromSourceUrl(source: string): string | undefined {
+  const match = source.match(
+    /\/chromium-v(\d+\.\d+\.\d+\.\d+(?:\.\d+)?)(?:\/|$)/,
+  );
+  return match?.[1];
+}
+
 async function discoverFree(
   platform: BinaryPlatform,
   options: VersionResolutionOptions,
