@@ -105,6 +105,23 @@ test("member zero-proxy state explains the owner requirement", async ({
   );
 });
 
+test("granted member loads shared proxies without the owner-only user list", async ({
+  page,
+}) => {
+  // Given / When
+  await page.goto("/proxies?owner=0&usersList=forbidden");
+
+  // Then
+  await expect(page.getByText("Local", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add proxy" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Change IP" })).toHaveCount(0);
+  const methods = await page.evaluate(() =>
+    (window.__browserloginMockCalls ?? []).map((call) => call.method),
+  );
+  expect(methods).toContain("currentUser");
+  expect(methods).not.toContain("usersList");
+});
+
 test("user and member actions target the selected rows and profile", async ({
   page,
 }) => {

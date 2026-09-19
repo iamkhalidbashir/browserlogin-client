@@ -22,15 +22,15 @@ export default function ProxiesView() {
       return result.value;
     },
   });
-  const users = useQuery({
-    queryKey: ["users", "proxy-role"],
+  const currentUser = useQuery({
+    queryKey: ["current-user"],
     queryFn: async () => {
-      const result = await bridge.request("usersList", {});
+      const result = await bridge.request("currentUser", {});
       if (!result.ok) throw new Error(result.error.message);
       return result.value;
     },
   });
-  const owner = Boolean(users.data?.[0]?.owner);
+  const owner = Boolean(currentUser.data?.owner);
   const openCreate = () => {
     setForm(EMPTY_PROXY_FORM);
     setEditingId(null);
@@ -101,23 +101,23 @@ export default function ProxiesView() {
           </button>
         ) : null}
       </div>
-      {proxies.isPending || users.isPending ? (
+      {proxies.isPending || currentUser.isPending ? (
         <div className="panel mt-6" role="status">
           Loading proxies...
         </div>
-      ) : proxies.isError || users.isError ? (
+      ) : proxies.isError || currentUser.isError ? (
         <div className="panel mt-6" role="alert">
           <h3 className="font-medium">Could not load proxies</h3>
           <p className="mt-2 text-sm text-zinc-500">
             {proxies.error?.message ??
-              users.error?.message ??
+              currentUser.error?.message ??
               "Proxy data could not be loaded."}
           </p>
           <button
             className="button-secondary mt-4"
             onClick={() => {
               void proxies.refetch();
-              void users.refetch();
+              void currentUser.refetch();
             }}
           >
             Try again
