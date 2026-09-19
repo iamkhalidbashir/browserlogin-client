@@ -51,6 +51,7 @@ const validParams: Record<AppRPCMethod, unknown> = {
   },
   proxiesDelete: { proxyId: "proxy-1" },
   proxiesChangeIp: { proxyId: "proxy-1" },
+  currentUser: {},
   usersList: {},
   usersDisable: { userId: "user-1" },
   membersList: { profileId: "profile-1" },

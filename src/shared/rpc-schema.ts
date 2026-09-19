@@ -216,6 +216,7 @@ export const AppRPCSchemas = {
       changed_at: z.string(),
     }),
   },
+  currentUser: { params: empty, result: UserSchema },
   usersList: { params: empty, result: z.array(UserSchema) },
   usersDisable: { params: userId, result: statusResult },
   membersList: { params: profileId, result: z.array(MemberSchema) },

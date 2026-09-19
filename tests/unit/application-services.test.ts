@@ -48,6 +48,13 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
     save: vi.fn(async () => undefined),
   } as unknown as ConnectionStore;
   const client = {
+    getUser: vi.fn(async () => ({
+      id: "user-1",
+      name: "Workspace member",
+      email: "member@example.test",
+      status: "active",
+      owner: false,
+    })),
     listProxies: vi.fn(async () => [
       {
         id: "proxy-1",
@@ -92,6 +99,17 @@ async function fixture(options: { ensureBinary?: typeof ensureBinary } = {}) {
 }
 
 describe("core application service composition", () => {
+  test("exposes the authenticated current user without listing workspace users", async () => {
+    // Given
+    const { services } = await fixture();
+
+    // When
+    const currentUser = await services.currentUser?.({});
+
+    // Then
+    expect(currentUser).toMatchObject({ id: "user-1", owner: false });
+  });
+
   test("reads the startup update preference without keychain access", async () => {
     const root = await mkdtemp(join(tmpdir(), "browserlogin-update-setting-"));
     roots.push(root);

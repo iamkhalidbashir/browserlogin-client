@@ -75,6 +75,7 @@ export function createApiServices(
       const input = AppRPCSchemas.proxiesChangeIp.params.parse(raw);
       return (await resolveClient()).changeProxyIp(input.proxyId);
     },
+    currentUser: async () => (await resolveClient()).getUser(),
     usersList: async () => (await resolveClient()).listUsers(),
     usersDisable: async (raw) => {
       const input = AppRPCSchemas.usersDisable.params.parse(raw);
