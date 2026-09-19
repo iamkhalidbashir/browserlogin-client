@@ -52,6 +52,14 @@ export default function ProfilesView() {
       return result.value;
     },
   });
+  const currentUser = useQuery({
+    queryKey: ["current-user"],
+    queryFn: async () => {
+      const result = await bridge.request("currentUser", {});
+      if (!result.ok) throw new Error(result.error.message);
+      return result.value;
+    },
+  });
   const visible = useMemo(
     () =>
       (profiles.data ?? [])
@@ -141,6 +149,7 @@ export default function ProfilesView() {
       </div>
       <ProfileTable
         profiles={visible}
+        workspaceOwner={Boolean(currentUser.data?.owner)}
         selected={selected}
         pendingActions={pendingActions}
         onSelectionChange={(profileId, checked) =>

@@ -300,6 +300,76 @@ test("editor lists real proxies and saves the selected proxy", async ({
   });
 });
 
+test("granted editor keeps shared proxies and non-destructive profile actions", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?owner=0&profileRole=editor&profileProxy=1");
+  const row = page.getByRole("row", { name: /Research profile/ });
+
+  // Then
+  await expect(row.getByRole("button", { name: "Launch" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Edit" })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Rotate IP" })).toHaveCount(0);
+  await expect(
+    row.getByRole("button", { name: "Delete Research profile" }),
+  ).toHaveCount(0);
+
+  // When
+  await row.getByRole("button", { name: "Edit" }).click();
+
+  // Then
+  const proxySelect = page
+    .getByRole("dialog", { name: "Edit profile" })
+    .getByLabel("Proxy");
+  await expect(proxySelect.locator("option", { hasText: "Local" })).toHaveCount(
+    1,
+  );
+  await page
+    .getByRole("dialog", { name: "Edit profile" })
+    .getByRole("button", { name: "Close Edit profile" })
+    .click();
+  await page.getByRole("button", { name: "Create profile" }).click();
+  const createProxySelect = page
+    .getByRole("dialog", { name: "Create profile" })
+    .getByLabel("Proxy");
+  await expect(
+    createProxySelect.locator("option", { hasText: "Local" }),
+  ).toHaveCount(1);
+});
+
+test("granted editor can stop a running profile without owner-only force stop", async ({
+  page,
+}) => {
+  // Given
+  await page.goto(
+    "/profiles?owner=0&profileRole=editor&profileRunning=1&profileProxy=1",
+  );
+  const row = page.getByRole("row", { name: /Research profile/ });
+
+  // Then
+  await expect(
+    row.getByRole("button", { name: "Stop", exact: true }),
+  ).toBeVisible();
+  await expect(row.getByRole("button", { name: "Force stop" })).toHaveCount(0);
+});
+
+test("profile viewer has no lifecycle or editing controls", async ({
+  page,
+}) => {
+  // Given
+  await page.goto("/profiles?owner=0&profileRole=viewer&profileProxy=1");
+  const row = page.getByRole("row", { name: /Research profile/ });
+
+  // Then
+  await expect(row.getByRole("button", { name: "Launch" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(row.getByRole("button", { name: "Rotate IP" })).toHaveCount(0);
+  await expect(
+    row.getByRole("button", { name: "Delete Research profile" }),
+  ).toHaveCount(0);
+});
+
 test("delete targets the explicitly chosen row and clears after success", async ({
   page,
 }) => {
@@ -380,9 +450,7 @@ test("delete failure stays actionable and explains why nothing changed", async (
   await page.goto("/profiles?profilesDelete=fail");
   await page.getByRole("button", { name: "Delete Research profile" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete profile" });
-  await deleteDialog
-    .getByLabel("Delete confirmation")
-    .fill("Research profile");
+  await deleteDialog.getByLabel("Delete confirmation").fill("Research profile");
 
   // When
   await deleteDialog
@@ -674,9 +742,7 @@ test("force close surfaces the RPC reason and keeps confirmation available", asy
     .fill("FORCE CLOSE profile-1");
 
   // When
-  await dialog
-    .getByRole("button", { name: "Force stop profile-1" })
-    .click();
+  await dialog.getByRole("button", { name: "Force stop profile-1" }).click();
 
   // Then
   await expect(dialog).toBeVisible();

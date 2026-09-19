@@ -6,6 +6,7 @@ type Profile = BridgeResult<"profilesList">[number];
 
 type ProfileTableProps = {
   readonly profiles: readonly Profile[];
+  readonly workspaceOwner: boolean;
   readonly selected: readonly string[];
   readonly pendingActions: Readonly<Record<string, ProfileAction>>;
   readonly onSelectionChange: (profileId: string, selected: boolean) => void;
@@ -19,6 +20,7 @@ type ProfileTableProps = {
 
 export function ProfileTable({
   profiles,
+  workspaceOwner,
   selected,
   pendingActions,
   onSelectionChange,
@@ -47,6 +49,11 @@ export function ProfileTable({
           {profiles.map((profile) => {
             const pendingAction = pendingActions[profile.id];
             const rowPending = pendingAction !== undefined;
+            const canOperate =
+              workspaceOwner ||
+              profile.cloud.role === "owner" ||
+              profile.cloud.role === "editor";
+            const canManage = workspaceOwner || profile.cloud.role === "owner";
             return (
               <tr key={profile.id} aria-busy={rowPending}>
                 <td>
@@ -54,7 +61,7 @@ export function ProfileTable({
                     type="checkbox"
                     aria-label={`Select ${profile.name}`}
                     checked={selected.includes(profile.id)}
-                    disabled={rowPending}
+                    disabled={rowPending || !canOperate}
                     onChange={(event) =>
                       onSelectionChange(profile.id, event.target.checked)
                     }
@@ -69,7 +76,7 @@ export function ProfileTable({
                 </td>
                 <td>
                   <div className="flex flex-wrap gap-2">
-                    {profile.cloud.current_session_id ? (
+                    {profile.cloud.current_session_id && canOperate ? (
                       <>
                         <button
                           className="table-action"
@@ -78,17 +85,19 @@ export function ProfileTable({
                         >
                           {pendingAction === "stop" ? "Stopping…" : "Stop"}
                         </button>
-                        <button
-                          className="table-action table-action-danger"
-                          disabled={rowPending}
-                          onClick={() => onForceStop(profile.id)}
-                        >
-                          {pendingAction === "force-stop"
-                            ? "Force stopping…"
-                            : "Force stop"}
-                        </button>
+                        {canManage ? (
+                          <button
+                            className="table-action table-action-danger"
+                            disabled={rowPending}
+                            onClick={() => onForceStop(profile.id)}
+                          >
+                            {pendingAction === "force-stop"
+                              ? "Force stopping…"
+                              : "Force stop"}
+                          </button>
+                        ) : null}
                       </>
-                    ) : (
+                    ) : !profile.cloud.current_session_id && canOperate ? (
                       <button
                         className="table-action"
                         disabled={rowPending}
@@ -96,8 +105,8 @@ export function ProfileTable({
                       >
                         {pendingAction === "launch" ? "Launching…" : "Launch"}
                       </button>
-                    )}
-                    {profile.proxy ? (
+                    ) : null}
+                    {profile.proxy && canManage ? (
                       <button
                         className="table-action"
                         disabled={rowPending || !profile.proxy.change_ip_url}
@@ -111,21 +120,25 @@ export function ProfileTable({
                         {pendingAction === "rotate" ? "Rotating…" : "Rotate IP"}
                       </button>
                     ) : null}
-                    <button
-                      className="table-action"
-                      disabled={rowPending}
-                      onClick={() => onEdit(profile.id)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="table-action table-action-danger"
-                      disabled={rowPending}
-                      aria-label={`Delete ${profile.name}`}
-                      onClick={() => onDelete(profile.id)}
-                    >
-                      {pendingAction === "delete" ? "Deleting…" : "Delete"}
-                    </button>
+                    {canOperate ? (
+                      <button
+                        className="table-action"
+                        disabled={rowPending}
+                        onClick={() => onEdit(profile.id)}
+                      >
+                        Edit
+                      </button>
+                    ) : null}
+                    {canManage ? (
+                      <button
+                        className="table-action table-action-danger"
+                        disabled={rowPending}
+                        aria-label={`Delete ${profile.name}`}
+                        onClick={() => onDelete(profile.id)}
+                      >
+                        {pendingAction === "delete" ? "Deleting…" : "Delete"}
+                      </button>
+                    ) : null}
                   </div>
                 </td>
               </tr>
