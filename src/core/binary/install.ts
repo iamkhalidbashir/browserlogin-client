@@ -109,18 +109,53 @@ async function extractTarGz(
   >();
   const links: Array<{ readonly name: string; readonly target: string }> = [];
   let current: { name: string; size: number; mode: number } | undefined;
+  let paxPayloadRemaining = 0;
+  let paxPaddingRemaining = 0;
+  let filePaddingRemaining = 0;
   const stream = createReadStream(archive).pipe(createGunzip());
   for await (const chunk of stream) {
     buffered = Buffer.concat([buffered, Buffer.from(chunk)]);
     while (true) {
+      if (paxPayloadRemaining || paxPaddingRemaining) {
+        const count = Math.min(
+          buffered.length,
+          paxPayloadRemaining + paxPaddingRemaining,
+        );
+        const payloadCount = Math.min(count, paxPayloadRemaining);
+        buffered = buffered.subarray(count);
+        paxPayloadRemaining -= payloadCount;
+        paxPaddingRemaining -= count - payloadCount;
+        if (paxPayloadRemaining || paxPaddingRemaining) break;
+        continue;
+      }
+      if (filePaddingRemaining) {
+        const count = Math.min(buffered.length, filePaddingRemaining);
+        buffered = buffered.subarray(count);
+        filePaddingRemaining -= count;
+        if (filePaddingRemaining) break;
+        continue;
+      }
       if (!current) {
         if (buffered.length < 512) break;
         const header = buffered.subarray(0, 512);
         buffered = buffered.subarray(512);
         if (header.every((byte) => byte === 0)) break;
         const type = String.fromCharCode(header[156] ?? 0);
-        if (type !== "0" && type !== "\0" && type !== "2" && type !== "5")
+        const size = tarNumber(header, 124, 12);
+        if (
+          type !== "0" &&
+          type !== "\0" &&
+          type !== "2" &&
+          type !== "5" &&
+          type !== "x"
+        )
           throw new Error("tar special entry rejected");
+        if (type === "x") {
+          // PAX metadata never controls extraction paths or links.
+          paxPayloadRemaining = size;
+          paxPaddingRemaining = (512 - (size % 512)) % 512;
+          continue;
+        }
         const name = tarName(header).replaceAll("\\", "/");
         if (
           !name ||
@@ -128,7 +163,6 @@ async function extractTarGz(
           name.startsWith("/")
         )
           throw new Error("unsafe tar path");
-        const size = tarNumber(header, 124, 12);
         const mode = tarNumber(header, 100, 8);
         if (type === "2") {
           const target = tarLinkName(header).replaceAll("\\", "/");
@@ -176,13 +210,18 @@ async function extractTarGz(
           current.mode & 0o777 || 0o600,
         );
       output.delete(current.name);
-      const padding = (512 - (current.size % 512)) % 512;
-      if (buffered.length < padding) break;
-      buffered = buffered.subarray(padding);
+      filePaddingRemaining = (512 - (current.size % 512)) % 512;
       current = undefined;
     }
   }
-  if (current || output.size) throw new Error("truncated tar archive");
+  if (
+    current ||
+    output.size ||
+    paxPayloadRemaining ||
+    paxPaddingRemaining ||
+    filePaddingRemaining
+  )
+    throw new Error("truncated tar archive");
   for (const link of links) {
     const path = join(destination, ...link.name.split("/"));
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });

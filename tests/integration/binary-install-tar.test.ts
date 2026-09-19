@@ -32,7 +32,7 @@ function writeOctal(
 
 function tarHeader(
   name: string,
-  type: "0" | "2",
+  type: "0" | "2" | "x",
   size: number,
   linkName = "",
   prefix = "",
@@ -62,8 +62,17 @@ function tarGz(
     readonly [name: string, contents: string, prefix?: string]
   >,
   links: ReadonlyArray<readonly [name: string, target: string]>,
+  includePaxMetadata = false,
 ): Buffer {
   const blocks: Buffer[] = [];
+  if (includePaxMetadata) {
+    const metadata = Buffer.from("30 mtime=1789757119.073488266\n");
+    blocks.push(
+      tarHeader("PaxHeader/Chromium.app", "x", metadata.length),
+      metadata,
+      Buffer.alloc((512 - (metadata.length % 512)) % 512),
+    );
+  }
   for (const [name, contents, prefix] of files) {
     const data = Buffer.from(contents);
     blocks.push(tarHeader(name, "0", data.length, "", prefix), data);
@@ -118,6 +127,36 @@ describe("CloakBrowser tar installation", () => {
     expect(info.path).toContain("Chromium.app/Contents/MacOS/Chromium");
     expect((await lstat(current)).isSymbolicLink()).toBe(true);
     expect(await readlink(current)).toBe("145");
+  });
+
+  it.skipIf(process.platform === "win32")("installs a macOS runtime preceded by PAX metadata", async () => {
+    // Given
+    const root = await mkdtemp(join(tmpdir(), "browserlogin-tar-pax-"));
+    roots.push(root);
+    const archive = join(root, "cloakbrowser-darwin-arm64.tar.gz");
+    await writeFile(
+      archive,
+      tarGz(
+        [["Chromium.app/Contents/MacOS/Chromium", "binary"]],
+        [],
+        true,
+      ),
+    );
+
+    // When
+    const info = await installBinary({
+      archive,
+      root,
+      version: "151.0.7922.108.3",
+      pro: false,
+      platform: "darwin-arm64",
+      sha256: "archive-sha",
+      source: "official",
+      trust: "verified",
+    });
+
+    // Then
+    expect(info.path).toContain("Chromium.app/Contents/MacOS/Chromium");
   });
 
   it("rejects a tar symlink whose target escapes the staging tree", async () => {
