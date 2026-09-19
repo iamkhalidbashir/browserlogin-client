@@ -65,6 +65,7 @@ export const mockParams: Record<AppRPCMethod, unknown> = {
   },
   proxiesDelete: { proxyId: "proxy-1" },
   proxiesChangeIp: { proxyId: "proxy-1" },
+  currentUser: {},
   usersList: {},
   usersDisable: { userId: "user-1" },
   membersList: { profileId: "profile-1" },
@@ -159,6 +160,13 @@ const values: Record<AppRPCMethod, unknown> = {
     ip: "203.0.113.10",
     ip_verified: true,
     changed_at: "2026-08-17T00:00:00Z",
+  },
+  currentUser: {
+    id: "user-1",
+    name: "Workspace owner",
+    email: "owner@example.test",
+    status: "active",
+    owner: true,
   },
   usersList: [
     {
@@ -294,6 +302,16 @@ export function createMockBridge(
   const sessionsStartControl = initialSearch.get("sessionsStart");
   const forceStopControl = initialSearch.get("forceStop");
   const transferProgressControl = initialSearch.get("transferProgress");
+  const profileRole = initialSearch.get("profileRole");
+  const workspaceOwner = initialSearch.get("owner") !== "0";
+  const mockValues: Record<AppRPCMethod, unknown> = {
+    ...values,
+    currentUser: {
+      ...AppRPCSchemas.currentUser.result.parse(values.currentUser),
+      name: workspaceOwner ? "Workspace owner" : "Workspace member",
+      owner: workspaceOwner,
+    },
+  };
   const multi =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("multi") === "1";
@@ -622,6 +640,15 @@ export function createMockBridge(
         };
       }
       if (method === "usersList") {
+        if (initialSearch.get("usersList") === "forbidden") {
+          return {
+            ok: false,
+            error: {
+              code: "FORBIDDEN",
+              message: "Workspace user listing is owner-only.",
+            },
+          };
+        }
         const owner =
           typeof window === "undefined" ||
           new URLSearchParams(window.location.search).get("owner") !== "0";
@@ -765,6 +792,7 @@ export function createMockBridge(
           proxy: (values.proxiesList as Array<Record<string, unknown>>)[0],
           cloud: {
             ...profile.cloud,
+            ...(profileRole ? { role: profileRole } : {}),
             current_session_id: liveSessions.some(
               (session) => session.profile_id === profile.id,
             )
@@ -787,6 +815,7 @@ export function createMockBridge(
               ...profile,
               cloud: {
                 ...profile.cloud,
+                ...(profileRole ? { role: profileRole } : {}),
                 current_session_id: liveSessions.some(
                   (session) => session.profile_id === profile.id,
                 )
@@ -899,39 +928,39 @@ export function createMockBridge(
                         status: "running",
                       },
                     ]
-                : transferProgressControl === "malformed"
-                  ? [
-                      {
-                        profileId: "profile-1",
-                        direction: "download",
-                        transferred: 40,
-                        total: 100,
-                        percentage: 140,
-                        status: "running",
-                      },
-                    ]
-                  : transferProgressControl === "happy" &&
-                      transferProgressCalls === 1
+                  : transferProgressControl === "malformed"
                     ? [
                         {
                           profileId: "profile-1",
                           direction: "download",
-                          transferred: 20,
+                          transferred: 40,
                           total: 100,
-                          percentage: 20,
-                          status: "running",
-                        },
-                        {
-                          profileId: "profile-2",
-                          direction: "upload",
-                          transferred: 30,
-                          total: 100,
-                          percentage: 30,
+                          percentage: 140,
                           status: "running",
                         },
                       ]
-                    : (overrides.sessionsTransferProgress ??
-                      values.sessionsTransferProgress);
+                    : transferProgressControl === "happy" &&
+                        transferProgressCalls === 1
+                      ? [
+                          {
+                            profileId: "profile-1",
+                            direction: "download",
+                            transferred: 20,
+                            total: 100,
+                            percentage: 20,
+                            status: "running",
+                          },
+                          {
+                            profileId: "profile-2",
+                            direction: "upload",
+                            transferred: 30,
+                            total: 100,
+                            percentage: 30,
+                            status: "running",
+                          },
+                        ]
+                      : (overrides.sessionsTransferProgress ??
+                        values.sessionsTransferProgress);
         return {
           ok: true,
           value: AppRPCSchemas.sessionsTransferProgress.result.parse(
@@ -1000,7 +1029,7 @@ export function createMockBridge(
         };
       }
       const value = AppRPCSchemas[method].result.parse(
-        overrides[method] ?? values[method],
+        overrides[method] ?? mockValues[method],
       ) as BridgeResult<K>;
       return { ok: true, value };
     },

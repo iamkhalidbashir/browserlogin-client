@@ -43,7 +43,7 @@ export const ProxySchema = z
 
 export const ProfileCloudSchema = z
   .object({
-    role: z.string().optional(),
+    role: z.enum(["owner", "editor", "viewer"]).optional(),
     config_version: z.number().int().optional(),
     notes_version: z.number().int().optional(),
     archive_generation: z.number().int().optional(),

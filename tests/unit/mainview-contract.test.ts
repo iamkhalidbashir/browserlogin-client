@@ -18,6 +18,28 @@ describe("mock and real RPC contract", () => {
     }
   });
 
+  test("returns the authenticated current user independently of the owner-only user list", async () => {
+    // Given
+    const bridge = createMockBridge({
+      currentUser: {
+        id: "member-1",
+        name: "Granted member",
+        email: "member@example.test",
+        status: "active",
+        owner: false,
+      },
+    });
+
+    // When
+    const result = await bridge.request("currentUser", {});
+
+    // Then
+    expect(result).toMatchObject({
+      ok: true,
+      value: { id: "member-1", owner: false },
+    });
+  });
+
   test("fails loudly when a mock response drifts", async () => {
     const bridge = createMockBridge({
       connectionGet: { appOrigin: "not-a-url", hasApiKey: true },
